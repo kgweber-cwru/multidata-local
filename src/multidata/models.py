@@ -23,6 +23,11 @@ class Case:
     `case_id` is the source system's own identifier (matches the
     `data/raw/<case_id>/` folder name, and the sheet title in the source
     system's Excel video-manifest export).
+
+    `audio_camera` is the camera whose audio is canonical for this case's
+    audio-derived stages (audio/asr/diarize/elan) -- see
+    `manifest.ensure_audio_camera()`. Empty until a video row exists and one
+    of those stages first runs for the case; sticky once set.
     """
 
     case_id: str
@@ -34,6 +39,7 @@ class Case:
     sp_name: str = ""
     recording_start_time: str = ""
     consent_ref: str = ""
+    audio_camera: str = ""
 
     @classmethod
     def columns(cls):
@@ -50,12 +56,14 @@ class Camera:
     The camera_id is the last dash-delimited value in the raw filename (doc
     section 2). No metadata field anywhere states which room a camera is in --
     this is discovered by pulling a few videos per room and eyeballing them,
-    then recorded in `data/room_camera_map.csv`
-    (`load_camera_room_map()` in `multidata.casematch`). Extend that CSV as
-    more camera/room pairs are confirmed; do not try to infer this mapping
-    automatically from timestamps -- cases can share a recording minute across
-    rooms, which makes inference unreliable (see the `casematch` module
-    docstring).
+    then recorded via `manifest.set_camera_room()` (the `cameras` table --
+    `camera_id` is its primary key, so a camera can never end up stored under
+    two different rooms). `manifest.export_camera_rooms()` writes the durable,
+    git-tracked backup at `db_seed/camera_rooms.csv` (the database itself is
+    gitignored, and this hand-verified knowledge has no other source to
+    reconstruct it from). Do not try to infer this mapping automatically from
+    timestamps -- cases can share a recording minute across rooms, which makes
+    inference unreliable (see the `casematch` module docstring).
     """
 
     camera_id: str

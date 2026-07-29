@@ -5,9 +5,14 @@ dependencies:
   - pip
   - pip:
       - rtmlib
-      - onnxruntime           # CPU; CoreML EP optional (see pipeline doc §9)
+      - onnxruntime           # CoreML EP (Apple Silicon GPU/Neural Engine) by
+                              # default — pose.extract(device="mps"); rtmlib
+                              # falls back to CPU on its own if unavailable
       - mmengine              # for the (M,T,V,C) .pkl dump format
       - opencv-python
       - numpy
+      - tqdm
       - jupyter
       - pandas
+      - onnx
+      - coremltools           # on macOS, for CoreML EP

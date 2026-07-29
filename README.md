@@ -55,14 +55,13 @@ by module** — know which is which before trusting a run:
 | Module | State |
 |---|---|
 | `pose.py`, `kinematics.py` | Promoted verbatim from `mmpose.ipynb`; **ran on real video** on the old machine |
-| `elan.py` | Promoted from `transcription_suite.ipynb`; **ran on real transcripts** |
+| `elan.py` | Promoted from `transcription_suite.ipynb`; **ran on real transcripts**, any engine |
 | `acoustics.py` | Promoted from `praat_maker.ipynb`; **ran on real audio** |
-| `ingest.py`, `audio.py`, `manifest.py`, `run_stage.py` | Written for this repo; plain ffmpeg/ffprobe/CSV, unexercised but low-risk |
-| `asr.py` (whisperx, faster_whisper), `diarize.py` | Written from the doc's sketches, **never executed anywhere** — treat first run as bring-up |
+| `ingest.py`, `audio.py`, `manifest.py`, `run_stage.py` | **Ran end-to-end on real cases** — ingest, audio, asr, elan stages all exercised |
+| `asr.py`, `diarize.py` | **Ran end-to-end on real cases.** Default engine is `faster_whisper` (`medium`, `language=en`); every engine's output is word-level speaker-labeled, diarization reused via cached RTTM rather than recomputed. `whisperx` available via `--engine` for testing. |
 | `run_benchmark.py` | Written from doc §8; blocked on gold references existing |
 
-Nothing here has been run end-to-end, and there are no tests yet. See pipeline
-doc §11 for the 1 → few → scale phasing.
+There are no tests yet. See pipeline doc §11 for the 1 → few → scale phasing.
 
 **ASR direction:** Whisper + pyannote run locally. Transcription Suite (the old
 machine's HTTP server) survives only as `--engine suite`, a benchmark comparator;

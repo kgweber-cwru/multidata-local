@@ -11,14 +11,19 @@ is:
   2. **room, via camera**: minute-granularity timestamps are not unique on
      their own — two cases in different rooms can start in the same minute.
      `camera` disambiguates via the room it's physically installed in, looked
-     up from the hand-verified `data/room_camera_map.csv`.
+     up from the hand-verified `manifest.sqlite` `cameras` table
+     (`manifest.set_camera_room` / `all_camera_rooms`).
 
-Camera→room is deliberately a small hand-maintained CSV, not something
-inferred from the data. An earlier draft (`notebooks/spreadsheet_ingester.ipynb`)
-tried inferring it by intersecting the candidate rooms of every video seen for
-a camera; that is unreliable for the same reason minute-only timestamps are
-ambiguous in the first place; do not resurrect that approach. Extend
-`data/room_camera_map.csv` by hand as you confirm more camera/room pairs.
+Camera→room is deliberately hand-maintained, not something inferred from the
+data. An earlier draft (`notebooks/spreadsheet_ingester.ipynb`) tried
+inferring it by intersecting the candidate rooms of every video seen for a
+camera; that is unreliable for the same reason minute-only timestamps are
+ambiguous in the first place; do not resurrect that approach. Extend it by
+hand as you confirm more camera/room pairs — `manifest.set_camera_room(camera_id,
+room)`, then `manifest.export_camera_rooms("db_seed/camera_rooms.csv")` and
+commit that file (the database itself is gitignored; the export is the
+durable backup for this hand-verified knowledge, which has no other source to
+reconstruct it from).
 
 Matches (successful or not) are cached in the manifest's
 `video_case_matches` table (`manifest.get_cached_match` / `save_match`) so
@@ -30,8 +35,6 @@ from datetime import datetime
 from pathlib import Path
 
 from multidata import ingest, manifest
-
-DEFAULT_CAMERA_MAP_PATH = Path("/Users/kxw680/projects/multidata-local/data/room_camera_map.csv")
 
 
 class CaseMatchError(Exception):
@@ -57,27 +60,18 @@ def _normalize(value) -> str:
     return str(int(s)) if s.lstrip("-").isdigit() else s.upper()
 
 
-def load_camera_room_map(path=DEFAULT_CAMERA_MAP_PATH) -> dict:
+def load_camera_room_map(manifest_path=manifest.DEFAULT_PATH) -> dict:
     """camera_id -> room_number, both normalized, from the hand-verified
-    `data/room_camera_map.csv` (columns: room, camera_id).
+    `cameras` table (`manifest.all_camera_rooms`).
 
-    Raises if the same camera_id maps to two different rooms — that means
-    the CSV has a mistake, not that the camera moved.
+    `camera_id` is that table's primary key, so — unlike the old
+    `data/room_camera_map.csv` this replaced — it's structurally impossible
+    for the same camera to be stored under two different rooms.
     """
-    import csv
-
-    mapping = {}
-    with open(path, newline="") as f:
-        for row in csv.DictReader(f):
-            camera = _normalize(row["camera_id"])
-            room = _normalize(row["room"])
-            if camera in mapping and mapping[camera] != room:
-                raise ValueError(
-                    f"camera {camera!r} maps to conflicting rooms "
-                    f"{mapping[camera]!r} and {room!r} in {path}"
-                )
-            mapping[camera] = room
-    return mapping
+    return {
+        _normalize(cam.camera_id): _normalize(cam.room_number)
+        for cam in manifest.all_camera_rooms(manifest_path)
+    }
 
 
 def _video_minute(video_date: str, video_time: str) -> datetime:
@@ -106,7 +100,8 @@ def match_case(video_date, video_time, camera, cases, camera_room_map) -> str:
     room = camera_room_map.get(_normalize(camera))
     if room is None:
         raise CaseMatchError(
-            f"camera {camera!r} isn't in room_camera_map.csv yet", status="no_room"
+            f"camera {camera!r} has no known room yet -- manifest.set_camera_room(...)",
+            status="no_room",
         )
 
     target = _video_minute(video_date, video_time)
@@ -131,8 +126,7 @@ def match_case(video_date, video_time, camera, cases, camera_room_map) -> str:
     return candidates[0]
 
 
-def resolve(path, manifest_path=manifest.DEFAULT_PATH,
-            camera_map_path=DEFAULT_CAMERA_MAP_PATH) -> str:
+def resolve(path, manifest_path=manifest.DEFAULT_PATH) -> str:
     """Resolve one raw video file to its case_id, using the persistent cache
     when available.
 
@@ -147,7 +141,7 @@ def resolve(path, manifest_path=manifest.DEFAULT_PATH,
         return cached["case_id"]
 
     parsed = ingest.parse_filename(path)
-    camera_room_map = load_camera_room_map(camera_map_path)
+    camera_room_map = load_camera_room_map(manifest_path)
     cases = manifest.all_cases(manifest_path)
 
     try:

@@ -1,7 +1,11 @@
 """Stage: audio — extract 16 kHz mono WAV for ASR/diarization (doc §5).
 
-Whisper and pyannote both want 16 kHz mono. Extract from whichever camera
-carries the cleanest audio (recorded at ingest).
+Whisper and pyannote both want 16 kHz mono. This runs on one video file at a
+time; which camera's file to use for a given case is decided once by
+`manifest.ensure_audio_camera` (a case's two cameras share the same audio
+feed — confirmed empirically, not assumed — so it's an arbitrary but
+permanent pick, not a quality judgment) and applied by `run_stage.py`'s
+`stage_audio`.
 
 Deliberately no denoising: denoise before benchmarking and you measure your
 denoiser, not the ASR (doc §5).

@@ -11,6 +11,19 @@ restartable: kill it, rerun it, it picks up where it left off.
 
 Stage modules are imported lazily, one per stage, so this script runs in either
 conda env — `pose` needs md-pose, everything else needs md-speech.
+
+`audio`/`asr`/`diarize`/`elan` are per-case, not per-camera: a case's two
+camera files share one audio feed (see `manifest.ensure_audio_camera`), so
+only the case's canonical camera does the work — the other camera's row for
+these stages gets marked `skipped`, not run twice. `pose` stays per-camera;
+the two viewpoints are genuinely different data.
+
+`asr` writes `data/transcripts/<case_id>/<camera>_<engine>_<model>.json` (plus
+a `.txt` sibling for a quick read) — always word-level speaker-labeled
+regardless of engine, reusing `data/diarization/<case_id>/<camera>.rttm` if
+it's already there rather than re-running pyannote. Default engine is
+`faster_whisper` (`--model medium --language en`); `whisperx`/`suite` remain
+available via `--engine` for testing/comparison.
 """
 import argparse
 import datetime
@@ -41,8 +54,42 @@ def asr_default():
     return asr.DEFAULT_ENGINE
 
 
+def asr_model_default():
+    from multidata import asr
+
+    return asr.DEFAULT_MODEL
+
+
+def asr_language_default():
+    from multidata import asr
+
+    return asr.DEFAULT_LANGUAGE
+
+
+def _skip_if_not_audio_camera(row, args, stage):
+    """None if this row is the case's canonical audio camera (proceed);
+    otherwise the `{stage}_status: skipped` dict a stage function should
+    return immediately.
+
+    audio/asr/diarize/elan are per-*case*, not per-camera — a case's two
+    camera files share one audio feed (confirmed empirically; see
+    `manifest.ensure_audio_camera`), so only the chosen camera's row does the
+    work. `pose` doesn't call this; it's per-camera.
+    """
+    from multidata import manifest
+
+    chosen = manifest.ensure_audio_camera(row["case_id"], args.manifest)
+    if row["camera"] != chosen:
+        return {f"{stage}_status": "skipped"}
+    return None
+
+
 def stage_audio(row, args):
     from multidata import audio
+
+    skip = _skip_if_not_audio_camera(row, args, "audio")
+    if skip is not None:
+        return skip
 
     audio.extract(row["filepath"], _out("audio", row, ".wav"), loudnorm=args.loudnorm)
     return {"audio_path": str(_out("audio", row, ".wav"))}
@@ -51,25 +98,57 @@ def stage_audio(row, args):
 def stage_asr(row, args):
     from multidata import asr
 
+    skip = _skip_if_not_audio_camera(row, args, "asr")
+    if skip is not None:
+        return skip
+
     wav = row["audio_path"] or _out("audio", row, ".wav")
-    asr.transcribe(wav, _out("transcripts", row, f"_{args.engine}.json"),
-                   engine=args.engine)
-    return {"asr_model": args.engine}
+    out = _out("transcripts", row, f"_{args.engine}_{args.model}.json")
+
+    # `suite` has no model-size selection (fixed remote server); the other
+    # two share `model_name`/`language`. Device kwargs only make sense for
+    # whisperx -- ctranslate2 keeps the Whisper model itself on `--device`
+    # (cpu/cuda only); `--accel-device` governs the torch-based
+    # alignment/diarization steps and defaults to the fastest available.
+    engine_kwargs = {"language": args.language}
+    if args.engine != "suite":
+        engine_kwargs["model_name"] = args.model
+    if args.engine == "whisperx":
+        engine_kwargs["device"] = args.device
+        if args.accel_device is not None:
+            engine_kwargs["align_device"] = args.accel_device
+
+    # `diarize_rttm` lets non-self-diarizing engines (faster_whisper) reuse an
+    # already-computed diarization instead of paying for pyannote twice.
+    asr.transcribe(wav, out, engine=args.engine,
+                   diarize_rttm=_out("diarization", row, ".rttm"),
+                   diarize_device=args.accel_device,
+                   max_speakers=args.max_speakers,
+                   **engine_kwargs)
+    return {"asr_model": f"{args.engine}/{args.model}", "diarize_status": "done"}
 
 
 def stage_diarize(row, args):
     from multidata import diarize
 
+    skip = _skip_if_not_audio_camera(row, args, "diarize")
+    if skip is not None:
+        return skip
+
     wav = row["audio_path"] or _out("audio", row, ".wav")
     diarize.diarize(wav, _out("diarization", row, ".rttm"),
-                    max_speakers=args.max_speakers)
+                    max_speakers=args.max_speakers, device=args.accel_device)
     return {}
 
 
 def stage_elan(row, args):
     from multidata import elan
 
-    transcript = _out("transcripts", row, f"_{args.engine}.json")
+    skip = _skip_if_not_audio_camera(row, args, "elan")
+    if skip is not None:
+        return skip
+
+    transcript = _out("transcripts", row, f"_{args.engine}_{args.model}.json")
     if not transcript.exists():
         raise FileNotFoundError(f"{transcript} — run the asr stage first")
     elan.build_eaf(transcript, row["filepath"], _out("elan", row, ".eaf"))
@@ -98,8 +177,20 @@ def main():
     ap.add_argument("--only", help="restrict to one case_id")
     ap.add_argument("--manifest", default=str(ROOT / "manifest.sqlite"))
     ap.add_argument("--engine", default=asr_default(), help="asr/elan: which ASR engine")
+    ap.add_argument("--model", default=asr_model_default(),
+                    help="asr/elan: model size (e.g. tiny/small/medium/large-v3); "
+                         "ignored for --engine suite")
+    ap.add_argument("--language", default=asr_language_default(),
+                    help="asr: language code, skips auto-detect")
     ap.add_argument("--loudnorm", action="store_true", help="audio: loudness-normalize")
     ap.add_argument("--max-speakers", type=int, help="diarize: upper bound hint")
+    ap.add_argument("--device", default="cpu",
+                    help="asr (whisperx): Whisper model device -- cpu/cuda only, "
+                         "never mps (ctranslate2 doesn't support it)")
+    ap.add_argument("--accel-device", default=None,
+                    help="asr/diarize: device for the torch-based diarization "
+                         "(and, if set, alignment) steps -- default auto-detects "
+                         "the fastest available (mps > cuda > cpu)")
     args = ap.parse_args()
 
     rows = manifest.pending(args.stage, args.manifest)
@@ -113,8 +204,9 @@ def main():
         print(f"--- {label}")
         try:
             extra = STAGES[args.stage](row, args) or {}
+            status = extra.pop(f"{args.stage}_status", "done")
             manifest.update(row["case_id"], row["camera"], args.manifest,
-                            **{f"{args.stage}_status": "done"}, **extra)
+                            **{f"{args.stage}_status": status}, **extra)
             ok += 1
         except Exception:
             LOG.parent.mkdir(parents=True, exist_ok=True)

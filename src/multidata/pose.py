@@ -13,6 +13,7 @@ with `keypoint` (M, T, V, C) and `keypoint_score` (M, T, V), both float32.
 import cv2
 import mmengine
 import numpy as np
+from tqdm import tqdm
 
 MAX_PERSONS = 4  # fixed M slots; frames with fewer people leave slots at zero
 KPT_THR = 0.3
@@ -23,61 +24,76 @@ SLOT_COLORS = [(0, 0, 255), (0, 200, 0), (255, 128, 0), (255, 0, 255),
 
 
 def extract(video_path, out_path=None, max_persons=MAX_PERSONS,
-            mode="balanced", device="cpu"):
+            mode="balanced", device="mps"):
     """Run RTMPose over every frame of one video -> MMAction2-style entry dict.
 
     Detection on every frame; the pose network only runs on frames where
-    detection found someone. No identity across frames. If `out_path` is
-    given the entry is dumped there as a native OpenMMLab pickle.
-    """
-    from rtmlib import Body
+    detection found someone. No identity across frames.
 
-    body = Body(mode=mode, to_openpose=False, backend="onnxruntime", device=device)
+    `device` (the pose-network device; default `"mps"`) runs RTMPose through
+    CoreMLExecutionProvider — Apple Silicon GPU/Neural Engine. The detector
+    (YOLOX) always runs on CPU regardless: onnxruntime's CoreML EP can build a
+    session for it but crashes at inference time on its dynamic NMS output
+    shape (`{1,1,1,8400,8400}` vs the graph's `{1,8400}}`) — a real
+    onnxruntime/CoreML limitation, confirmed on this box, not something to
+    route around here. RTMPose has no such dynamic shapes and runs cleanly
+    under CoreML EP, and it's also the network we actually skip on empty
+    frames above, so it's where the device matters. rtmlib falls back to CPU
+    on its own if the installed onnxruntime doesn't expose CoreML EP at all.
+
+    If `out_path` is given the entry is dumped there as a native OpenMMLab
+    pickle.
+    """
+    from rtmlib import Body, YOLOX, RTMPose
+
+    model_cfg = Body.MODE[mode]
+    det_model = YOLOX(model_cfg["det"], model_input_size=model_cfg["det_input_size"],
+                       backend="onnxruntime", device="cpu")
+    pose_model = RTMPose(model_cfg["pose"], model_input_size=model_cfg["pose_input_size"],
+                         to_openpose=False, backend="onnxruntime", device=device)
 
     cap = cv2.VideoCapture(str(video_path))
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or None
 
     # Per frame, record (keypoints, scores) for everyone detected, in detection order.
     #
-    # Deliberately not `body(frame)`: rtmlib's Body.__call__ always runs the
-    # (expensive) pose network even when the detector finds no one, falling
-    # back to the whole frame as a fake bbox. Calling det_model/pose_model
-    # separately lets us skip the pose network on empty frames entirely —
-    # both for speed (most frames here are an empty room) and correctness
-    # (that fallback would otherwise write a phantom whole-frame "person"
-    # into slot 0 for every frame with nobody in it).
+    # Deliberately not `Body.__call__`: rtmlib's Body always runs the (expensive)
+    # pose network even when the detector finds no one, falling back to the
+    # whole frame as a fake bbox. Calling det_model/pose_model separately lets
+    # us skip the pose network on empty frames entirely — both for speed (most
+    # frames here are an empty room) and correctness (that fallback would
+    # otherwise write a phantom whole-frame "person" into slot 0 for every
+    # frame with nobody in it).
     frame_dets = []
-    while cap.isOpened():
-        ret, frame = cap.read()
-        if not ret:
-            break
+    with tqdm(total=total, unit="frame") as pbar:
+        while cap.isOpened():
+            ret, frame = cap.read()
+            if not ret:
+                break
 
-        current_frame_idx = int(cap.get(cv2.CAP_PROP_POS_FRAMES))
-        if current_frame_idx % 30 == 0:
-            print(f"Processing frame {current_frame_idx}")
-
-        bboxes = body.det_model(frame)
-        if len(bboxes) == 0:
-            frame_dets.append((np.empty((0, 0, 0)), np.empty((0, 0))))
-            continue
-        keypoints, scores = body.pose_model(frame, bboxes=bboxes)  # (N, V, C), (N, V)
-        frame_dets.append((keypoints, scores))
+            bboxes = det_model(frame)
+            if len(bboxes) == 0:
+                frame_dets.append((np.empty((0, 0, 0)), np.empty((0, 0))))
+            else:
+                keypoints, scores = pose_model(frame, bboxes=bboxes)
+                frame_dets.append((keypoints, scores))
+            pbar.update(1)
     cap.release()
 
     T = len(frame_dets)
-    # Infer keypoint count (V) and channels (C) from the first real detection
     sample = next((kp for kp, _ in frame_dets if len(kp) > 0), None)
     if T == 0 or sample is None:
         raise ValueError(f"No frames, or nobody detected, in {video_path}")
-    num_keypoints, num_coords = sample.shape[1:]  # (V, C), e.g. (17, 2) for Body
+    num_keypoints, num_coords = sample.shape[1:]
 
     M = max_persons
     video_kpts = np.zeros((M, T, num_keypoints, num_coords), dtype=np.float32)
     video_scores = np.zeros((M, T, num_keypoints), dtype=np.float32)
 
     for t, (kpts, sc) in enumerate(frame_dets):
-        n = min(len(kpts), M)  # keep at most M detections this frame
+        n = min(len(kpts), M)
         if n:
             video_kpts[:n, t] = kpts[:n]
             video_scores[:n, t] = sc[:n]
@@ -87,8 +103,8 @@ def extract(video_path, out_path=None, max_persons=MAX_PERSONS,
         "total_frames": T,
         "img_shape": (height, width),
         "label": 0,
-        "keypoint": video_kpts,          # (M, T, V, C)
-        "keypoint_score": video_scores,  # (M, T, V)
+        "keypoint": video_kpts,
+        "keypoint_score": video_scores,
     }
 
     if out_path is not None:

@@ -22,9 +22,8 @@ from datetime import datetime
 from pathlib import Path
 import argparse
 
-from multidata.models import STATUSES, Case, Video
-
-DEFAULT_PATH = Path("manifest.sqlite")
+from multidata.models import STATUSES, Camera, Case, Video
+from multidata.paths import MANIFEST_PATH as DEFAULT_PATH
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS cases (
@@ -36,7 +35,8 @@ CREATE TABLE IF NOT EXISTS cases (
     learner_name TEXT NOT NULL DEFAULT '',
     sp_name TEXT NOT NULL DEFAULT '',
     recording_start_time TEXT NOT NULL DEFAULT '',
-    consent_ref TEXT NOT NULL DEFAULT ''
+    consent_ref TEXT NOT NULL DEFAULT '',
+    audio_camera TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS videos (
@@ -65,6 +65,11 @@ CREATE TABLE IF NOT EXISTS videos (
     PRIMARY KEY (case_id, camera)
 );
 
+CREATE TABLE IF NOT EXISTS cameras (
+    camera_id TEXT PRIMARY KEY,
+    room_number TEXT NOT NULL DEFAULT ''
+);
+
 CREATE TABLE IF NOT EXISTS video_case_matches (
     filename TEXT PRIMARY KEY,
     status TEXT NOT NULL,
@@ -85,7 +90,56 @@ def connect(path=DEFAULT_PATH):
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.executescript(SCHEMA)
+    _migrate(conn)
+    conn.commit()  # migrations must be durable regardless of whether the
+                   # caller commits its own transaction (read-only callers
+                   # like `all_cases` never do, and would otherwise silently
+                   # roll back any migration that inserts rows, not just DDL)
     return conn
+
+
+def _migrate(conn):
+    """Additive column migrations for databases created before they existed.
+
+    `CREATE TABLE IF NOT EXISTS` (above) only helps brand-new databases; an
+    existing manifest.sqlite needs an explicit ALTER TABLE. Keep this
+    idempotent and additive-only -- never drop or rename a column here.
+    """
+    cols = {row["name"] for row in conn.execute("PRAGMA table_info(cases)")}
+    if "audio_camera" not in cols:
+        conn.execute("ALTER TABLE cases ADD COLUMN audio_camera TEXT NOT NULL DEFAULT ''")
+
+    _seed_cameras_once(conn)
+
+
+def _seed_cameras_once(conn):
+    """One-time import of the hand-verified camera->room mapping, from
+    whichever of the git-tracked seed (`db_seed/camera_rooms.csv`) or the
+    legacy pre-database CSV (`data/room_camera_map.csv`) exists -- only if
+    the `cameras` table is still empty, so this never clobbers edits already
+    made directly in the database (doc §2/§4)."""
+    if conn.execute("SELECT 1 FROM cameras LIMIT 1").fetchone():
+        return
+
+    from multidata.paths import ROOT
+
+    for candidate in (ROOT / "db_seed" / "camera_rooms.csv", ROOT / "data" / "room_camera_map.csv"):
+        if candidate.exists():
+            _import_camera_rooms_csv(conn, candidate)
+            return
+
+
+def _import_camera_rooms_csv(conn, path):
+    import csv
+
+    with open(path, newline="") as f:
+        for row in csv.DictReader(f):
+            camera_id = row["camera_id"].strip().strip("'").strip()
+            room = row["room"].strip().strip("'").strip()
+            conn.execute(
+                "INSERT OR REPLACE INTO cameras (camera_id, room_number) VALUES (?, ?)",
+                (camera_id, room),
+            )
 
 
 def _insert(conn, table, obj):
@@ -116,6 +170,114 @@ def all_cases(path=DEFAULT_PATH):
     with closing(connect(path)) as conn:
         rows = conn.execute("SELECT * FROM cases ORDER BY case_id").fetchall()
     return [Case.from_row(r) for r in rows]
+
+
+def _camera_sort_key(camera):
+    """Numeric cameras sort numerically ("9" before "10"); anything else
+    falls back to plain string sort, after all numeric ids."""
+    try:
+        return (0, int(camera))
+    except ValueError:
+        return (1, camera)
+
+
+def ensure_audio_camera(case_id, path=DEFAULT_PATH):
+    """The camera whose audio is canonical for this case's audio-derived
+    stages (audio/asr/diarize/elan) — decided and persisted to
+    `cases.audio_camera` on first call, sticky thereafter.
+
+    A case's two camera files carry the *same* audio feed (confirmed by
+    direct cross-correlation of several camera pairs across rooms — same
+    samples once time-aligned, just started a few hundred ms to ~1s apart),
+    not two independently-mic'd recordings. So which camera is "the" audio
+    source is an arbitrary but permanent choice, not a quality judgment: the
+    lowest camera id among the case's video rows. `pose` is deliberately
+    untouched by this — the two cameras' *video* is genuinely different per
+    viewpoint (doc §9).
+
+    Also marks every other camera's `audio_status`/`asr_status`/
+    `diarize_status`/`elan_status` as `skipped` if still `pending`, so those
+    stages run exactly once per case regardless of which camera's row a
+    caller happens to process first. Never touches a row already `done` or
+    `failed` — this only short-circuits work that hasn't happened yet.
+    """
+    with closing(connect(path)) as conn, conn:
+        row = conn.execute(
+            "SELECT audio_camera FROM cases WHERE case_id = ?", (case_id,)
+        ).fetchone()
+        if row is None:
+            raise KeyError(f"case_id {case_id!r} not in {path}")
+        if row["audio_camera"]:
+            return row["audio_camera"]
+
+        cameras = [r["camera"] for r in conn.execute(
+            "SELECT camera FROM videos WHERE case_id = ?", (case_id,)
+        ).fetchall()]
+        if not cameras:
+            raise KeyError(f"case_id {case_id!r} has no video rows in {path}")
+        chosen = min(cameras, key=_camera_sort_key)
+
+        conn.execute(
+            "UPDATE cases SET audio_camera = ? WHERE case_id = ?", (chosen, case_id)
+        )
+        for status_col in ("audio_status", "asr_status", "diarize_status", "elan_status"):
+            conn.execute(
+                f"UPDATE videos SET {status_col} = 'skipped' "
+                f"WHERE case_id = ? AND camera != ? AND {status_col} = 'pending'",
+                (case_id, chosen),
+            )
+        return chosen
+
+
+# --- camera -> room mapping ----------------------------------------------
+#
+# Hand-verified knowledge with no external source to re-derive it from if
+# lost (unlike `cases`, re-importable from the Excel export) -- discovered by
+# pulling a few videos per room and eyeballing them (`Camera` in
+# `multidata.models`). `camera_id` is the primary key, so (unlike the old
+# `data/room_camera_map.csv`) it is structurally impossible for the same
+# camera to end up mapped to two different rooms.
+
+def set_camera_room(camera_id, room_number, path=DEFAULT_PATH):
+    """Add or update one camera's room."""
+    with closing(connect(path)) as conn, conn:
+        conn.execute(
+            "INSERT INTO cameras (camera_id, room_number) VALUES (?, ?) "
+            "ON CONFLICT(camera_id) DO UPDATE SET room_number = excluded.room_number",
+            (camera_id, room_number),
+        )
+    return Camera(camera_id=camera_id, room_number=room_number)
+
+
+def get_camera_room(camera_id, path=DEFAULT_PATH):
+    with closing(connect(path)) as conn:
+        row = conn.execute(
+            "SELECT * FROM cameras WHERE camera_id = ?", (camera_id,)
+        ).fetchone()
+    return Camera.from_row(row) if row else None
+
+
+def all_camera_rooms(path=DEFAULT_PATH):
+    with closing(connect(path)) as conn:
+        rows = conn.execute("SELECT * FROM cameras ORDER BY camera_id").fetchall()
+    return [Camera.from_row(r) for r in rows]
+
+
+def export_camera_rooms(out_csv, path=DEFAULT_PATH):
+    """Dump the `cameras` table back to a `room,camera_id` CSV -- the
+    git-tracked backup (`db_seed/camera_rooms.csv`) for this hand-verified
+    mapping, since the database itself is gitignored. Call this after making
+    edits and commit the result."""
+    import csv
+
+    out_csv = Path(out_csv)
+    out_csv.parent.mkdir(parents=True, exist_ok=True)
+    with open(out_csv, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["room", "camera_id"])
+        for cam in all_camera_rooms(path):
+            writer.writerow([cam.room_number, cam.camera_id])
+    return out_csv
 
 
 def add_video(case_id, camera, path=DEFAULT_PATH, **fields):
@@ -194,9 +356,9 @@ def update(case_id, camera, path=DEFAULT_PATH, **fields):
 # Resolving a filename to a case_id means loading every case row and scanning
 # for a (room, minute) match (`multidata.casematch`) — worth doing once and
 # remembering. `status` is one of: "matched", "ambiguous", "no_match",
-# "no_room" (camera not yet in room_camera_map.csv). Only "matched" rows have
+# "no_room" (camera not yet in the `cameras` table). Only "matched" rows have
 # a case_id; the rest exist so unresolved files show up in one place for you
-# to fix by hand (correct room_camera_map.csv, or the source spreadsheet) and
+# to fix by hand (`set_camera_room`, or check the source spreadsheet) and
 # re-run — re-matching overwrites the cached row (INSERT OR REPLACE).
 
 def get_cached_match(filename, path=DEFAULT_PATH):

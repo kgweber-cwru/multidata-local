@@ -22,8 +22,8 @@ def parse_filename(path) -> dict:
     files named to this convention; nothing here cross-checks a containing
     folder. To find which case a file belongs to, match `date`+`time` (the
     cases table only carries minute precision — see `casematch` module
-    docstring) and `camera`'s room (via `data/room_camera_map.csv`) against
-    the cases table: `multidata.casematch.resolve()`.
+    docstring) and `camera`'s room (via the manifest's `cameras` table)
+    against the cases table: `multidata.casematch.resolve()`.
     """
     path = Path(path)
     m = FILENAME_RE.match(path.stem)
@@ -69,7 +69,15 @@ def summarize(path) -> dict:
     No `case_id` here — the filename doesn't carry one (see `parse_filename`).
     Resolve it separately with `multidata.casematch.resolve()` and pass it to
     `manifest.add_video(case_id=..., **summarize(path))`.
+
+    `path` can be given any way that actually resolves from the caller's own
+    working directory (absolute, `data/raw/x.mp4` from the repo root,
+    `../data/raw/x.mp4` from a notebook in `notebooks/`, ...) — the stored
+    `filepath` is always normalized relative to `multidata.paths.ROOT`, so a
+    notebook's cwd can never leak a fragile relative path into the manifest.
     """
+    from multidata.paths import ROOT
+
     parsed = parse_filename(path)
     info = probe(path)
     v = next((s for s in info["streams"] if s["codec_type"] == "video"), None)
@@ -80,12 +88,18 @@ def summarize(path) -> dict:
         num, den = v["avg_frame_rate"].split("/")
         fps = float(num) / float(den) if float(den) else None
 
+    abs_path = Path(path).resolve()
+    try:
+        stored_path = str(abs_path.relative_to(ROOT))
+    except ValueError:
+        stored_path = str(abs_path)  # outside the repo tree; store absolute rather than guess
+
     return {
         "camera": parsed["camera"],
         "recording_id": parsed["recording_id"],
         "video_date": parsed["date"],
         "video_time": parsed["time"],
-        "filepath": str(Path(path)),
+        "filepath": stored_path,
         "sha256": sha256(path),
         "duration_s": float(info["format"].get("duration", 0.0)),
         "fps": fps,

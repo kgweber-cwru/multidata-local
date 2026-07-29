@@ -98,10 +98,12 @@ multidata-local/
 │   ├── references/                     # gold human transcripts
 │   ├── configs/                        # model/param sweeps
 │   ├── results/                        # metrics output (git-tracked)
+│   ├── timing_bench.py                 # model/device wall-clock experiments (not WER/CER)
 │   └── run_benchmark.py
+├── db_seed/                             # git-tracked backups of hand-verified DB tables
+│   └── camera_rooms.csv                # `cameras` table export (manifest.export_camera_rooms)
 ├── data/                               # GITIGNORED — large + sensitive
 │   ├── raw/                            # immutable source, flat (no per-case dirs — §2)
-│   ├── room_camera_map.csv             # hand-verified camera_id -> room (§2)
 │   ├── audio/<case_id>/
 │   ├── transcripts/<case_id>/
 │   ├── diarization/<case_id>/       # RTTM, for DER scoring (§8b)
@@ -163,10 +165,15 @@ To find which case a file belongs to, you have to match it against the
    themselves (two rooms can start recording in the same minute), so the
    camera's room disambiguates. Camera→room isn't in any metadata export; it's
    discovered by hand (pull a few videos per room, confirm which camera you're
-   looking at) and recorded in `data/room_camera_map.csv`
-   (`room,camera_id`), extended as more pairs are confirmed. Do not try to
-   infer this mapping automatically from the video timestamps — it's exactly
-   as ambiguous as the case match it's supposed to disambiguate.
+   looking at) and recorded via `manifest.set_camera_room(camera_id, room)`
+   (the `cameras` table — `camera_id` is its primary key, so a camera can
+   never end up stored under two conflicting rooms, unlike the flat CSV this
+   replaced). `manifest.export_camera_rooms("db_seed/camera_rooms.csv")`
+   writes the git-tracked backup — commit it after any edit, since this
+   hand-verified knowledge has no other source to reconstruct it from if the
+   (gitignored) database were ever lost. Do not try to infer this mapping
+   automatically from the video timestamps — it's exactly as ambiguous as the
+   case match it's supposed to disambiguate.
 
 `casematch.resolve(path)` runs that match and caches the result (success or
 failure) in the manifest's `video_case_matches` table, so it's a one-time cost
@@ -342,7 +349,7 @@ touches case_id — the filename doesn't have one); `ingest.probe()` +
 `ingest.sha256()` do the rest. `casematch.resolve()` raises `CaseMatchError`
 when a file can't be resolved to exactly one case — check
 `manifest.unresolved_matches()` to see everything waiting on a manual look
-(usually a camera missing from `data/room_camera_map.csv`). See
+(usually a camera missing from the `cameras` table). See
 `src/multidata/ingest.py` and `src/multidata/casematch.py` for the real
 implementation (this doc doesn't duplicate it — code drifts, docs rot).
 
@@ -377,8 +384,25 @@ Ingest checklist per case:
 
 ## 5. Audio preparation for transcription
 
-Whisper and pyannote both want **16 kHz mono WAV**. Extract from whichever camera
-carries the cleanest audio (recorded in §4).
+Whisper and pyannote both want **16 kHz mono WAV**.
+
+> **Finding (2026-07-29): a case's two camera files carry the same audio feed.**
+> Cross-correlated audio from several camera pairs across 5 rooms: 4/5 matched
+> at r=1.0000 (same samples, just started a few hundred ms to ~1s apart — two
+> encoders on one shared mic/soundboard feed, not two independent on-camera
+> mics). The 5th (room 11) looked different at first (r=0.57) but that turned
+> out to be encoder clock drift between that pair (~0.1% rate mismatch,
+> lag growing steadily over 2 minutes) — content-wise still the same feed, just
+> not alignable with one fixed offset over a long clip.
+>
+> So **audio/asr/diarize/elan run once per case, not once per camera.** Which
+> camera's file is "the" audio source is an arbitrary but permanent choice —
+> not a quality judgment, since they're the same feed — decided once by
+> `manifest.ensure_audio_camera()` (lowest camera id) and recorded on
+> `cases.audio_camera`. The other camera's row gets its `audio_status`/
+> `asr_status`/`diarize_status`/`elan_status` marked `skipped`. `pose` (§9) is
+> the one stage that stays genuinely per-camera — the two viewpoints are real,
+> different data, not redundant feeds.
 
 ```bash
 ffmpeg -i data/raw/132704/20260224-132704-v308933-41.mp4 \
@@ -398,51 +422,50 @@ Record sample rate, channels, and duration in the manifest.
 
 ## 6. Speech: transcription + diarization + timing
 
-> **Intent (2026-07-27): Whisper and pyannote run directly on this machine.**
-> Transcription Suite was the old box's crutch and is *not* the target pipeline.
-> `asr.py` therefore defaults to `--engine whisperx`, with `faster_whisper` as the
-> pinned benchmark engine and `diarize.py` running pyannote directly (it emits the
-> RTTM that DER scoring needs — §8b). The `suite` engine is retained only as a
-> benchmark comparator against the transcripts the old machine already produced;
-> nothing in the pipeline depends on it, and it can be deleted outright.
->
-> Caveat worth stating plainly: the whisperx and faster-whisper paths are written
-> from the sketches below and have **not been executed anywhere yet** — first run
-> on the new box will need model downloads and HF auth, and should be treated as
-> bring-up, not as a working stage.
+> **Reminder: this runs once per case, not once per camera** — see §5's
+> finding. `run_stage.py`'s `stage_asr`/`stage_diarize` resolve the case's
+> `audio_camera` and no-op (status `skipped`) on the other camera's row.
 
-Recommended default: **WhisperX**, which gives you word-level timestamps
-(via wav2vec2 forced alignment) *and* speaker labels (via pyannote) in one pass —
-exactly the "speech + timing + diarization" bundle you want for the dataset.
+> **Settled (2026-07-29): default engine is `faster_whisper`, model `medium`,
+> language forced to `en`.** Confirmed executed end-to-end on real cases, not
+> just sketched. Benchmarked against `whisperx` (`benchmarks/timing_bench.py`)
+> at the same model size: `faster_whisper` + a separate diarize-merge is
+> ~11% *faster* end-to-end than whisperx's bundled transcribe+align+diarize,
+> because whisperx's own transcribe call ran measurably slower for the same
+> model. `whisperx` remains available via `--engine` — its wav2vec2 forced
+> alignment is arguably higher-quality word timing than a CT2 model's native
+> timestamps, which is the reason to reach for it instead of the default.
+> `suite` is retained only as a benchmark comparator against the old
+> machine's transcripts; nothing in the pipeline depends on it.
+>
+> **Every engine's output is word-level speaker-labeled**
+> (`segments[].words[].speaker`), regardless of whether the engine diarizes
+> itself. `whisperx`/`suite` do it internally; `faster_whisper`'s transcript
+> gets one merged in afterward via whisperx's own (engine-agnostic)
+> `assign_word_speakers`, using a `diarize.diarize()` result — reusing
+> `data/diarization/<case_id>/<camera>.rttm` if it's already on disk instead
+> of paying for pyannote twice (`asr._diarize_and_merge`).
 
 ```python
-# src/multidata/asr.py  (sketch, md-speech env)
-import whisperx, gc, torch
+# src/multidata/asr.py  (as built, md-speech env)
+from multidata import asr
 
-device = "cpu"                     # or "mps"; CT2 pieces stay CPU regardless
-audio_file = "data/audio/<case_id>/audio.wav"
+# medium/en/faster_whisper by default; writes both the JSON and a plain-text
+# sibling for a quick read (data/transcripts/<case_id>/<camera>_<engine>_<model>.{json,txt})
+asr.transcribe(
+    "data/audio/<case_id>/<camera>.wav",
+    out_path="data/transcripts/<case_id>/<camera>_faster_whisper_medium.json",
+    diarize_rttm="data/diarization/<case_id>/<camera>.rttm",
+)
 
-# 1) transcribe
-model = whisperx.load_model("large-v3", device, compute_type="int8")
-audio = whisperx.load_audio(audio_file)
-result = model.transcribe(audio, batch_size=8)
-
-# 2) word-level alignment
-align_model, meta = whisperx.load_align_model(result["language"], device)
-result = whisperx.align(result["segments"], align_model, meta, audio, device)
-
-# 3) diarization (needs HF token)
-dia = whisperx.diarize.DiarizationPipeline(use_auth_token=True, device=device)
-diarize_segments = dia(audio_file)                 # optionally min/max speakers
-result = whisperx.assign_word_speakers(diarize_segments, result)
-
-# result["segments"] now carry start/end/text/words[]/speaker
+# result["segments"][i]["words"][j"] now carry start/end/word/score/speaker
 ```
 
-Persist a normalized JSON per case
-(`data/transcripts/<case_id>/whisperx.json`) with, per word:
+Persist a normalized JSON per (case, camera, engine, model) —
+`data/transcripts/<case_id>/<camera>_<engine>_<model>.json` — with, per word:
 `{word, start, end, score, speaker}`. That JSON is the single source of truth
-for §7 (ELAN) and §8 (benchmarking).
+for §7 (ELAN) and §8 (benchmarking). The `.txt` sibling next to it is for a
+human skimming the encounter, not for downstream parsing.
 
 ### 6a. Decoding hygiene / anti-hallucination
 
@@ -483,9 +506,11 @@ segments, info = model.transcribe(
 > not a fixed constant — a prompt that helps one setting can bias another. Measure
 > the "nurse/nerds"-class substitution rate with the prompt on vs. off.
 
-**Bulk-processing model choice:** prefer **`large-v3-turbo`** (near-`large-v3`
-accuracy, several× faster) as the default for 300–400 videos, and keep `large-v3`
-as the accuracy anchor in the benchmark sweep.
+**Bulk-processing model choice:** settled on **`medium`** as the default
+(`run_stage.py asr` with no `--model` override) — good balance of speed and
+accuracy for overnight/unattended batch runs; switch to `large-v3` (or
+`large-v3-turbo`) via `--model` for accuracy-sensitive testing, and keep
+`large-v3` as the accuracy anchor in the benchmark sweep (§8).
 
 **For benchmarking specifically** (§8), also run the *raw* engines with fixed
 configs (no alignment glue) so you're measuring the model, not the wrapper:
@@ -497,8 +522,11 @@ for the Apple-Silicon path. Keep those code paths in `asr.py` behind a
 
 ## 7. Build the ELAN (.eaf) file
 
-`pympi-ling` writes ELAN files. One tier per speaker; annotations from the
-WhisperX segments. ELAN then becomes your human-correction surface.
+`pympi-ling` writes ELAN files. One tier per speaker; annotations from
+whichever `asr` transcript exists for that case (§6) — every engine's output
+is word-level speaker-labeled by the time it reaches here, so `elan.py`
+doesn't care which one produced it. ELAN then becomes your human-correction
+surface.
 
 ```python
 # src/multidata/elan.py  (sketch)
@@ -525,6 +553,16 @@ def build_eaf(whisperx_json, media_path, out_path):
 > word, one tier per speaker, tiers created on demand, bare-integer speaker ids
 > normalized to `SPEAKER_00`). It reads either root `words` or `segments[].words`,
 > so it accepts any of the three ASR engines' output.
+
+> **One `.eaf` per case, linked to the canonical-audio camera's video** —
+> `stage_elan` uses the same `audio_camera` as §5/§6, so the video an annotator
+> watches always matches the audio the draft transcript came from. If a gold
+> annotator (`docs/gold_annotation_guide.md`) suspects they're missing
+> something visible only from the other camera's angle, that raw file is still
+> on disk (`data/raw/`) to check by hand — worth noting that its timestamps
+> aren't guaranteed frame-exact against the canonical camera (see §5's room-11
+> clock-drift finding), so treat it as a supplementary look, not a synced
+> second track.
 
 Design choices to decide early (they affect every downstream .eaf):
 - **Tier granularity:** utterance-level (segments) vs word-level tiers. Start
@@ -626,8 +664,15 @@ resembles one.
 
 ```
 case_id, event_name, case_name, group_name, room_number,
-learner_name, sp_name, recording_start_time, consent_ref
+learner_name, sp_name, recording_start_time, consent_ref, audio_camera
 ```
+
+`audio_camera` (added 2026-07-29): the camera whose file is the canonical
+audio source for this case's audio/asr/diarize/elan stages (§5). Empty until
+`manifest.ensure_audio_camera()` first runs for the case; sticky once set —
+existing databases get the column via an additive `ALTER TABLE` in
+`manifest._migrate()`, so this is safe to pull without touching the current
+manifest.sqlite by hand.
 
 **`videos`** — one row per physical **camera-file**, usually two per case
 (§2's N-camera convention). This is the table every processing stage actually
@@ -645,7 +690,7 @@ filename spec — `ingest.parse_filename()` / `ingest.summarize()` extract them,
 they aren't assigned separately. `case_id` does **not** come from the
 filename; it's resolved by `casematch.resolve()` (§2/§4) by matching
 `video_date`+`video_time` (truncated to the minute) and the camera's room
-(`data/room_camera_map.csv`) against `cases.recording_start_time` /
+(the `cameras` table) against `cases.recording_start_time` /
 `cases.room_number`.
 
 (Built in `src/multidata/models.py` — `Case`, `Camera`, `Video` dataclasses —
@@ -657,12 +702,38 @@ processes only `pending` video rows, writes outputs, and updates status. That
 gives you **idempotent, resumable batch runs** — kill it overnight, restart, it
 picks up where it left off.
 
+`skipped` specifically means: this row's `audio_status`/`asr_status`/
+`diarize_status`/`elan_status` was never going to run, because this camera
+isn't the case's `audio_camera` (§5) — not a failure, not pending work.
+`pose_status` never gets `skipped` this way; pose runs on every camera row.
+
+`asr_model` holds `<engine>/<model>` (e.g. `faster_whisper/medium`), not just
+the engine — needed once model size became a real axis you switch (§6), not
+only the engine. A successful `asr` stage run also marks `diarize_status`
+`done` on the same row as a side effect: by the time `asr` finishes, a
+diarization result exists either way (reused/written RTTM for
+`faster_whisper`, or bundled internally for `whisperx`/`suite`) — the
+standalone `diarize` stage remains available to force/refresh one
+independently (different speaker-count hints, or ahead of transcription).
+
 **`video_case_matches`** — the persistent cache behind `casematch.resolve()`
 (§2/§4): one row per raw filename, `status` ∈
 `{matched, ambiguous, no_match, no_room}`, `case_id` set only when `matched`.
 Avoids rescanning every case on every ingest run, and gives you one place
 (`manifest.unresolved_matches()`) to see every file still needing a manual
 look.
+
+**`cameras`** (`camera_id` PK, `room_number`) — the hand-verified camera→room
+mapping `casematch.load_camera_room_map()` queries (§2/§4). Replaced a flat
+`data/room_camera_map.csv` — same hand-discovery process, but a primary key
+makes it structurally impossible for a camera to end up stored under two
+different rooms, which the CSV allowed (and once did, silently, until it
+crashed `casematch.resolve()`). Since the database itself is gitignored and
+this knowledge has no other source to reconstruct it from, edit it via
+`manifest.set_camera_room(camera_id, room)` and then run
+`manifest.export_camera_rooms("db_seed/camera_rooms.csv")` and commit the
+result — that file (not the CSV) is now the durable, git-tracked backup, and
+also what a fresh `manifest.sqlite` seeds itself from on first use.
 
 `manifest.import_video_manifest_excel(xlsx_path)` unpacks a source-system
 video-manifest workbook — one sheet per encounter, sheet title = `case_id` —
