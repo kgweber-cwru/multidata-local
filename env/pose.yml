@@ -1,0 +1,13 @@
+name: md-pose
+channels: [conda-forge]
+dependencies:
+  - python=3.11
+  - pip
+  - pip:
+      - rtmlib
+      - onnxruntime           # CPU; CoreML EP optional (see pipeline doc §9)
+      - mmengine              # for the (M,T,V,C) .pkl dump format
+      - opencv-python
+      - numpy
+      - jupyter
+      - pandas

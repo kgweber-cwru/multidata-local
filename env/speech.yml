@@ -1,0 +1,25 @@
+name: md-speech
+channels: [conda-forge]
+dependencies:
+  - python=3.11
+  - ffmpeg<8            # torchcodec 0.7.0 only loads libavutil from ffmpeg 4-7
+  - pip
+  - pip:
+      - torch
+      - torchaudio            # arm64 wheels; MPS-capable
+      - openai-whisper        # reference implementation (benchmark baseline)
+      - faster-whisper        # CT2 backend, fast CPU int8 (portable/reproducible baseline)
+      - mlx-whisper           # Apple-Silicon-native, fastest here
+      - whisperx              # whisper + word alignment + diarization glue
+      - pyannote.audio        # diarization (gated — huggingface-cli login + accept terms)
+      - jiwer                 # WER/CER for benchmarking
+      - pyannote.metrics      # DER for benchmarking
+      - pympi-ling            # ELAN .eaf read/write
+      - praat-parselmouth     # acoustics: pitch/intensity/harmonicity/formants
+      - requests              # Transcription Suite HTTP client (asr engine "suite")
+      - soundfile
+      - librosa
+      - numpy
+      - pandas
+      - jupyter
+      - python-dotenv

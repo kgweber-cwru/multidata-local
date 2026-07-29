@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "multidata"
+version = "0.1.0"
+description = "multidata-local pipeline: manifest, ingest, ASR, diarization, ELAN, pose"
+requires-python = ">=3.11"
+# Deliberately no [project.dependencies]. Each stage's real deps (torch,
+# rtmlib, openpyxl, ...) live in env/*.yml, split across md-speech / md-pose /
+# md-utility on purpose (pipeline doc §3) -- listing them here would make
+# `pip install -e .` try to pull all three stacks into every env.
+dependencies = []
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]

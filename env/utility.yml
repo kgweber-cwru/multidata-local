@@ -1,0 +1,17 @@
+name: md-utility
+channels: [conda-forge]
+dependencies:
+  - python=3.11
+  - ffmpeg
+  - pip
+  - pip:
+      - jupyter
+      - openpyxl
+      - sqlalchemy
+      - requests
+      - soundfile 
+      - librosa 
+      - numpy 
+      - pandas
+      - lxml
+      - html5lib
