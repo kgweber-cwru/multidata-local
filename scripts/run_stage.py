@@ -24,9 +24,24 @@ regardless of engine, reusing `data/diarization/<case_id>/<camera>.rttm` if
 it's already there rather than re-running pyannote. Default engine is
 `faster_whisper` (`--model medium --language en`); `whisperx`/`suite` remain
 available via `--engine` for testing/comparison.
+
+Logging: INFO-level progress (with timestamps) goes to both the console and
+`logs/run_stage.log` — one line per row started, plus whatever the stage
+module itself logs along the way (e.g. "diarizing 261498/20"). A failed row
+gets one concise `FAILED ...: ExceptionType: message` line in both places;
+the full traceback is only ever written to the log file (DEBUG), not blurted
+to the console. Pass `-v/--verbose` to also print full tracebacks live.
+
+If you background/redirect this process's own stdout+stderr into a file for
+an overnight run, don't point that at `logs/run_stage.log` itself — this
+script already writes everything meaningful there via `logging`. Send raw
+stderr to `/dev/null` instead (e.g. `... >/dev/null 2>&1 &`); some native
+libraries (torchcodec/PyAV) print harmless but unfilterable ObjC runtime
+warnings straight to the OS stderr fd, and redirecting that into the same
+file just interleaves noise into an otherwise clean log.
 """
 import argparse
-import datetime
+import logging
 import sys
 import traceback
 from pathlib import Path
@@ -38,6 +53,30 @@ from multidata import manifest  # noqa: E402
 
 DATA = ROOT / "data"
 LOG = ROOT / "logs" / "run_stage.log"
+
+log = logging.getLogger("run_stage")
+
+
+def _setup_logging(verbose=False):
+    """Console: INFO by default (DEBUG with -v). File: always DEBUG, so a
+    failure's full traceback is on disk even when the console only got the
+    concise one-liner."""
+    LOG.parent.mkdir(parents=True, exist_ok=True)
+    fmt = logging.Formatter("%(asctime)s %(levelname)-7s %(message)s", "%Y-%m-%d %H:%M:%S")
+
+    root = logging.getLogger()
+    root.setLevel(logging.DEBUG)
+    root.handlers.clear()
+
+    console = logging.StreamHandler()
+    console.setLevel(logging.DEBUG if verbose else logging.INFO)
+    console.setFormatter(fmt)
+    root.addHandler(console)
+
+    file_handler = logging.FileHandler(LOG)
+    file_handler.setLevel(logging.DEBUG)
+    file_handler.setFormatter(fmt)
+    root.addHandler(file_handler)
 
 
 def _out(kind, row, suffix):
@@ -91,6 +130,7 @@ def stage_audio(row, args):
     if skip is not None:
         return skip
 
+    log.info("extracting audio: %s/%s", row["case_id"], row["camera"])
     audio.extract(row["filepath"], _out("audio", row, ".wav"), loudnorm=args.loudnorm)
     return {"audio_path": str(_out("audio", row, ".wav"))}
 
@@ -118,6 +158,9 @@ def stage_asr(row, args):
         if args.accel_device is not None:
             engine_kwargs["align_device"] = args.accel_device
 
+    log.info("transcribing (%s/%s): %s/%s",
+             args.engine, args.model, row["case_id"], row["camera"])
+
     # `diarize_rttm` lets non-self-diarizing engines (faster_whisper) reuse an
     # already-computed diarization instead of paying for pyannote twice.
     asr.transcribe(wav, out, engine=args.engine,
@@ -136,6 +179,7 @@ def stage_diarize(row, args):
         return skip
 
     wav = row["audio_path"] or _out("audio", row, ".wav")
+    log.info("diarizing: %s/%s", row["case_id"], row["camera"])
     diarize.diarize(wav, _out("diarization", row, ".rttm"),
                     max_speakers=args.max_speakers, device=args.accel_device)
     return {}
@@ -151,6 +195,7 @@ def stage_elan(row, args):
     transcript = _out("transcripts", row, f"_{args.engine}_{args.model}.json")
     if not transcript.exists():
         raise FileNotFoundError(f"{transcript} — run the asr stage first")
+    log.info("building ELAN file: %s/%s", row["case_id"], row["camera"])
     elan.build_eaf(transcript, row["filepath"], _out("elan", row, ".eaf"))
     return {}
 
@@ -158,7 +203,8 @@ def stage_elan(row, args):
 def stage_pose(row, args):
     from multidata import pose
 
-    pose.extract(row["filepath"], _out("pose", row, ".pkl"))
+    log.info("extracting pose: %s/%s", row["case_id"], row["camera"])
+    pose.extract(row["filepath"], _out("pose", row, ".pkl"), device=args.accel_device)
     return {}
 
 
@@ -188,37 +234,39 @@ def main():
                     help="asr (whisperx): Whisper model device -- cpu/cuda only, "
                          "never mps (ctranslate2 doesn't support it)")
     ap.add_argument("--accel-device", default=None,
-                    help="asr/diarize: device for the torch-based diarization "
-                         "(and, if set, alignment) steps -- default auto-detects "
-                         "the fastest available (mps > cuda > cpu)")
+                    help="asr/diarize/pose: device for the torch/onnxruntime-based "
+                         "diarization (and, if set, alignment) and pose-network steps "
+                         "-- default auto-detects the fastest available (mps > cuda > cpu)")
+    ap.add_argument("-v", "--verbose", action="store_true",
+                    help="also print full tracebacks to the console on failure "
+                         "(the log file always gets them regardless)")
     args = ap.parse_args()
+
+    _setup_logging(args.verbose)
 
     rows = manifest.pending(args.stage, args.manifest)
     if args.only:
         rows = [r for r in rows if r["case_id"] == args.only]
-    print(f"{args.stage}: {len(rows)} pending row(s)")
+    log.info("%s: %d pending row(s)", args.stage, len(rows))
 
     ok = failed = 0
     for row in rows:
         label = f"{row['case_id']}/{row['camera']}"
-        print(f"--- {label}")
+        log.info("--- %s", label)
         try:
             extra = STAGES[args.stage](row, args) or {}
             status = extra.pop(f"{args.stage}_status", "done")
             manifest.update(row["case_id"], row["camera"], args.manifest,
                             **{f"{args.stage}_status": status}, **extra)
             ok += 1
-        except Exception:
-            LOG.parent.mkdir(parents=True, exist_ok=True)
-            with open(LOG, "a") as f:
-                f.write(f"\n=== {datetime.datetime.now().isoformat()} "
-                        f"{args.stage} {label}\n{traceback.format_exc()}")
+        except Exception as exc:
             manifest.update(row["case_id"], row["camera"], args.manifest,
                             **{f"{args.stage}_status": "failed"})
+            log.error("FAILED %s %s: %s: %s", args.stage, label, type(exc).__name__, exc)
+            log.debug("full traceback for %s %s:\n%s", args.stage, label, traceback.format_exc())
             failed += 1
-            print(f"    FAILED — see {LOG}")
 
-    print(f"{args.stage}: {ok} done, {failed} failed")
+    log.info("%s: %d done, %d failed", args.stage, ok, failed)
     return 1 if failed else 0
 
 

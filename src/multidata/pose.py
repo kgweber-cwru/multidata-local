@@ -10,10 +10,14 @@ a pipeline blocker (doc §9).
 Output per camera: `data/pose/<case_id>/<camera>.pkl` holding one entry dict
 with `keypoint` (M, T, V, C) and `keypoint_score` (M, T, V), both float32.
 """
+import logging
+
 import cv2
 import mmengine
 import numpy as np
 from tqdm import tqdm
+
+log = logging.getLogger(__name__)
 
 MAX_PERSONS = 4  # fixed M slots; frames with fewer people leave slots at zero
 KPT_THR = 0.3
@@ -24,27 +28,35 @@ SLOT_COLORS = [(0, 0, 255), (0, 200, 0), (255, 128, 0), (255, 0, 255),
 
 
 def extract(video_path, out_path=None, max_persons=MAX_PERSONS,
-            mode="balanced", device="mps"):
+            mode="balanced", device=None):
     """Run RTMPose over every frame of one video -> MMAction2-style entry dict.
 
     Detection on every frame; the pose network only runs on frames where
     detection found someone. No identity across frames.
 
-    `device` (the pose-network device; default `"mps"`) runs RTMPose through
-    CoreMLExecutionProvider — Apple Silicon GPU/Neural Engine. The detector
-    (YOLOX) always runs on CPU regardless: onnxruntime's CoreML EP can build a
-    session for it but crashes at inference time on its dynamic NMS output
-    shape (`{1,1,1,8400,8400}` vs the graph's `{1,8400}}`) — a real
-    onnxruntime/CoreML limitation, confirmed on this box, not something to
-    route around here. RTMPose has no such dynamic shapes and runs cleanly
-    under CoreML EP, and it's also the network we actually skip on empty
-    frames above, so it's where the device matters. rtmlib falls back to CPU
-    on its own if the installed onnxruntime doesn't expose CoreML EP at all.
+    `device` (the pose-network device) defaults to the best available
+    (`multidata.device.best_torch_device` — mps > cuda > cpu), so this picks
+    CoreML on Apple Silicon and CUDA on an Nvidia box with no flag needed. The
+    detector (YOLOX) always runs on CPU regardless of platform: onnxruntime's
+    CoreML EP can build a session for it but crashes at inference time on its
+    dynamic NMS output shape (`{1,1,1,8400,8400}` vs the graph's `{1,8400}}`)
+    — a real onnxruntime/CoreML limitation, confirmed on Apple Silicon, not
+    something to route around here. That's specifically a CoreML issue, not a
+    CUDA one, so the CPU-only detector may be leaving CUDA throughput on the
+    table on Linux -- untested, not addressed here. RTMPose has no such
+    dynamic shapes and runs cleanly under CoreML EP, and it's also the network
+    we actually skip on empty frames above, so it's where the device matters
+    most. rtmlib falls back to CPU on its own if the installed onnxruntime
+    doesn't expose the requested execution provider at all.
 
     If `out_path` is given the entry is dumped there as a native OpenMMLab
     pickle.
     """
     from rtmlib import Body, YOLOX, RTMPose
+
+    from multidata.device import best_torch_device
+
+    device = device or best_torch_device()
 
     model_cfg = Body.MODE[mode]
     det_model = YOLOX(model_cfg["det"], model_input_size=model_cfg["det_input_size"],
@@ -109,7 +121,7 @@ def extract(video_path, out_path=None, max_persons=MAX_PERSONS,
 
     if out_path is not None:
         mmengine.dump(entry, str(out_path))
-        print(f"Wrote {out_path}  (M={M}, T={T}, V={num_keypoints}, C={num_coords})")
+        log.info("wrote %s  (M=%d, T=%d, V=%d, C=%d)", out_path, M, T, num_keypoints, num_coords)
     return entry
 
 
@@ -166,5 +178,5 @@ def render_overlay(video_path, entry, out_path, kpt_thr=KPT_THR):
 
     cap.release()
     writer.release()
-    print(f"Wrote {out_path}  ({t} frames, M={M})")
+    log.info("wrote %s  (%d frames, M=%d)", out_path, t, M)
     return out_path

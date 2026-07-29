@@ -12,9 +12,12 @@ The generated .eaf is the *machine draft*. Save human-corrected versions under a
 distinct name so a re-run never overwrites hand-labels.
 """
 import json
+import logging
 import re
 
 import pympi
+
+log = logging.getLogger(__name__)
 
 # Bare integer speaker ids (e.g. "0") come back from some engines; ELAN tiers
 # read much better as SPEAKER_00.
@@ -86,6 +89,6 @@ def build_eaf(transcription_data, mp4_path, output_eaf_path):
             added_count += 1
 
     eaf.to_file(str(output_eaf_path))
-    print(f"File created successfully: {output_eaf_path} ({added_count} words added)")
-    print(f"Identified Tiers: {list(eaf.get_tier_names())}")
+    log.info("wrote %s  (%d words, tiers=%s)",
+             output_eaf_path, added_count, list(eaf.get_tier_names()))
     return output_eaf_path

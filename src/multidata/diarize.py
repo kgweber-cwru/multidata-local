@@ -11,9 +11,12 @@ Gated model — accept the terms for `pyannote/speaker-diarization-3.1` on
 huggingface.co and put a token in `.env` as `HF_TOKEN` first (see
 `multidata.hf_auth`), or `from_pretrained` returns None.
 """
+import logging
 from pathlib import Path
 
 from multidata.hf_auth import hf_token
+
+log = logging.getLogger(__name__)
 
 MODEL = "pyannote/speaker-diarization-3.1"
 
@@ -62,7 +65,7 @@ def diarize(audio_path, out_rttm=None, num_speakers=None,
         out_rttm.parent.mkdir(parents=True, exist_ok=True)
         with open(out_rttm, "w") as f:
             annotation.write_rttm(f)
-        print(f"Wrote {out_rttm}  ({len(annotation.labels())} speakers)")
+        log.info("wrote %s  (%d speakers)", out_rttm, len(annotation.labels()))
 
     return annotation
 

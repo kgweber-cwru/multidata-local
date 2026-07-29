@@ -31,8 +31,11 @@ faster and safer for this fixed-language clinical corpus). Override either
 via `run_stage.py --model/--language` for testing.
 """
 import json
+import logging
 import time
 from pathlib import Path
+
+log = logging.getLogger(__name__)
 
 SUITE_URL = "http://localhost:9786/api/"
 
@@ -170,6 +173,7 @@ def _diarize_and_merge(result, audio_path, rttm_path=None, device=None,
     from whisperx.diarize import assign_word_speakers
 
     if rttm_path is not None and Path(rttm_path).exists():
+        log.info("reusing existing diarization: %s", rttm_path)
         annotation = diarize_mod.load_rttm(rttm_path)
     else:
         annotation = diarize_mod.diarize(
@@ -251,5 +255,5 @@ def transcribe(audio_path, out_path=None, engine=DEFAULT_ENGINE,
         with open(out_path, "w") as f:
             json.dump(result, f, indent=2)
         text_path = write_plain_text(result, out_path.with_suffix(".txt"))
-        print(f"Wrote {out_path} and {text_path}  (engine={engine})")
+        log.info("wrote %s and %s  (engine=%s)", out_path, text_path, engine)
     return result

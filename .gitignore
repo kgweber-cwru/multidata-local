@@ -18,4 +18,4 @@ HANDOFF.md
 .claude
 
 Manifest.session.sql
-manifest.sqlite
+manifest.sqlite*

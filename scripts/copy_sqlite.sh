@@ -1,0 +1,1 @@
+sqlite3 manifest.sqlite ".backup manifest.sqlite.tofino"

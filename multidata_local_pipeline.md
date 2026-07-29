@@ -67,7 +67,6 @@ Fresh repo
 ```bash
 mkdir -p ~/projects/multidata-local && cd ~/projects/multidata-local
 git init
-git lfs install
 ```
 
 Proposed structure:
