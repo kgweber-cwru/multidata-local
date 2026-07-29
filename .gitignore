@@ -16,3 +16,6 @@ HANDOFF.md
 .DS_Store
 .vscode
 .claude
+
+Manifest.session.sql
+manifest.sqlite
