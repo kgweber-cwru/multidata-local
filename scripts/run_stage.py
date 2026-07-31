@@ -204,7 +204,9 @@ def stage_pose(row, args):
     from multidata import pose
 
     log.info("extracting pose: %s/%s", row["case_id"], row["camera"])
-    pose.extract(row["filepath"], _out("pose", row, ".pkl"), device=args.accel_device)
+    pose.extract(row["filepath"], _out("pose", row, ".pkl"),
+                device=args.accel_device, profile=args.profile,
+                detect_every=args.detect_every)
     return {}
 
 
@@ -240,6 +242,15 @@ def main():
     ap.add_argument("-v", "--verbose", action="store_true",
                     help="also print full tracebacks to the console on failure "
                          "(the log file always gets them regardless)")
+    ap.add_argument("--profile", action="store_true",
+                    help="pose: log a decode/detect/pose timing breakdown per video, "
+                         "for diagnosing where time (and GPU/CPU usage) actually goes")
+    ap.add_argument("--detect-every", type=int, default=1,
+                    help="pose: re-run the (CPU-bound) YOLOX detector only every Nth "
+                         "frame, holding bboxes for frames in between -- confirmed via "
+                         "--profile that detection is ~88%% of pose runtime; default 1 "
+                         "(every frame) is unchanged/safe, try higher after eyeballing "
+                         "a render_overlay() render at your chosen stride")
     args = ap.parse_args()
 
     _setup_logging(args.verbose)
@@ -247,6 +258,10 @@ def main():
     rows = manifest.pending(args.stage, args.manifest)
     if args.only:
         rows = [r for r in rows if r["case_id"] == args.only]
+    # Shortest videos first: on a long unattended batch, this clears the most
+    # rows early and surfaces a representative failure sooner than working in
+    # arbitrary (created-order) order would.
+    rows.sort(key=lambda r: r["duration_s"] or 0)
     log.info("%s: %d pending row(s)", args.stage, len(rows))
 
     ok = failed = 0

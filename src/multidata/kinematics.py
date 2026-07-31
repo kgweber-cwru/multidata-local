@@ -1,7 +1,10 @@
 """Rule-based pose features (promoted from `notebooks/mmpose.ipynb` cells 7-14).
 
-Operates on one slot of a pose entry: `entry["keypoint"][s]`, shape (T, V, C)
-in COCO-17 order (rtmlib `Body`). Runs in the **md-pose** env.
+Operates on one slot of a pose entry: `entry["keypoint"][s]`, shape (T, V, C).
+Only reads indices 0-16 (nose/shoulders/wrists), the COCO-17 body prefix that
+`pose.py`'s COCO-WholeBody output (`rtmlib.Wholebody`, V=133) keeps identical
+to plain COCO-17 (rtmlib `Body`, V=17) -- works unchanged against either.
+Runs in the **md-pose** env.
 
 Exploratory, not validated against gold annotations yet — thresholds below are
 the notebook's eyeballed starting values, not tuned constants.

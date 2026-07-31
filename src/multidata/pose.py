@@ -9,8 +9,13 @@ a pipeline blocker (doc §9).
 
 Output per camera: `data/pose/<case_id>/<camera>.pkl` holding one entry dict
 with `keypoint` (M, T, V, C) and `keypoint_score` (M, T, V), both float32.
+`V` (133) is COCO-WholeBody: indices 0-16 are the same 17 body joints, in the
+same order, as plain COCO body (nose=0, ...) -- 17-22 add feet, 23-90 face,
+91-132 the two hands. Anything hardwired to `V == 17` needs updating; nothing
+about the first 17 changed.
 """
 import logging
+import time
 
 import cv2
 import mmengine
@@ -28,11 +33,20 @@ SLOT_COLORS = [(0, 0, 255), (0, 200, 0), (255, 128, 0), (255, 0, 255),
 
 
 def extract(video_path, out_path=None, max_persons=MAX_PERSONS,
-            mode="balanced", device=None):
+            mode="balanced", device=None, profile=False, detect_every=1):
     """Run RTMPose over every frame of one video -> MMAction2-style entry dict.
 
-    Detection on every frame; the pose network only runs on frames where
-    detection found someone. No identity across frames.
+    Detection normally runs on every frame; the pose network only runs on
+    frames where detection found someone. No identity across frames.
+
+    `detect_every` (default 1, i.e. every frame): re-run YOLOX only every Nth
+    frame, holding the last bboxes for the frames in between (still fed to
+    RTMPose every frame). Confirmed via `--profile` that YOLOX-on-CPU is ~88%
+    of wall-clock time and CoreML-accelerated RTMPose only ~11% (doc §9), so
+    this is the actual lever for throughput -- the held bbox is a person's
+    prior-frame position, not a fresh one, which very occasionally lags a fast
+    move; eyeball a `render_overlay()` render at your chosen stride before
+    trusting it for a full batch.
 
     `device` (the pose-network device) defaults to the best available
     (`multidata.device.best_torch_device` — mps > cuda > cpu), so this picks
@@ -52,13 +66,13 @@ def extract(video_path, out_path=None, max_persons=MAX_PERSONS,
     If `out_path` is given the entry is dumped there as a native OpenMMLab
     pickle.
     """
-    from rtmlib import Body, YOLOX, RTMPose
+    from rtmlib import Wholebody, YOLOX, RTMPose
 
     from multidata.device import best_torch_device
 
     device = device or best_torch_device()
 
-    model_cfg = Body.MODE[mode]
+    model_cfg = Wholebody.MODE[mode]
     det_model = YOLOX(model_cfg["det"], model_input_size=model_cfg["det_input_size"],
                        backend="onnxruntime", device="cpu")
     pose_model = RTMPose(model_cfg["pose"], model_input_size=model_cfg["pose_input_size"],
@@ -71,27 +85,53 @@ def extract(video_path, out_path=None, max_persons=MAX_PERSONS,
 
     # Per frame, record (keypoints, scores) for everyone detected, in detection order.
     #
-    # Deliberately not `Body.__call__`: rtmlib's Body always runs the (expensive)
-    # pose network even when the detector finds no one, falling back to the
+    # Deliberately not `Wholebody.__call__`: rtmlib's Wholebody always runs the
+    # (expensive) pose network even when the detector finds no one, falling back to the
     # whole frame as a fake bbox. Calling det_model/pose_model separately lets
     # us skip the pose network on empty frames entirely — both for speed (most
     # frames here are an empty room) and correctness (that fallback would
     # otherwise write a phantom whole-frame "person" into slot 0 for every
     # frame with nobody in it).
     frame_dets = []
+    timings = {"decode": 0.0, "detect": 0.0, "pose": 0.0}
+    last_bboxes = np.empty((0, 4))
+    frame_idx = 0
     with tqdm(total=total, unit="frame") as pbar:
         while cap.isOpened():
+            t0 = time.perf_counter() if profile else None
             ret, frame = cap.read()
             if not ret:
                 break
+            t1 = time.perf_counter() if profile else None
 
-            bboxes = det_model(frame)
+            if frame_idx % detect_every == 0:
+                last_bboxes = det_model(frame)
+            bboxes = last_bboxes
+            t2 = time.perf_counter() if profile else None
             if len(bboxes) == 0:
                 frame_dets.append((np.empty((0, 0, 0)), np.empty((0, 0))))
             else:
                 keypoints, scores = pose_model(frame, bboxes=bboxes)
                 frame_dets.append((keypoints, scores))
+            t3 = time.perf_counter() if profile else None
+
+            if profile:
+                timings["decode"] += t1 - t0
+                timings["detect"] += t2 - t1
+                timings["pose"] += t3 - t2
+            frame_idx += 1
             pbar.update(1)
+
+    if profile:
+        spent = sum(timings.values()) or 1e-9
+        log.info(
+            "profile (%d frames, detect_every=%d): decode=%.1fs (%.0f%%)  "
+            "detect[cpu]=%.1fs (%.0f%%)  pose[%s]=%.1fs (%.0f%%)",
+            len(frame_dets), detect_every,
+            timings["decode"], 100 * timings["decode"] / spent,
+            timings["detect"], 100 * timings["detect"] / spent,
+            device, timings["pose"], 100 * timings["pose"] / spent,
+        )
     cap.release()
 
     T = len(frame_dets)
