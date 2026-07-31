@@ -86,6 +86,21 @@ def _out(kind, row, suffix):
     return p
 
 
+def _parse_shard(value):
+    """"i/n" -> (i, n), validated. For running multiple concurrent workers
+    against the same manifest without them racing on the same rows: `pending()`
+    has no claim/lock mechanism, so two unsharded workers would both start from
+    the same sorted row list and duplicate work rather than parallelize it."""
+    try:
+        idx_str, total_str = value.split("/")
+        idx, total = int(idx_str), int(total_str)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"{value!r} must look like 'i/n', e.g. '0/2'")
+    if total < 1 or not (0 <= idx < total):
+        raise argparse.ArgumentTypeError(f"{value!r}: need 0 <= i < n, n >= 1")
+    return idx, total
+
+
 def asr_default():
     """asr.py's default engine, imported lazily to keep the env split intact."""
     from multidata import asr
@@ -195,8 +210,15 @@ def stage_elan(row, args):
     transcript = _out("transcripts", row, f"_{args.engine}_{args.model}.json")
     if not transcript.exists():
         raise FileNotFoundError(f"{transcript} — run the asr stage first")
+    wav = Path(row["audio_path"]) if row["audio_path"] else _out("audio", row, ".wav")
+    # row["filepath"] (video) is already stored relative to ROOT (ingest.py);
+    # audio_path isn't (other stages need it directly openable regardless of
+    # cwd) -- convert just for the .eaf link so both media links use the same
+    # repo-relative convention and survive being mounted at a different
+    # absolute path (e.g. this same tree mounted on another machine).
+    wav_rel = wav.relative_to(ROOT) if wav.is_absolute() else wav
     log.info("building ELAN file: %s/%s", row["case_id"], row["camera"])
-    elan.build_eaf(transcript, row["filepath"], _out("elan", row, ".eaf"))
+    elan.build_eaf(transcript, row["filepath"], _out("elan", row, ".eaf"), wav_path=wav_rel)
     return {}
 
 
@@ -251,6 +273,11 @@ def main():
                          "--profile that detection is ~88%% of pose runtime; default 1 "
                          "(every frame) is unchanged/safe, try higher after eyeballing "
                          "a render_overlay() render at your chosen stride")
+    ap.add_argument("--shard", type=_parse_shard, default=None,
+                    help="run only every nth row, for coordinating N concurrent workers "
+                         "against the same manifest with no overlap -- e.g. '0/2' and "
+                         "'1/2' for two workers. Required for concurrency: pending() has "
+                         "no claim/lock, so unsharded workers duplicate each other's work")
     args = ap.parse_args()
 
     _setup_logging(args.verbose)
@@ -262,6 +289,11 @@ def main():
     # rows early and surfaces a representative failure sooner than working in
     # arbitrary (created-order) order would.
     rows.sort(key=lambda r: r["duration_s"] or 0)
+    if args.shard:
+        idx, total = args.shard
+        rows = rows[idx::total]  # interleaved, not split in half: keeps every
+        # worker's share a short+long mix instead of one racing ahead through
+        # all the short rows while another is stuck alone on the long tail.
     log.info("%s: %d pending row(s)", args.stage, len(rows))
 
     ok = failed = 0

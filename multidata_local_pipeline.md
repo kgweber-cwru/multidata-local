@@ -8,7 +8,9 @@ from 1 → a few → potentially 300–400 videos.
 
 > **Assumptions baked in** (from setup decisions): Apple Silicon (arm64),
 > miniforge/conda, Whisper + pyannote run directly (no TranscriptionSuite),
-> manual video ingest now with a scripted-pull stub for later.
+> manual video ingest now with a scripted-pull stub for later. **Exception:**
+> pose estimation (§9) also runs on a second, Linux/CUDA machine — everything
+> else in this guide is Mac-only.
 
 ---
 
@@ -627,24 +629,65 @@ benchmark you can't attribute to an exact config is noise.
 
 ---
 
-## 9. Pose estimation (rtmlib) — `md-pose` env
+## 9. Pose estimation (rtmlib) — `md-pose` env (settled as of commit `aaf0a9b`)
 
-Reuse your existing rtmlib cells, promoted from notebook to `src/multidata/pose.py`
-and pointed at the new layout. Per camera → `data/pose/<case_id>/<camera>.pkl`
-in the `(M, T, V, C)` / `(M, T, V)` format you already produce.
+`src/multidata/pose.py` runs rtmlib's **`Wholebody`** (not `Body`) — 133
+COCO-WholeBody keypoints (body+feet+face+hands) rather than the plain 17-point
+COCO body layout. Per camera → `data/pose/<case_id>/<camera>.pkl`, `(M, T, V,
+C)` / `(M, T, V)`. Indices 0–16 of the 133 are the *same* 17 body joints, same
+order, as plain `Body` output (nose=0, ...) — `kinematics.py` only reads that
+prefix, so it works unchanged against either.
 
-Apple-Silicon speed options (in rough order of effort/payoff):
-- **CoreML execution provider** for onnxruntime can accelerate inference on the
-  Neural Engine/GPU: `onnxruntime` with `providers=["CoreMLExecutionProvider","CPUExecutionProvider"]`.
-  Verify rtmlib passes providers through; if not, this is a small patch. Benchmark
-  it — CoreML EP helps some ops, not all.
-- **Down-sample frame rate** (e.g. process every 2nd–3rd frame) if your analyses
-  tolerate it. Biggest single lever on total runtime.
-- **Lighter model mode** (`mode="lightweight"`) if accuracy allows.
+**Device split, resolved via `--profile` (measure, don't guess):**
+- The **YOLOX detector** is pinned to CPU always, on every platform — CoreML
+  can build a session for it but crashes at inference on its dynamic NMS
+  output shape. Confirmed on Apple Silicon; untested (not addressed) on CUDA,
+  so this may be leaving throughput on the table on a CUDA box specifically.
+- The **RTMPose/RTMW pose network** uses `multidata.device.best_torch_device()`
+  (mps > cuda > cpu) — no flag needed, it auto-picks CoreML on Apple Silicon
+  and CUDA on Nvidia.
+- Profiling on real clips showed the CPU-bound detector, not the accelerated
+  pose network, dominates wall-clock time (~85–93%) regardless of pose model
+  size. That made `--detect-every N` (re-run the detector only every Nth
+  frame, holding bboxes for frames in between, still fed to the pose net every
+  frame) the real lever on throughput — not a lighter model or a fancier
+  device. Validated ~2.8–4x faster on real clips with no observed correctness
+  regression; sanity-check `render_overlay()` at your chosen stride on a clip
+  with real movement before trusting a new stride for a full batch, since a
+  held (stale) bbox can lag a fast-moving person.
 
-> Keep the tracker-off, detection-order-slots behavior from the notebook for now;
-> stable person identity / cross-camera correspondence is still deferred work, not
-> a pipeline blocker.
+**This answers what §11 originally left open ("does pose stay local, or move
+to GPU/cloud?"):** pose now runs split across **two machines** simultaneously,
+both driven by the same `run_stage.py pose` against `manifest.sqlite`:
+- The **Mac** (this machine, Apple Silicon / `mps`).
+- A Linux box, hostname **`tofino`** (CUDA, `--accel-device cuda`). Its old
+  RTX 3070 died mid-run in 2026-07; if/when that box comes back with a
+  replacement GPU, expect local CUDA-specific tweaking on that box that never
+  made it back into this repo's git history — treat re-deploying there as a
+  real merge, not a routine `git pull`.
+
+`manifest.sqlite` moves between the two via `sqlite3 manifest.sqlite ".backup
+<path>"` snapshots, **never** raw `cp`/`rsync` on the live file (risk of a
+torn read while a job has it open). This is a one-way snapshot, not a live
+sync — the two copies fork the moment both machines start writing
+`pose_status`, and need manual merging back later.
+
+**Running more than one worker against the same manifest requires
+`--shard i/n`** (e.g. `--shard 0/2` / `--shard 1/2`): `manifest.pending()` has
+no claim/lock mechanism, so two unsharded workers will start from the same
+sorted row list and duplicate each other's work rather than parallelize it.
+Sharding slices `rows[idx::total]` over the (duration-ascending-sorted) list,
+so every worker gets an interleaved short+long mix rather than one racing
+through all the short rows while another is stuck alone on the long tail.
+
+For the actual live PIDs/log paths/commands of whatever's running *right
+now*, see **[`docs/running_job_notes.md`](docs/running_job_notes.md)** — this
+guide describes the architecture, that file describes the current instance of
+it, and only the latter is meant to be kept perfectly current day to day.
+
+> Tracker is still off, deliberately: slot `s` is just the s-th detection in
+> that frame, not the same person across frames. Stable person identity /
+> cross-camera correspondence is still deferred work, not a pipeline blocker.
 
 ---
 
@@ -764,19 +807,18 @@ to add a video for a case that hasn't been imported/added yet.
 You asked for thinking on the process at scale. The tooling above is built for it,
 but a few things dominate whether this works:
 
-### Compute is the real constraint, and **pose is the bottleneck**
-Your own note: ~10 min to process ~60 s of Body pose on a laptop — that's ~10×
-slower than real time. Napkin math for pose alone:
-
-> 400 videos × 20 min each × 10× realtime ≈ **1,300+ hours** of compute.
-
-That does **not** finish on one Mac mini in any reasonable window. Implications:
-- **Pose must get faster or move off-box** before full scale: CoreML EP, frame
-  down-sampling, and/or offloading pose to a GPU box or cloud batch. Prototype and
-  measure the mini's real per-minute pose cost on 3–5 cases *first*, then
-  extrapolate before you commit to a plan.
-- ASR (mlx-whisper) and diarization are far cheaper (often faster-than-realtime);
-  they'll scale on the mini fine.
+### Compute is the real constraint, and **pose is the bottleneck** (decided; see §9)
+Original napkin math that drove this: ~10 min to process ~60 s of Body pose on
+a laptop — ~10x slower than real time. At 400 videos x 20 min x 10x realtime,
+that's **1,300+ hours** on one machine — not feasible. This is now resolved,
+not hypothetical: pose runs split across **two machines** at once (this Mac +
+the Linux `tofino` box), each running its own `--shard` of `run_stage.py
+pose`, with `--detect-every` cutting the CPU-bound detector's share of the
+work (confirmed via `--profile` to be ~85-93% of wall-clock, not the pose
+network). Full detail, including the current device/model choices and the
+tofino GPU-meltdown/merge risk, is in §9.
+- ASR (`faster_whisper`) and diarization are far cheaper (faster-than-realtime
+  on Apple Silicon); they finished on the Mac alone with no need to split.
 - Design for **overnight, unattended, resumable** batch runs (that's what §10
   buys you). Process **stage-by-stage across all videos**, not video-by-video —
   easier to monitor, checkpoint, and parallelize per stage.
@@ -798,6 +840,11 @@ That does **not** finish on one Mac mini in any reasonable window. Implications:
   silently invalidates comparisons across your 400 videos.
 - Re-running a stage should be deterministic given the same inputs + config, or
   the benchmarking wing is meaningless.
+- **Hardware drift is a real risk on a multi-machine setup, not just software.**
+  Case in point: `tofino`'s old GPU died mid-run after local CUDA tuning that
+  never made it back into this repo (§9). A machine that "comes back up" isn't
+  automatically back to a known state — check what changed locally before
+  trusting a `git pull` there to be the whole story.
 
 ### Human-in-the-loop, sampled not exhaustive
 - You won't hand-correct 400 videos. **Sample** for QC: correct a stratified
@@ -811,7 +858,8 @@ That does **not** finish on one Mac mini in any reasonable window. Implications:
 2. **~5 videos**, batch-driven via the manifest + `run_stage.py`. Prove
    resumability and measure real per-stage timings on the mini.
 3. **Extrapolate compute/storage** from (2). *Then* decide: does pose stay local,
-   or move to GPU/cloud? Does raw storage stay on the mini?
+   or move to GPU/cloud? Does raw storage stay on the mini? *(Decided — see §9:
+   pose splits across the Mac and a Linux CUDA box via `--shard`.)*
 4. **Scale up** only once (1)–(3) hold, adding the scripted ingest (§4b) and
    de-id stage as needed.
 
@@ -830,11 +878,19 @@ ffmpeg -i in.mp4 -vn -ac 1 -ar 16000 -sample_fmt s16 out.wav
 # run a stage across all pending rows
 python scripts/run_stage.py audio
 python scripts/run_stage.py asr
-python scripts/run_stage.py pose
+python scripts/run_stage.py pose --accel-device mps --detect-every 5
+
+# pose split across 2+ concurrent workers against the same manifest (§9) --
+# every active worker needs the same total, e.g. both 0/2 and 1/2, not mixed
+python scripts/run_stage.py pose --accel-device mps --detect-every 5 --shard 0/2
+python scripts/run_stage.py pose --accel-device cuda --detect-every 5 --shard 1/2
 
 # one benchmark run
 python benchmarks/run_benchmark.py --engine faster-whisper --model large-v3
 ```
+
+For whatever's actually running right now (PIDs, log paths, how to check in
+remotely), see [`docs/running_job_notes.md`](docs/running_job_notes.md).
 
 *This is a living document. Update it as the mini reveals real timings and the
 source-system ingest gets figured out.*

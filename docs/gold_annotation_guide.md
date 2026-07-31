@@ -63,6 +63,20 @@ Inconsistency here silently inflates WER. Lock these before annotating:
   don't paper over it.
 - **Inaudible / uncertain:** a fixed tag, e.g. `[inaudible]`, `[unclear: word?]`.
 - **Non-speech:** `[laughter]`, `[phone rings]` — consistent bracketed tags.
+- **Non-participant speech (hallway/room bleed):** some cases have intelligible
+  speech leaking in from outside the room (hallway conversations, etc.) that a
+  mic picks up and Whisper happily transcribes. Transcribe it verbatim like
+  anything else audible (§3's "verbatim, not cleaned" applies here too — don't
+  silently drop real audio content) — but put it on its own `OUTSIDE_ROOM`
+  tier, never attributed to student/patient/preceptor. Then: **exclude the
+  `OUTSIDE_ROOM` tier's text from `<case_id>.gold.txt`** (§7's WER export) —
+  the benchmark should measure transcription of the clinical encounter, not
+  whether the ASR happened to catch a stranger in the hallway — but **include
+  its turn boundaries in `<case_id>.gold.rttm`** (labeled generically, not as
+  one of the real participants). Diarization will likely still detect that
+  voice as acoustically distinct regardless of what the gold says, so leaving
+  it out of the RTTM entirely would falsely penalize a diarizer (via DER) for
+  correctly noticing a real 4th voice.
 - **Numbers, meds, jargon:** decide spelled-out vs digits ("fifteen" vs "15") and
   a canonical spelling list for domain terms (drug names, "mmHg", etc.). This
   directly affects the "nurse/nerds"-class error counting.
@@ -130,20 +144,27 @@ turns as there are distinct speaker segments — still no need to go word-level.
    timestamps aren't guaranteed frame-exact against this one (encoder clock
    drift varies by camera pair — pipeline doc §5), so treat it as a
    supplementary look, not a synced second track.
-2. **Show the waveform.** If it's not already visible, add a waveform viewer via
-   the media panel controls so you can see speech activity, not just hear it.
+2. **Show the waveform.** The draft links the isolated `.wav` alongside the
+   video (not instead of it), so a waveform viewer added via the media panel
+   controls shows real speech activity, not just a video-derived guess.
 3. **Select a speaker's tier**, and step through its word annotations (Grid/Tier
    view makes this easiest — Edit → Grid or click through the tier in the
-   annotation panel).
+   annotation panel). Every draft already has empty `LEARNER`/`PATIENT`/
+   `PRECEPTOR`/`ANNOUNCEMENT`/`OUTSIDE_ROOM` tiers ready to receive
+   annotations (`elan.DEFAULT_TIERS`, pipeline doc §7) — the diarizer's own
+   raw `SPEAKER_NN` tiers are what actually hold the machine-drafted words
+   at this point, since diarization has no notion of clinical role.
 4. **Merge words into a turn.** Select the contiguous run of word annotations for
    one uninterrupted turn, then use ELAN's Annotation → Merge (exact menu wording
    varies slightly by ELAN version — it's under the Annotation menu in 5.x)
    to collapse them into a single annotation spanning the turn.
 5. **Retype the merged text** as the verbatim utterance while listening to the
    audio (loop playback around the selection to catch what Whisper missed).
-6. **Fix speaker attribution** if the draft assigned the wrong tier — move the
-   annotation to the correct speaker's tier, or create a new tier if a speaker
-   wasn't detected at all (e.g. `SPEAKER_02`).
+6. **Fix speaker attribution.** Move each annotation from its raw `SPEAKER_NN`
+   tier to the correct role tier (`LEARNER`/`PATIENT`/`PRECEPTOR`/
+   `ANNOUNCEMENT`/`OUTSIDE_ROOM` — already there, no need to create them).
+   Only create a new tier for a genuinely unanticipated party the five
+   defaults don't cover.
 7. **Mark overlap, disfluencies, inaudible spans, non-speech** per the §3
    conventions as you go.
 8. **Repeat per tier** until every turn in the recording is a clean, retyped,

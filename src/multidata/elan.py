@@ -25,6 +25,13 @@ _BARE_INT = re.compile(r"^\d+$")
 
 _ORPHAN_PUNCT = [".", ",", "?", "!"]
 
+# Every draft starts with these, empty, regardless of what the diarizer's raw
+# SPEAKER_NN tiers hold — diarization has no notion of clinical role, so an
+# annotator's job is to *move* words here, not create the tiers by hand first
+# (gold_annotation_guide.md §3/§4b). Pre-creating them keeps naming consistent
+# across every annotator and every case.
+DEFAULT_TIERS = ("LEARNER", "PATIENT", "PRECEPTOR", "ANNOUNCEMENT", "OUTSIDE_ROOM")
+
 
 def format_speaker_name(speaker_name):
     if speaker_name == "Unknown_Speaker":
@@ -46,13 +53,16 @@ def words_of(transcription_data):
     return words
 
 
-def build_eaf(transcription_data, mp4_path, output_eaf_path):
+def build_eaf(transcription_data, mp4_path, output_eaf_path, wav_path=None):
     """Write an .eaf with one tier per speaker and one annotation per word.
 
     :param transcription_data: dict, loaded JSON transcription (or a path to it)
-    :param mp4_path: str, path to source video — link the video, not just audio,
+    :param mp4_path: str, path to source video — link the video (not just audio),
         so annotators see gesture and speech together
     :param output_eaf_path: str, path to output .eaf file
+    :param wav_path: str, optional path to the isolated audio -- linked
+        *alongside* the video (not instead of it) so ELAN shows a waveform
+        view without giving up the video. Skipped if not given.
     """
     if isinstance(transcription_data, (str, bytes)) or hasattr(transcription_data, "__fspath__"):
         with open(transcription_data) as f:
@@ -60,6 +70,11 @@ def build_eaf(transcription_data, mp4_path, output_eaf_path):
 
     eaf = pympi.Elan.Eaf()
     eaf.add_linked_file(file_path=str(mp4_path), mimetype="video/mp4")
+    if wav_path is not None:
+        eaf.add_linked_file(file_path=str(wav_path), mimetype="audio/x-wav")
+
+    for tier in DEFAULT_TIERS:
+        eaf.add_tier(tier)
 
     words = words_of(transcription_data)
     if not words:

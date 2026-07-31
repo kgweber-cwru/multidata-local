@@ -13,6 +13,9 @@ is carried over.
    build & run guide (machine prep, envs, every stage, scaling to 300–400 videos).
 2. **[docs/gold_annotation_guide.md](docs/gold_annotation_guide.md)** — how to
    build gold references for benchmarking on *our* audio.
+3. **[docs/running_job_notes.md](docs/running_job_notes.md)** — PIDs, log
+   paths, and check-in commands for whatever batch job is actually running
+   right now (currently: pose, split across this Mac and a Linux CUDA box).
 
 ## Layout
 
@@ -24,7 +27,8 @@ scripts/        run_stage.py — manifest-driven, resumable batch runner
 benchmarks/     ASR benchmarking wing (references / configs / results)
 docs/           guides
 data/           GITIGNORED — raw video + derived artifacts (see pipeline doc §2)
-logs/           GITIGNORED — run_stage.py failure traces
+logs/           GITIGNORED — run_stage.py's structured log + nohup/PID files
+                for whatever's running now (see docs/running_job_notes.md)
 ```
 
 ## Quick start
@@ -54,7 +58,7 @@ by module** — know which is which before trusting a run:
 
 | Module | State |
 |---|---|
-| `pose.py`, `kinematics.py` | Promoted verbatim from `mmpose.ipynb`; **ran on real video** on the old machine |
+| `pose.py`, `kinematics.py` | **Settled and running now** (commit `aaf0a9b`): `rtmlib.Wholebody` (133 keypoints), device auto-detect (mps/cuda), `--detect-every` frame-skip, `--shard` for concurrent workers. Split across this Mac and a Linux CUDA box (`tofino`) — see pipeline doc §9 and `docs/running_job_notes.md` |
 | `elan.py` | Promoted from `transcription_suite.ipynb`; **ran on real transcripts**, any engine |
 | `acoustics.py` | Promoted from `praat_maker.ipynb`; **ran on real audio** |
 | `ingest.py`, `audio.py`, `manifest.py`, `run_stage.py` | **Ran end-to-end on real cases** — ingest, audio, asr, elan stages all exercised |
