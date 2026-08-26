@@ -136,26 +136,54 @@ Provider-independent. All testable without a single API call.
 between a sweep you can read and a directory you're afraid of. See
 [Run bookkeeping](#run-bookkeeping) below for the design.
 
-- [ ] **2.1 Run identity + layout** — `benchmarks/runs/<run_id>/` holding
-      `config.resolved.yaml`, the normalized record, the raw response, and
-      `scores.json`. `run_id` is
-      `<UTC timestamp>_<engine>_<model>_<8-char config hash>` — **eye-navigable,
-      not a bare hash**.
-      *Done when:* `ls benchmarks/runs/` is self-explanatory.
-- [ ] **2.2 Response cache** — key `(audio_sha256, provider, params_hash)`.
-      Build before the first adapter; it's the difference between iterating for
-      free and iterating on the meter.
-      *Done when:* a repeat call with identical params makes no network request
-      and no model load.
-- [ ] **2.3 `--out-root`** — same relative layout, swapped root (spec §7).
-- [ ] **2.4 `gold` table in the manifest** — `case_id`, `annotator`,
-      `pass1_frozen_at`, `gold_at`, `standards_version`, `span_start`/`span_end`
-      (for excerpt gold), `notes`.
-      *Done when:* "which cases have usable gold?" is a query, not an `ls`.
-- [ ] **2.5 `scripts/bench_status.py`** — the single "where am I" view: gold
-      references and their state, runs grouped by config with scores, and which
-      cells of the matrix are still empty.
-      *Done when:* it answers "what do I have and what's missing" in one screen.
+- [x] **2.1 Run identity + layout** (`multidata/bench_runs.py`) —
+      `benchmarks/runs/<run_id>/` holding `config.resolved.yaml`, `record.json`
+      (the normalized record), and `scores.json`. `run_id` is
+      `<UTC timestamp>_<engine>_<model>_<8-char config hash>`.
+      *Done:* `ls benchmarks/runs/` reads as a log, confirmed by real smoke
+      test. A separate `raw.json` per spec §4 isn't written yet — today's
+      local engines have no response distinct from their normalized record;
+      a cloud adapter should write one into the same directory once one
+      exists.
+- [x] **2.2 Response cache** (`bench_runs.cache_key`/`cache_get`/`cache_put`,
+      wired into `run_benchmark.py`'s live path) — key
+      `(audio_sha256, provider, params)`, on by default (`--cache-root`),
+      with `--no-cache` as an escape hatch for a genuine timing measurement.
+      *Done:* verified via real smoke test — a repeated identical call made
+      zero engine calls (`source: cache_hit`, `wall_s: 0.0`), a changed
+      model made a fresh one.
+- [x] **2.3 `--out-root`** — done as "the testing tool's output root is a
+      flag, not hardcoded," not as literally sharing run_stage.py's writer
+      function. The two tools' layouts don't cleanly unify (production is
+      per-case/camera, testing needs many runs to coexist per case) and
+      forcing them into one function would cost more than it returns; what
+      they *do* share is `asr.transcribe()` and `records.validate_record()`
+      underneath. Narrower than spec §7's original phrasing — noted here so
+      the gap is visible, not silently reinterpreted.
+- [x] **2.4 `gold` table in the manifest** — `id` (not `case_id`) is the
+      primary key: excerpt gold means several rows can share a `case_id`
+      (standards §3). `eaf_to_gold.py` now records a row on every successful
+      export. *Done:* `manifest.all_gold()` answers "which cases have gold"
+      as a query.
+- [x] **2.5 `scripts/bench_status.py`** — gold references (cross-referencing
+      the manifest **and** disk, in both directions), latest score per
+      (case, engine, model), and empty matrix cells against local engines.
+      *Done:* running it against the real repo immediately surfaced a real
+      drift — case 261456's `.gold.txt`/`.gold.rttm` existed with **no**
+      manifest row, because they were exported before this session's
+      gold-table wiring existed. Backfilled by hand (`manifest.record_gold`)
+      once found. Exactly the kind of silent gap this tool exists to catch,
+      caught on its first real run.
+
+> **A real usage bug surfaced and got fixed along the way, twice:**
+> `run_benchmark.py`'s `--transcript` mode silently recorded `faster_whisper`
+> for a transcript with no `engine` field and no `--engine` passed (case
+> 261456's first two runs) — fixed to refuse instead of guess. And `RESULTS`
+> (the runs.csv ledger) had no override flag, so two rounds of manual smoke
+> testing this phase wrote synthetic rows into the real ledger before
+> `--results` was added and both incidents cleaned up. Neither was caught by
+> a test until it happened for real — worth remembering next time a "surely
+> nobody would do that" gap looks safe to skip.
 
 ---
 
@@ -230,14 +258,28 @@ cloud-specific.
 Blocked on Phase 0 producing an `.eaf`. Required, not optional — the only path
 from annotator output to a scoreable reference.
 
-- [ ] **5.1 `.eaf` → `gold.txt` + `gold.rttm`** (reverse of `build_eaf`): tier
-      exclusion (standards §4), adjacent same-tier merge (§5), redaction (§8).
-      *Done when:* a real `pass1.eaf` round-trips and the RTTM loads in
-      `pyannote`.
-- [ ] **5.2 Excerpt support** — export a time-bounded span, recording it in the
-      `gold` table. See [Scarce gold](#scarce-gold).
-- [ ] **5.3 Layer 2 written to `benchmarks/references/`.**
-      *Done when:* it contains no name from the manifest.
+- [x] **5.1 `.eaf` → `gold.txt` + `gold.rttm`** (`elan.export_gold`,
+      `scripts/eaf_to_gold.py`) — tier exclusion (standards §4), adjacent
+      same-tier merge (§5), redaction via `manifest.names_for_case` (§8).
+      *Done:* verified on a real `pass1.eaf` (case 261456) with real
+      redaction (`[LEARNER_NAME]` in the actual output), and with a
+      synthetic round-trip test suite (`tests/test_elan_export_gold.py`).
+      Landed before this phase's own numbering caught up to it — see the
+      `asr-provider-config` branch history.
+- [x] **5.2 Excerpt support** — `manifest.record_gold`'s
+      `span_start`/`span_end`, and `run_benchmark.py --span-start/--span-end`
+      trims the *hypothesis* to that window before scoring (otherwise every
+      word outside the excerpt is a spurious insertion against a reference
+      that only covers it). **Scope actually delivered:** this records and
+      scores against a span; it does **not** filter a fully-annotated `.eaf`
+      down to a sub-window at export time. The assumed use case is an
+      annotator segmenting only the excerpt's window in the first place, so
+      there's nothing outside it to filter. Extracting a slice from an
+      already-fully-annotated file is unbuilt — flag it if that scenario
+      actually comes up.
+- [x] **5.3 Layer 2 written to `benchmarks/references/`.**
+      *Done:* confirmed on the real 261456 output — no learner/patient/
+      preceptor name present, `[LEARNER_NAME]` in its place.
 
 ---
 
