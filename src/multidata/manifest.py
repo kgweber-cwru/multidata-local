@@ -1,11 +1,18 @@
 """The manifest — a SQLite database of Cases and Videos, the spine of the whole
 thing (doc §10).
 
-Two tables, matching the two models in `multidata.models`:
+The two tables matching the two models in `multidata.models`:
 
   cases   one row per recorded encounter (source-system metadata)
   videos  one row per physical camera file, usually two per case — this is
           what every processing stage actually reads/writes
+
+...plus `cameras`, `video_case_matches` (ingest bookkeeping, §2) and `gold`
+(one row per gold reference produced, possibly several per case for excerpt
+gold — implementation plan Phase 2.4), none of which have their own
+dataclass; `Case`/`Video`/`Camera` exist because their columns get
+constructed programmatically in more than one place, not because every table
+needs one.
 
 Every stage reads the manifest, processes only `pending` video rows, writes
 outputs and updates status. That is what makes batch runs idempotent and
@@ -83,6 +90,24 @@ CREATE TABLE IF NOT EXISTS video_case_matches (
     video_time TEXT NOT NULL,
     candidates TEXT NOT NULL DEFAULT '',
     matched_at TEXT NOT NULL
+);
+
+-- One row per gold reference (docs/asr_provider_implementation_plan.md
+-- Phase 2.4, docs/transcription_standards.md §3/§9). `id`, not `case_id`, is
+-- the primary key: a case can have several gold rows -- excerpt gold from
+-- several spans of the same encounter is an explicitly valid strategy
+-- (standards §3) for stretching limited annotator time across more strata,
+-- so "one gold row per case" would be the wrong constraint to bake in here.
+CREATE TABLE IF NOT EXISTS gold (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    case_id TEXT NOT NULL REFERENCES cases(case_id),
+    annotator TEXT NOT NULL DEFAULT '',
+    pass1_frozen_at TEXT NOT NULL DEFAULT '',
+    gold_at TEXT NOT NULL DEFAULT '',
+    standards_version TEXT NOT NULL DEFAULT '',
+    span_start REAL,
+    span_end REAL,
+    notes TEXT NOT NULL DEFAULT ''
 );
 """
 
@@ -203,6 +228,51 @@ def names_for_case(case_id, path=DEFAULT_PATH):
         "patient": row["sp_name"],
         "preceptor": row["preceptor_name"],
     }
+
+
+def record_gold(case_id, annotator="", pass1_frozen_at="", gold_at="",
+                 standards_version="", span_start=None, span_end=None, notes="",
+                 path=DEFAULT_PATH):
+    """Insert one gold-reference row (implementation plan Phase 2.4). Returns
+    the new row's `id`. Never updates an existing row -- annotation is a
+    sequence of events (pass 1 frozen, then adjudicated), and each call here
+    records one; re-annotating a case is a new row, not an edit to the old
+    one, so the history of what existed when is never destroyed.
+
+    `span_start`/`span_end` (seconds), left `None` for whole-encounter gold,
+    record the excerpt's bounds when only part of the encounter was
+    annotated (standards §3) -- required for a scorer to know what portion
+    of the audio the reference actually covers.
+    """
+    with closing(connect(path)) as conn, conn:
+        cursor = conn.execute(
+            "INSERT INTO gold (case_id, annotator, pass1_frozen_at, gold_at, "
+            "standards_version, span_start, span_end, notes) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (case_id, annotator, pass1_frozen_at, gold_at, standards_version,
+             span_start, span_end, notes),
+        )
+        return cursor.lastrowid
+
+
+def gold_for_case(case_id, path=DEFAULT_PATH):
+    """Every gold row for one case, oldest first -- possibly more than one
+    (standards §3: excerpt gold from several spans is a valid strategy for
+    stretching limited annotator time across more strata)."""
+    with closing(connect(path)) as conn:
+        rows = conn.execute(
+            "SELECT * FROM gold WHERE case_id = ? ORDER BY id", (case_id,)
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def all_gold(path=DEFAULT_PATH):
+    """Every gold row across every case, oldest first -- the query that makes
+    "which cases have usable gold?" a query instead of an `ls` on
+    benchmarks/references/ (implementation plan Phase 2.4's "done when")."""
+    with closing(connect(path)) as conn:
+        rows = conn.execute("SELECT * FROM gold ORDER BY case_id, id").fetchall()
+    return [dict(r) for r in rows]
 
 
 def _camera_sort_key(camera):
