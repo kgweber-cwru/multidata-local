@@ -408,9 +408,10 @@ benchmarks/
 > two annotators are using the same tier set. Changing its tiers is a standards
 > change (§12), not a file edit.
 >
-> An older copy may still exist at `data/template.etf` from before the move. It
-> carries a leftover `default` tier and no `NOTES` tier. **Delete it** — two
-> competing templates is exactly the ambiguity this layout removes.
+> The older duplicate at `data/template.etf` (leftover `default` tier, no
+> `NOTES` tier) was deleted 2026-08-26. If it ever reappears — e.g. someone's
+> local checkout regenerates it — delete it again; two competing templates is
+> exactly the ambiguity this layout removes.
 
 ### Current gaps
 

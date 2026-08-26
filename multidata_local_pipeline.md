@@ -595,11 +595,22 @@ This is a first-class part of the project, not an afterthought. Purpose: measure
 how well ASR/diarization actually work on *your* clinical audio, and compare
 engines/configs objectively.
 
+> **This section (§8) is the original single-engine sketch and is now
+> superseded in most of its detail** by
+> [docs/asr_provider_spec.md](docs/asr_provider_spec.md) (the multi-provider
+> design — local + cloud, glossary, scoring profiles) and
+> [docs/asr_provider_implementation_plan.md](docs/asr_provider_implementation_plan.md)
+> (what's actually built vs. still planned). Kept here for the parts that
+> haven't changed — gold references matter, frozen/hashed audio matters,
+> provenance matters — but treat the spec doc as authoritative on file
+> layout, metrics, and sweep design.
+
 ### 8a. What you need
 - **Gold references.** Human-verified transcripts for a held-out subset (start
-  with 5–10 cases). Store as `benchmarks/references/<case_id>.txt`
-  (or CTM/RTTM for timing/diarization). This is the expensive, essential part —
-  the benchmark is only as good as these.
+  with 5–10 cases). Store as `benchmarks/references/<case_id>.gold.txt`
+  (`.gold.rttm` for diarization) — produced by `scripts/eaf_to_gold.py` from a
+  hand-annotated `.eaf`, not written by hand. This is the expensive, essential
+  part — the benchmark is only as good as these.
 - **Frozen audio.** Reference audio must never change; hash it.
 
 ### 8b. Metrics
@@ -632,10 +643,27 @@ def record(row: dict):
                                mode="a", header=False, index=False)
 ```
 
+> **As built, `run_benchmark.py` is well past this sketch.** No pandas (plain
+> `csv.DictWriter`); a `source` column (`live`/`cache_hit`/`cached`, per
+> whether the engine actually ran); `--transcript` to score a transcript
+> already on disk instead of re-running the engine; `--span-start`/
+> `--span-end` for excerpt gold; a response cache
+> (`multidata.bench_runs`) so a repeated identical call never re-pays for
+> the engine; and a per-run directory under `benchmarks/runs/<run_id>/`
+> holding the resolved config, the normalized record, and the scores behind
+> every `runs.csv` row. See the implementation plan's "Run bookkeeping"
+> section for the design, and `scripts/bench_status.py` for a one-screen
+> view of what's been scored against what.
+
 ### 8d. Provenance (log with EVERY run)
 engine, model name+version, params (beam/temperature/VAD), audio hash, git
 commit, wall-clock time, machine. Append-only `benchmarks/results/runs.csv`. A
 benchmark you can't attribute to an exact config is noise.
+
+> As built, provenance is wider than this list — see §8c's callout and
+> [asr_provider_spec.md](docs/asr_provider_spec.md) §8 for the full current
+> column set (`glossary_sha`, `gold_sha`, `diarizer`, `cost_usd`, ...), most
+> of which land with the first cloud provider (implementation plan Phase 4).
 
 > **Clinical-domain reality:** off-the-shelf Whisper struggles with medical
 > terminology, overlapping speech, and quiet/multi-party rooms. Expect higher WER
@@ -865,8 +893,12 @@ tofino GPU-meltdown/merge risk, is in §9.
 - You won't hand-correct 400 videos. **Sample** for QC: correct a stratified
   subset in ELAN, measure error rates there (§8), and report dataset quality with
   confidence intervals rather than pretending it's all gold.
-- Build the correction loop (machine draft `.eaf` → human edit → store separately)
-  early, on the first few videos, so it's ready when volume arrives.
+- ~~Build the correction loop (machine draft `.eaf` → human edit → store
+  separately)~~ **Superseded 2026-08-26**: gold is now annotated blind and
+  from scratch, not by correcting the machine draft — see
+  [transcription_standards.md](docs/transcription_standards.md) §9 for why.
+  Build the annotation pipeline (template → ELAN → `eaf_to_gold.py`) early
+  instead, on the first few videos, so it's ready when volume arrives.
 
 ### Suggested phasing
 1. **1 video, end to end**, all stages, manually verified. Prove the plumbing.
@@ -900,8 +932,14 @@ python scripts/run_stage.py pose --accel-device mps --detect-every 5
 python scripts/run_stage.py pose --accel-device mps --detect-every 5 --shard 0/2
 python scripts/run_stage.py pose --accel-device cuda --detect-every 5 --shard 1/2
 
-# one benchmark run
-python benchmarks/run_benchmark.py --engine faster-whisper --model large-v3
+# export a hand-annotated .eaf to a scoreable gold reference, then score an
+# engine against it (--case/--audio are required, not optional)
+python scripts/eaf_to_gold.py --eaf data/gold/<case_id>/<case_id>.pass1.eaf --case <case_id>
+python benchmarks/run_benchmark.py --case <case_id> \
+    --audio data/audio/<case_id>/<camera>.wav --engine whisperx_disfluent --model medium
+
+# what's scored, what's missing
+python scripts/bench_status.py
 ```
 
 For whatever's actually running right now (PIDs, log paths, how to check in

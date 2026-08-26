@@ -17,7 +17,10 @@ is carried over.
    walkthrough for producing one gold transcript.
 4. **[docs/asr_provider_spec.md](docs/asr_provider_spec.md)** — how local and
    cloud ASR providers plug in, and how the selection bake-off is scored.
-5. **[docs/running_job_notes.md](docs/running_job_notes.md)** — PIDs, log
+5. **[docs/asr_provider_implementation_plan.md](docs/asr_provider_implementation_plan.md)**
+   — the build checklist for the spec above: what's done, what's deliberately
+   deferred, and why.
+6. **[docs/running_job_notes.md](docs/running_job_notes.md)** — PIDs, log
    paths, and check-in commands for whatever batch job is actually running
    right now (currently: pose, split across this Mac and a Linux CUDA box).
 
@@ -27,10 +30,19 @@ is carried over.
 env/            conda envs — speech (ASR) and pose, kept separate on purpose
 src/multidata/  stages: manifest, ingest, audio, asr, diarize, elan, pose
                 helpers: kinematics (pose features), acoustics (Praat features)
+                ASR benchmark wing: normalize, redact, records, providers,
+                glossary, bench_runs (see docs/asr_provider_spec.md)
 scripts/        run_stage.py — manifest-driven, resumable batch runner
-benchmarks/     ASR benchmarking wing (references / configs / results)
+                eaf_to_gold.py — hand-annotated .eaf -> a scoreable gold reference
+                bench_status.py — one-screen view of gold coverage + scores
+benchmarks/     ASR benchmarking wing
+                configs/    providers.yaml, glossary.yaml — the capability/term registries
+                references/ tracked gold references (<case_id>.gold.txt/.rttm)
+                results/    tracked runs.csv (append-only provenance ledger)
+                runs/, cache/  GITIGNORED — per-run detail + response cache (see spec §7/§9)
 elan/           template.etf — the versioned annotation template
 docs/           guides
+tests/          pytest — see tests/README.md for what is/isn't covered
 data/           GITIGNORED — raw video + derived artifacts (see pipeline doc §2)
 logs/           GITIGNORED — run_stage.py's structured log + nohup/PID files
                 for whatever's running now (see docs/running_job_notes.md)
@@ -54,6 +66,15 @@ conda activate md-pose    && pip install -e .
 conda activate md-speech && python scripts/run_stage.py audio
 conda activate md-speech && python scripts/run_stage.py asr      # --engine whisperx
 conda activate md-pose   && python scripts/run_stage.py pose
+
+# tests (md-speech only; everything else has no pytest/pyyaml installed)
+conda activate md-speech && python -m pytest -q
+
+# once you have a gold .eaf: export it, then score an engine against it
+conda activate md-speech && python scripts/eaf_to_gold.py --eaf <path.eaf> --case <case_id>
+conda activate md-speech && python benchmarks/run_benchmark.py --case <case_id> \
+    --audio data/audio/<case_id>/<camera>.wav --engine whisperx_disfluent --model medium
+conda activate md-speech && python scripts/bench_status.py   # what's scored, what's missing
 ```
 
 ## Status
@@ -67,10 +88,13 @@ by module** — know which is which before trusting a run:
 | `elan.py` | Promoted from `transcription_suite.ipynb`; **ran on real transcripts**, any engine |
 | `acoustics.py` | Promoted from `praat_maker.ipynb`; **ran on real audio** |
 | `ingest.py`, `audio.py`, `manifest.py`, `run_stage.py` | **Ran end-to-end on real cases** — ingest, audio, asr, elan stages all exercised |
-| `asr.py`, `diarize.py` | **Ran end-to-end on real cases.** Default engine is `faster_whisper` (`medium`, `language=en`); every engine's output is word-level speaker-labeled, diarization reused via cached RTTM rather than recomputed. `whisperx` available via `--engine` for testing. |
-| `run_benchmark.py` | Written from doc §8; blocked on gold references existing |
+| `asr.py`, `diarize.py` | **Ran end-to-end on real cases.** Default engine is `faster_whisper` (`medium`, `language=en`); every engine's output is word-level speaker-labeled, diarization reused via cached RTTM rather than recomputed. `whisperx` (hallucination-avoidance-tuned) and `whisperx_disfluent` (tuned to *keep* disfluencies — see [asr_provider_spec.md](docs/asr_provider_spec.md)) available via `--engine`. |
+| `eaf_to_gold.py`, `run_benchmark.py`, `bench_status.py` | **Ran end-to-end on a real case** (261456) — export, live/cached/cache-hit scoring, excerpt-span filtering, and the status view all exercised, not just sketched. First real comparison already in: `whisperx_disfluent` (WER .29) beat `whisperx` (WER .41) on that one case — one data point, not yet a pattern. |
+| `normalize.py`, `redact.py`, `records.py`, `providers.py`, `glossary.py`, `bench_runs.py` | New this round, pure/tested modules underlying the above — see [asr_provider_spec.md](docs/asr_provider_spec.md) |
 
-There are no tests yet. See pipeline doc §11 for the 1 → few → scale phasing.
+**178 tests pass** (`python -m pytest -q` in `md-speech`) — see `tests/README.md`
+for what is and isn't covered. See pipeline doc §11 for the 1 → few → scale
+phasing.
 
 **ASR direction:** Whisper + pyannote run locally. Transcription Suite (the old
 machine's HTTP server) survives only as `--engine suite`, a benchmark comparator;
