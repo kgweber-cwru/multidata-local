@@ -80,11 +80,11 @@ def main():
     ap.add_argument("--audio", required=True)
     ap.add_argument("--engine", default="faster_whisper", choices=sorted(asr.ENGINES))
     ap.add_argument("--model", default="large-v3")
-    ap.add_argument("--reference", help="defaults to benchmarks/references/<case>.txt")
+    ap.add_argument("--reference", help="defaults to benchmarks/references/<case>.gold.txt")
     ap.add_argument("--notes", default="")
     args = ap.parse_args()
 
-    reference_path = Path(args.reference or REFERENCES / f"{args.case}.txt")
+    reference_path = Path(args.reference or REFERENCES / f"{args.case}.gold.txt")
     if not reference_path.exists():
         sys.exit(f"No gold reference at {reference_path} — see docs/transcription_standards.md")
     ref = reference_path.read_text()
