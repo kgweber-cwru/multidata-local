@@ -197,24 +197,21 @@ providers:
     kind: cloud
     diarizes_internally: true       # `speaker_labels=true`
     word_timings: true
-    glossary_mechanism: word_boost  # TODO verify current mechanism name/shape for Universal-3 Pro specifically
-    glossary_limit: null            # TODO verify
+    glossary_mechanism: "keyterms_prompt"  # TODO verify current mechanism name/shape for Universal-3.5 Pro specifically
+    glossary_limit: "1000 terms"            # TODO verify
     disfluency_param: "disfluencies (bool)"   # TODO verify still current under Universal-3 Pro
     best_disfluency_config:
       disfluencies: true
-    speaker_hint_param: null        # TODO verify: speakers_expected or similar
+    speaker_hint_param: "speakers_expected"
     formatting_off_param: "format_text=false / punctuate=false"
-    long_audio: null                # TODO verify current limits
-    baa_available: null             # TODO verify
-    no_train_flag: null             # TODO verify
-    cost_per_minute: null           # TODO fill in from current pricing page
-    verified: false
-    checked_on: null
+    long_audio: "5GB or 10h"
+    baa_available: "self-serve"             # TODO verify
+    no_train_flag: "opt out via control panel"
+    cost_per_minute: "0.0035 + 0.0025(Medical) + 0.00083 (keyterms) + 0.00083 (prompting) + 0.0003 (Diarization)"    # TODO fill in from current pricing page
+    verified: true
+    checked_on: 2026-08-26
     notes: >
-      "Universal-3 Pro" and "Medical Mode" as named by Kate are UNCONFIRMED
-      against public docs as of this draft (post-dates general knowledge
-      cutoff) -- verify product/tier names exist before configuring anything
-      against them.
+      Pricing stacks depending on what add-ons we want
 
   elevenlabs:
     kind: cloud
