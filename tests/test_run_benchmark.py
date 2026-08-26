@@ -17,8 +17,10 @@ import run_benchmark  # noqa: E402
 
 
 def _args(**overrides):
-    defaults = dict(audio="fake.wav", engine="faster_whisper", model="large-v3",
-                     transcript=None)
+    # engine=None matches the real CLI's argparse default -- None means "the
+    # user did not type --engine", distinct from explicitly passing a value
+    # that happens to match the default (see load_result's refusal logic).
+    defaults = dict(audio="fake.wav", engine=None, model="large-v3", transcript=None)
     defaults.update(overrides)
     return argparse.Namespace(**defaults)
 
@@ -59,8 +61,9 @@ class TestCachedMode:
         assert source == "cached"
         assert wall_s == 0.0
 
-    def test_missing_transcript_engine_falls_back_to_arg(self, tmp_path):
-        # An older/hand-built JSON with no "engine" key at all.
+    def test_missing_transcript_engine_uses_explicit_arg(self, tmp_path):
+        # An older/hand-built JSON with no "engine" key at all -- fine as
+        # long as --engine was given explicitly.
         transcript = tmp_path / "t.json"
         transcript.write_text(json.dumps({"segments": []}))
         result, engine, source, _ = run_benchmark.load_result(
@@ -68,6 +71,15 @@ class TestCachedMode:
         )
         assert engine == "whisperx"
         assert source == "cached"
+
+    def test_missing_transcript_engine_and_no_explicit_arg_refuses(self, tmp_path):
+        # The exact bug this guards against (case 261456): a transcript with
+        # no "engine" field, and the user didn't type --engine either --
+        # must refuse rather than silently recording asr.DEFAULT_ENGINE.
+        transcript = tmp_path / "t.json"
+        transcript.write_text(json.dumps({"segments": []}))
+        with pytest.raises(SystemExit):
+            run_benchmark.load_result(_args(transcript=str(transcript), engine=None))
 
     def test_transcript_engine_overrides_mismatched_arg(self, tmp_path, capsys):
         transcript = tmp_path / "t.json"

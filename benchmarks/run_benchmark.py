@@ -92,12 +92,16 @@ def load_result(args):
     """`(result, engine, source, wall_s)` -- either run `args.engine` live, or
     load `args.transcript` from disk and skip the engine entirely.
 
-    In cached mode, the transcript's *own* `engine` field (every
-    `asr.transcribe()` output carries one) is the source of truth for the
-    provenance row, not whatever `--engine` happens to default to or was
-    typed -- a forgotten/mismatched `--engine` still gets recorded correctly,
-    just with a note printed, rather than silently mislabeling which engine
-    actually produced the scored transcript.
+    In cached mode, the transcript's *own* `engine` field (which
+    `asr.transcribe()` stamps, but a bare `transcribe_whisperx_disfluent()`-
+    style call does not) is the source of truth for the provenance row. If
+    it's present and `--engine` disagrees, that's a note, not an error --
+    the recorded field wins. If it's **absent**, `--engine` must be given
+    explicitly (`args.engine is not None`, i.e. actually typed, not just
+    defaulted) -- refusing rather than silently falling back to
+    `asr.DEFAULT_ENGINE` is the whole point: a missing field with a silent
+    guess produces a confidently-wrong provenance row with no signal
+    anything was off, which is worse than an error.
     """
     if args.transcript:
         transcript_path = Path(args.transcript)
@@ -105,10 +109,25 @@ def load_result(args):
             sys.exit(f"No transcript at {transcript_path}")
         with open(transcript_path) as f:
             result = json.load(f)
-        engine = result.get("engine") or args.engine
-        if result.get("engine") and result["engine"] != args.engine:
-            print(f"note: scoring transcript's own engine={result['engine']!r}, "
-                  f"not --engine={args.engine!r}", file=sys.stderr)
+        recorded_engine = result.get("engine")
+
+        if recorded_engine:
+            if args.engine and args.engine != recorded_engine:
+                print(f"note: scoring transcript's own engine={recorded_engine!r}, "
+                      f"not --engine={args.engine!r}", file=sys.stderr)
+            engine = recorded_engine
+        elif args.engine:
+            engine = args.engine
+        else:
+            sys.exit(
+                f"{transcript_path} has no 'engine' field recorded -- it was likely "
+                "produced by calling a transcribe_*() function directly rather than "
+                "asr.transcribe(), which stamps this. Pass --engine explicitly so the "
+                "provenance row isn't a silent guess (this bit Kate on case 261456: "
+                "two rows silently recorded as faster_whisper when the transcript was "
+                "actually whisperx_disfluent)."
+            )
+
         # No engine ran, so there's no transcription time to report -- 0.0,
         # not a timed-but-meaningless JSON-load duration (see FIELDS comment
         # on why `source` exists to disambiguate this from a genuinely fast
@@ -116,11 +135,12 @@ def load_result(args):
         # number).
         return result, engine, "cached", 0.0
 
-    kwargs = {} if args.engine == "suite" else {"model_name": args.model}
+    engine = args.engine or asr.DEFAULT_ENGINE
+    kwargs = {} if engine == "suite" else {"model_name": args.model}
     started = time.perf_counter()
-    result = asr.transcribe(args.audio, engine=args.engine, **kwargs)
+    result = asr.transcribe(args.audio, engine=engine, **kwargs)
     wall_s = time.perf_counter() - started
-    return result, args.engine, "live", wall_s
+    return result, engine, "live", wall_s
 
 
 def main():
@@ -128,9 +148,10 @@ def main():
     ap.add_argument("--case", required=True)
     ap.add_argument("--audio", required=True,
                      help="for provenance hashing (doc §8a) -- required even with --transcript")
-    ap.add_argument("--engine", default="faster_whisper", choices=sorted(asr.ENGINES),
-                     help="engine to run live; with --transcript this is only a fallback "
-                          "label, overridden by the transcript's own recorded engine")
+    ap.add_argument("--engine", default=None, choices=sorted(asr.ENGINES),
+                     help=f"engine to run live (default: {asr.DEFAULT_ENGINE}); with "
+                          "--transcript, only used when the transcript has no recorded "
+                          "engine of its own, and REQUIRED in that case -- no silent guess")
     ap.add_argument("--model", default="large-v3",
                      help="for the provenance row -- a transcript JSON doesn't record its "
                           "own model size, so this isn't inferred from --transcript")
