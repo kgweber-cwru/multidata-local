@@ -1,0 +1,68 @@
+# Canonical domain-term glossary — docs/asr_provider_spec.md §3,
+# docs/transcription_standards.md §6.
+#
+# One file, three consumers: annotators spell domain terms from this list,
+# ASR provider adapters render it into whichever biasing mechanism they have,
+# and the benchmark hashes its content (glossary_sha in run provenance).
+#
+# Loaded by multidata.glossary.load_glossary(); each entry needs at least a
+# non-empty `term`. `weight`/`category`/`pronunciation` are optional
+# per-provider hints -- a renderer may ignore any it doesn't use.
+#
+# SEED LIST ONLY. These are illustrative examples of the failure classes this
+# file exists to fix (the "nurse -> nerds" substitution class named
+# throughout the pipeline doc). Grow this
+# from real terms annotators actually hit during gold transcription
+# (transcription_standards.md §6: "hit a term that isn't in it? add it") --
+# do not bulk-import a standard vocabulary (RxNorm/SNOMED) per the
+# already-settled decision to keep this hand-curated and small
+# (asr_provider_spec.md §3).
+
+schema_version: 1
+
+terms:
+  - term: mmHg
+    category: unit
+    weight: 1.0
+
+  - term: tachycardia
+    category: clinical_term
+    weight: 1.0
+
+  - term: bradycardia
+    category: clinical_term
+    weight: 1.0
+
+  - term: dyspnea
+    category: clinical_term
+    weight: 1.0
+    pronunciation: "disp-NEE-uh"
+
+  - term: erythema
+    category: clinical_term
+    weight: 1.0
+
+  - term: auscultation
+    category: clinical_term
+    weight: 0.8
+
+  - term: palpation
+    category: clinical_term
+    weight: 0.8
+
+  - term: OSCE
+    category: acronym
+    weight: 0.6
+    pronunciation: "AH-skee"
+
+  - term: metformin
+    category: medication
+    weight: 1.0
+
+  - term: lisinopril
+    category: medication
+    weight: 1.0
+
+  - term: albuterol
+    category: medication
+    weight: 1.0

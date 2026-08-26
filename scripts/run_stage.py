@@ -160,16 +160,18 @@ def stage_asr(row, args):
     wav = row["audio_path"] or _out("audio", row, ".wav")
     out = _out("transcripts", row, f"_{args.engine}_{args.model}.json")
 
-    # `suite` has no model-size selection (fixed remote server); the other
-    # two share `model_name`/`language`. Device kwargs only make sense for
-    # whisperx -- ctranslate2 keeps the Whisper model itself on `--device`
-    # (cpu/cuda only); `--accel-device` governs the torch-based
-    # alignment/diarization steps and defaults to the fastest available.
+    # `suite` has no model-size selection (fixed remote server); the rest
+    # share `model_name`/`language`. Device kwargs only make sense for the
+    # whisperx family -- ctranslate2 keeps the Whisper model itself on
+    # `--device` (cpu/cuda only; left unset it auto-detects, see the flag's
+    # help); `--accel-device` governs the torch-based alignment/diarization
+    # steps and defaults to the fastest available.
     engine_kwargs = {"language": args.language}
     if args.engine != "suite":
         engine_kwargs["model_name"] = args.model
-    if args.engine == "whisperx":
-        engine_kwargs["device"] = args.device
+    if args.engine in asr.TAKES_DIARIZE_DEVICE:
+        if args.device is not None:
+            engine_kwargs["device"] = args.device
         if args.accel_device is not None:
             engine_kwargs["align_device"] = args.accel_device
 
@@ -254,9 +256,11 @@ def main():
                     help="asr: language code, skips auto-detect")
     ap.add_argument("--loudnorm", action="store_true", help="audio: loudness-normalize")
     ap.add_argument("--max-speakers", type=int, help="diarize: upper bound hint")
-    ap.add_argument("--device", default="cpu",
-                    help="asr (whisperx): Whisper model device -- cpu/cuda only, "
-                         "never mps (ctranslate2 doesn't support it)")
+    ap.add_argument("--device", default=None,
+                    help="asr (whisperx family): Whisper model device -- cpu/cuda only, "
+                         "never mps (ctranslate2 doesn't support it). Default auto-detects "
+                         "(multidata.device.best_ct2_device) -- cpu on this Mac, cuda with "
+                         "no flag needed on an NVIDIA box.")
     ap.add_argument("--accel-device", default=None,
                     help="asr/diarize/pose: device for the torch/onnxruntime-based "
                          "diarization (and, if set, alignment) and pose-network steps "

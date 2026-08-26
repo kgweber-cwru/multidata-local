@@ -18,3 +18,10 @@ package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Everything under tests/ is stdlib-only or pyyaml-only by design (see
+# tests/README.md) -- runnable in any of the three envs, but conventionally
+# run from md-speech since that's where the modules under test (asr.py,
+# providers.py, glossary.py) live day to day.

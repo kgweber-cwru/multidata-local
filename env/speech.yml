@@ -23,3 +23,5 @@ dependencies:
       - pandas
       - jupyter
       - python-dotenv
+      - pyyaml                # providers.yaml / glossary.yaml (multidata.providers/.glossary)
+      - pytest                # tests/ -- see pyproject.toml [tool.pytest.ini_options]

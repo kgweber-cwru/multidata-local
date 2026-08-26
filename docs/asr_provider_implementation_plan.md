@@ -38,11 +38,11 @@ know which layer broke.
 Annotation and the Whisper disfluency sweep both start here. Neither needs a
 vendor, a key, or a gold file.
 
-- [ ] **0.1 Start gold annotation on the first case.** Assign an annotator, walk
+- [x] **0.1 Start gold annotation on the first case.** Assign an annotator, walk
       them through [annotator_guide.md](annotator_guide.md), watch the first
       30 minutes over their shoulder.
       *Done when:* one `pass1.eaf` is frozen.
-- [ ] **0.2 Validate the guide's ELAN mechanics** against the installed version.
+- [x] **0.2 Validate the guide's ELAN mechanics** against the installed version.
       Menu wording and Segmentation Mode keystrokes drift between 6.x releases.
       *Done when:* someone has followed §1–§4 start to finish and fixed anything
       wrong.
@@ -51,6 +51,10 @@ vendor, a key, or a gold file.
       model size. **Needs no gold**, so it runs during the annotation window.
       *Done when:* a table of config → fillers/min exists, with a 2-minute
       sample eyeballed per config to confirm they're real and not hallucinated.
+      **The tool to run this now exists** (`asr.transcribe_whisperx_disfluent`,
+      Phase 3.3) with a starting config — this item is about actually running
+      the sweep against real audio and picking a winner, not building the
+      engine.
 - [ ] **0.4 Verify the capability matrix** against live vendor docs; record the
       check date per row. *Gates Phase 4 only.*
       *Done when:* spec §2's ⚠️ can be removed.
@@ -60,7 +64,7 @@ vendor, a key, or a gold file.
 - [ ] **0.7 Set `cloud_release`** on the dev subset, with basis recorded.
 
 > **0.3 is the experiment that motivated this ordering.** Whisper's cleaning
-> behavior is learned, not configured — subtitle-derived training data strips
+> behavior is learned — subtitle-derived training data strips
 > disfluencies, and the prior is strong. Expect a low ceiling. **Finding the
 > ceiling is the finding**: "the local default structurally cannot produce
 > verbatim clinical transcripts, and here is the sweep proving it" is exactly
@@ -78,29 +82,51 @@ vendor, a key, or a gold file.
 
 Provider-independent. All testable without a single API call.
 
-- [ ] **1.1 `benchmarks/configs/providers.yaml`** — capability registry per
-      spec §2, plus a validating loader.
-      *Done when:* loader rejects a provider missing a required field.
-- [ ] **1.2 `benchmarks/configs/glossary.yaml`** — schema and a hand-seeded set
-      from known problem terms.
-      *Done when:* loads and content-hashes stably.
-- [ ] **1.3 `multidata/normalize.py`** — L0/L1/L2 profiles and shared
-      transforms: casing, punctuation, whitespace, **bracket stripping**, number
-      canonicalization, filler class.
-      *Done when:* **tests pass** (below).
-- [ ] **1.4 Name redaction** from manifest columns, fuzzy-matched, applied to
-      both sides, every substitution logged.
-- [ ] **1.5 Normalized record schema** — formalize the existing shape with
-      `schema_version`, `word_timing`, `chunked`, `provenance` (spec §4). A
-      validator, not a class hierarchy.
-      *Done when:* existing `faster_whisper` output validates unchanged.
+- [x] **1.1 `benchmarks/configs/providers.yaml`** — capability registry per
+      spec §2, plus a validating loader (`multidata/providers.py`).
+      *Done:* loader rejects any entry missing a required field, and reports
+      every bad entry at once rather than stopping at the first. **Cloud rows
+      in the file are still an unverified draft** (0.4 is unstarted) — the
+      loader accepts them structurally; nothing here checks them against
+      reality. `test_local_providers_match_asr_engines_exactly` pins the
+      registry and `asr.ENGINES` to the same set so they can't silently drift.
+- [x] **1.2 `benchmarks/configs/glossary.yaml`** — schema and a hand-seeded set
+      from known problem terms, plus a loader (`multidata/glossary.py`).
+      *Done:* loads, content-hashes stably (whitespace/comment-proof), hash
+      changes on any real edit. Seed list is illustrative examples only, per
+      the file's own header — needs growing from real annotation.
+- [x] **1.3 `multidata/normalize.py`** — L0/L1/L2 profiles and shared
+      transforms: casing, punctuation, whitespace, **bracket stripping**,
+      filler class. *Done:* **tests pass** (`tests/test_normalize.py`, 40+
+      cases). Caught two real bugs before landing: `BACKCHANNELS` had
+      `"huh?"` in a form punctuation-stripping made unreachable, and the fuzzy
+      name-match threshold (redact.py, below) was too strict to catch
+      "Jamie"/"Jamey" (ratio 0.80 < the original 0.82 cutoff). **Number
+      canonicalization is explicitly deferred**, not silently skipped — see
+      `NUMBER_CANONICALIZATION_TODO` in the module. Blind rule-writing before
+      any gold transcript has real numeric content in it risks confident
+      rules for formats nobody actually uses here; revisit once Phase 5 gold
+      exists.
+- [x] **1.4 Name redaction** (`multidata/redact.py` + `manifest.names_for_case`)
+      — fuzzy-matched against the manifest's name columns, tag-based
+      (`[LEARNER_NAME]` etc.) so it passes straight through the existing
+      bracket-stripping rule for free. *Done as a tested primitive* — tests
+      pass; **wiring it into an actual scoring run is Phase 6**, not done yet.
+- [x] **1.5 Normalized record schema** (`multidata/records.py`) —
+      `finalize_record`/`validate_record` with `schema_version`, `word_timing`,
+      `chunked`, `provenance` (spec §4). A validator, not a class hierarchy.
+      *Done:* the real `transcribe_faster_whisper` shape (pre-diarization-merge,
+      no `speaker` on words yet) validates unchanged — `validate_record` is
+      deliberately lenient about *which pipeline stage* a record is at, not
+      just its final shape.
 
-> **The repo has no tests. Start them here.** `normalize.py` is deterministic,
-> pure, and has the largest blast radius in the project — a filler-stripping bug
-> silently corrupts every L1 number in every future run and nothing looks wrong.
-> Test specifically: backchannels survive L1 (`uh-uh` must never be stripped),
-> fillers don't, `[...]` spans vanish from both sides, L2 collapses repetitions
-> without touching backchannels.
+> **Tests now exist** (`tests/`, 109 passing) — see `tests/README.md` for what
+> they do and don't cover. `normalize.py` and `redact.py` got the most
+> scrutiny per the plan's own reasoning: both are deterministic, pure, and
+> have the largest blast radius in the project. The two real bugs caught
+> above are exactly the "nothing looks wrong" failure mode this was meant to
+> catch — both were silent until a parametrized test forced every value in
+> `BACKCHANNELS`/a real misspelling through the code.
 
 ---
 
@@ -137,18 +163,44 @@ between a sweep you can read and a directory you're afraid of. See
 
 The shared layer, end to end, at zero marginal cost.
 
+> **Pulled forward, out of order, on request:** the disfluency-preservation
+> engine below (3.5's `whisperx_disfluent`) landed during the Phase 1 push
+> rather than waiting for 3.1–3.4, since it's local, needs no keys/IRB/budget,
+> and is exactly the tool Phase 0.3's sweep needs to exist before it can run.
+> No ordering violation — it's provider-independent, same reasoning as
+> Phase 0's parallelism.
+
 - [ ] **3.1 Adapter contract** — the minimal protocol a provider implements.
       Resist a base class until there are three implementations to generalize
-      from.
-- [ ] **3.2 Port `faster_whisper` onto it** without behavior change.
-      *Done when:* output is byte-identical to pre-port for the same input, or
-      every difference is explained.
-- [ ] **3.3 Disfluency configuration** — promote 0.3's best config into the
-      registry as Whisper's `best_disfluency_config`.
-- [ ] **3.4 Glossary renderer for `initial_prompt`** — the lossiest mechanism
-      (prose, no weights), so it's the honest first test of lossiness reporting.
-- [ ] **3.5 `whisperx` as the second registry entry** — nearly free, and proves
-      the registry distinguishes two engines sharing a glossary mechanism.
+      from. **Deliberately still not built**: today's `whisperx_disfluent`
+      addition used the existing sibling-function pattern
+      (`transcribe_faster_whisper`/`transcribe_whisperx`/`transcribe_suite`)
+      rather than introducing a protocol, per this exact "resist a base class"
+      note. Revisit once a cloud adapter (Phase 4) needs shape enforcement
+      that four sibling functions can no longer provide informally.
+- [ ] **3.2 Port `faster_whisper` onto it** — blocked on 3.1 (no adapter
+      contract to port onto yet). **Not the same as** the device-portability
+      change already made to `transcribe_faster_whisper` (now routes through
+      `device.best_ct2_device`/`best_ct2_compute_type` instead of hardcoding
+      cpu/int8) — that change needed no contract, it's still the same
+      function shape.
+- [ ] **3.3 Disfluency configuration** — `asr.transcribe_whisperx_disfluent`
+      exists with a **starting** config (`condition_on_previous_text=True` +
+      `DISFLUENCY_PROMPT`, written in-register rather than describing the
+      register), registered in `providers.yaml` as
+      `whisperx_disfluent.best_disfluency_config`. **This is a hypothesis, not
+      the swept winner** — Phase 0.3's actual reference-free sweep (fillers/min
+      across configs, eyeballed) hasn't run yet. Don't treat the registry
+      entry as validated until it has.
+- [ ] **3.4 Glossary renderer for `initial_prompt`** — not built. The glossary
+      *source* (`glossary.yaml`) and its loader exist (1.2); turning its terms
+      into an actual prompt string for Whisper does not yet.
+- [x] **3.5 `whisperx` as a second registry entry** — done, and exceeded: the
+      registry now has `whisperx` (hallucination-avoidance-tuned, unchanged
+      behavior) **and** `whisperx_disfluent` (new) as separate entries sharing
+      `glossary_mechanism: initial_prompt`, plus `faster_whisper` and `suite`.
+      `test_local_providers_match_asr_engines_exactly` proves the registry and
+      `asr.ENGINES` agree on the full local set, not just this one pair.
 
 ---
 

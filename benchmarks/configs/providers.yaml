@@ -1,0 +1,216 @@
+# ASR provider capability registry — docs/asr_provider_spec.md §2.
+#
+# Read by multidata.providers.load_providers(), which requires every field
+# below to be *present* on every entry (null is a valid value; a missing key
+# is not) — see that module's REQUIRED_FIELDS for the exact contract.
+#
+# ⚠️  CLOUD ROWS ARE A DRAFT, NOT VERIFIED.  Written from general knowledge
+# current to roughly January 2026; AssemblyAI Universal-3 Pro and ElevenLabs
+# Scribe v2 are at or past that horizon, and every vendor here ships changes
+# faster than this file gets edited. `verified: false` / `checked_on: null`
+# on a row means exactly that — do not build an adapter against it before
+# checking it against live vendor docs and flipping both fields
+# (implementation plan Phase 0.4). Kate: please correct anything wrong here,
+# especially the AssemblyAI Medical Mode and ElevenLabs glossary rows, which
+# are the least certain.
+#
+# Local rows (faster_whisper / whisperx / whisperx_disfluent / suite) are
+# marked verified — that's not a vendor claim, it's a fact read straight off
+# our own src/multidata/asr.py, so there's nothing external to check.
+
+schema_version: 1
+
+providers:
+
+  faster_whisper:
+    kind: local
+    diarizes_internally: false      # asr._diarize_and_merge attaches pyannote afterward
+    word_timings: true
+    glossary_mechanism: initial_prompt   # lossy: prose, no per-term weights
+    glossary_limit: null            # soft prose-length limit, not a term count
+    disfluency_param: null          # no dedicated switch -- see whisperx_disfluent instead
+    best_disfluency_config: null    # this engine is tuned FOR hallucination avoidance,
+                                     # i.e. against disfluency retention (doc §6a) -- do
+                                     # not use it as the disfluency-preservation arm
+    speaker_hint_param: "diarize.diarize(num_speakers=/min_speakers=/max_speakers=)"
+    formatting_off_param: null      # faster-whisper applies no smart formatting
+    long_audio: null                # no vendor limit; local, compute-bound only
+    baa_available: null             # not applicable -- audio never leaves this machine
+    no_train_flag: null             # not applicable, same reason
+    cost_per_minute: 0
+    verified: true
+    checked_on: "2026-08-26"
+    notes: >
+      Default pipeline engine (asr.DEFAULT_ENGINE). Device now auto-detects
+      via multidata.device.best_ct2_device/best_ct2_compute_type -- cpu/int8
+      on this Mac, cuda/float16 with no code change on an NVIDIA box.
+
+  whisperx:
+    kind: local
+    diarizes_internally: true       # via whisperx.diarize.DiarizationPipeline (pyannote)
+    word_timings: true              # wav2vec2 forced alignment -- arguably better than CT2's native timestamps
+    glossary_mechanism: initial_prompt
+    glossary_limit: null
+    disfluency_param: "condition_on_previous_text (bool)"
+    best_disfluency_config: null    # this is the hallucination-avoidance-tuned default;
+                                     # see whisperx_disfluent for the tuned-for-disfluency sibling
+    speaker_hint_param: "num_speakers/min_speakers/max_speakers -> DiarizationPipeline"
+    formatting_off_param: null
+    long_audio: null
+    baa_available: null
+    no_train_flag: null
+    cost_per_minute: 0
+    verified: true
+    checked_on: "2026-08-26"
+    notes: >
+      Bundles transcribe + alignment + diarization in one call. Available via
+      --engine for testing/comparison against faster_whisper.
+
+  whisperx_disfluent:
+    kind: local
+    diarizes_internally: true
+    word_timings: true
+    glossary_mechanism: initial_prompt
+    glossary_limit: null
+    disfluency_param: "condition_on_previous_text=True + initial_prompt written in disfluent register"
+    best_disfluency_config:
+      condition_on_previous_text: true
+      initial_prompt: "asr.DISFLUENCY_PROMPT"
+      note: >
+        Starting point, not a conclusion -- promote implementation plan
+        Phase 0.3's actual sweep winner here once it exists. Also sweep
+        condition_on_previous_text=False on this same prompt before trusting
+        =True on noisy audio; it's the main hallucination-loop lever, turned
+        back on deliberately.
+    speaker_hint_param: "num_speakers/min_speakers/max_speakers -> DiarizationPipeline"
+    formatting_off_param: null
+    long_audio: null
+    baa_available: null
+    no_train_flag: null
+    cost_per_minute: 0
+    verified: true
+    checked_on: "2026-08-26"
+    notes: >
+      New: the disfluency-preservation arm (asr.transcribe_whisperx_disfluent),
+      registered as its own engine rather than a flag on whisperx so a sweep
+      config never accidentally flips condition_on_previous_text on the
+      hallucination-avoidance-tuned default. Confirmed against the installed
+      whisperx that asr_options accepts initial_prompt/
+      condition_on_previous_text -- re-check if whisperx is upgraded
+      (env/speech.yml doesn't pin its version).
+
+  suite:
+    kind: local
+    diarizes_internally: true       # server-side (sortformer)
+    word_timings: true
+    glossary_mechanism: initial_prompt   # the server's own `prompt` request field
+    glossary_limit: null
+    disfluency_param: null
+    best_disfluency_config: null
+    speaker_hint_param: "expected_speakers (request field)"
+    formatting_off_param: null
+    long_audio: null
+    baa_available: null
+    no_train_flag: null
+    cost_per_minute: 0
+    verified: true
+    checked_on: "2026-08-26"
+    notes: >
+      Transcription Suite HTTP server (parakeet + sortformer) -- benchmark
+      comparator only, not the intended pipeline. Requires that server
+      running locally; not a cloud provider despite being a network call.
+
+  deepgram:
+    kind: cloud
+    diarizes_internally: true       # `diarize=true`
+    word_timings: true
+    glossary_mechanism: keyterm     # Nova-3's natural-language keyterm prompting
+    glossary_limit: null            # TODO verify: Nova-3 keyterm count/length limits
+    disfluency_param: "filler_words (bool)"
+    best_disfluency_config:
+      filler_words: true
+    speaker_hint_param: null        # TODO verify: does Nova-3 accept a speaker-count hint at all?
+    formatting_off_param: "smart_format=false / punctuate=false"
+    long_audio:
+      sync_limit_s: null            # TODO verify current sync request duration limit
+      async_path: "TODO verify: async/batch endpoint details"
+    baa_available: true             # TODO verify current terms -- generally offered historically
+    no_train_flag: "TODO verify: zero-retention / no-train request flag or account-level setting"
+    cost_per_minute: null           # TODO fill in from current pricing page
+    verified: false
+    checked_on: null
+    notes: >
+      First provider to implement (implementation plan Phase 4) -- the only
+      candidate exercising internal diarization, word timings, a keyterm
+      glossary, AND a real filler_words switch at once.
+
+  google:
+    kind: cloud
+    diarizes_internally: null       # TODO verify: varies by model/version (Chirp vs. standard)
+    word_timings: true
+    glossary_mechanism: phrase_set
+    glossary_limit: null            # TODO verify: PhraseSet size/boost limits
+    disfluency_param: null          # TODO verify: Chirp models largely cannot emit fillers per public docs as of ~2026-01
+    best_disfluency_config: null
+    speaker_hint_param: null        # TODO verify
+    formatting_off_param: "enableAutomaticPunctuation=false (TODO verify exact field for the model in use)"
+    long_audio:
+      sync_limit_s: 60              # TODO verify -- historically ~1 minute for synchronous recognize
+      async_path: "GCS staging required beyond the sync limit -- TODO verify current requirement"
+    baa_available: null             # TODO verify
+    no_train_flag: null             # TODO verify
+    cost_per_minute: null           # TODO fill in from current pricing page
+    verified: false
+    checked_on: null
+    notes: >
+      Expected hardest adapter (implementation plan Phase 7.2): GCS staging
+      for long audio, and Chirp variants may not support diarization and
+      adaptation (glossary) at the same time -- confirm before assuming both
+      can be requested together.
+
+  assemblyai:
+    kind: cloud
+    diarizes_internally: true       # `speaker_labels=true`
+    word_timings: true
+    glossary_mechanism: word_boost  # TODO verify current mechanism name/shape for Universal-3 Pro specifically
+    glossary_limit: null            # TODO verify
+    disfluency_param: "disfluencies (bool)"   # TODO verify still current under Universal-3 Pro
+    best_disfluency_config:
+      disfluencies: true
+    speaker_hint_param: null        # TODO verify: speakers_expected or similar
+    formatting_off_param: "format_text=false / punctuate=false"
+    long_audio: null                # TODO verify current limits
+    baa_available: null             # TODO verify
+    no_train_flag: null             # TODO verify
+    cost_per_minute: null           # TODO fill in from current pricing page
+    verified: false
+    checked_on: null
+    notes: >
+      "Universal-3 Pro" and "Medical Mode" as named by Kate are UNCONFIRMED
+      against public docs as of this draft (post-dates general knowledge
+      cutoff) -- verify product/tier names exist before configuring anything
+      against them.
+
+  elevenlabs:
+    kind: cloud
+    diarizes_internally: true       # `diarize=true`
+    word_timings: true
+    glossary_mechanism: none        # TODO verify -- likely no keyterm/boost mechanism as of ~2026-01
+    glossary_limit: null
+    disfluency_param: null          # TODO verify: emits some disfluencies/audio-event tags natively per general docs
+    best_disfluency_config: null
+    speaker_hint_param: null        # TODO verify
+    formatting_off_param: null      # TODO verify
+    long_audio: null                # TODO verify
+    baa_available: null             # TODO verify
+    no_train_flag: null             # TODO verify
+    cost_per_minute: null           # TODO fill in from current pricing page
+    verified: false
+    checked_on: null
+    notes: >
+      "Scribe v2" is UNCONFIRMED against public docs as of this draft --
+      verify the product name and its capabilities before building against
+      this row. Emits native audio-event tags (e.g. laughter) per Scribe v1
+      behavior -- if true here too, that's exactly what
+      normalize.strip_brackets exists to neutralize for scoring, PROVIDED
+      this adapter's normalizer emits them in the same [tag] bracket form.
