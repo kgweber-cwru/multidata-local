@@ -556,21 +556,36 @@ def build_eaf(whisperx_json, media_path, out_path):
 > so it accepts any of the three ASR engines' output.
 
 > **One `.eaf` per case, linked to the canonical-audio camera's video** —
-> `stage_elan` uses the same `audio_camera` as §5/§6, so the video an annotator
-> watches always matches the audio the draft transcript came from. If a gold
-> annotator (`docs/gold_annotation_guide.md`) suspects they're missing
-> something visible only from the other camera's angle, that raw file is still
-> on disk (`data/raw/`) to check by hand — worth noting that its timestamps
-> aren't guaranteed frame-exact against the canonical camera (see §5's room-11
-> clock-drift finding), so treat it as a supplementary look, not a synced
-> second track.
+> `stage_elan` uses the same `audio_camera` as §5/§6, so the video always
+> matches the audio the draft transcript came from. If someone suspects
+> they're missing something visible only from the other camera's angle, that
+> raw file is still on disk (`data/raw/`) to check by hand — worth noting that
+> its timestamps aren't guaranteed frame-exact against the canonical camera
+> (see §5's room-11 clock-drift finding), so treat it as a supplementary look,
+> not a synced second track.
 
-Design choices to decide early (they affect every downstream .eaf):
-- **Tier granularity:** utterance-level (segments) vs word-level tiers. Start
-  utterance-level; add a word tier only if the analysis needs it.
+> ⚠️ **Gold annotation does *not* start from this draft** (settled 2026-08-26).
+> Correcting a Whisper draft biases the reference toward Whisper — annotators
+> accept plausible-looking errors, flattering the engine under test, and the
+> bias is undetectable in the output. Gold is now produced **blind and from
+> scratch** in ELAN from `elan/template.etf`, with the machine draft consulted
+> only in a post-freeze adjudication pass. See
+> [transcription_standards.md](docs/transcription_standards.md) §9 and
+> [annotator_guide.md](docs/annotator_guide.md).
+>
+> So `build_eaf`'s output serves two remaining purposes: a browsable artifact
+> for the production pipeline, and the pass-2 comparison document. It is no
+> longer an annotation starting point, which also means its word-level
+> granularity no longer matters much — gold segmentation is utterance-level and
+> hand-made.
+
+Design choices (settled):
+- **Tier granularity:** the generated draft is word-level (as promoted from the
+  notebook). Gold is utterance-level, segmented by hand — the two no longer
+  need to agree.
 - **Link the video, not just audio**, so annotators see gesture + speech together.
-- Keep the generated `.eaf` as the *machine draft*; save human-corrected versions
-  under a distinct name so you never overwrite hand-labels with a re-run.
+- Never overwrite hand-labels with a re-run: gold files live under
+  `data/gold/<case_id>/` with distinct names and are treated as immutable.
 
 ---
 

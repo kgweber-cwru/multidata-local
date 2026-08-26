@@ -34,8 +34,11 @@ CREATE TABLE IF NOT EXISTS cases (
     room_number TEXT NOT NULL DEFAULT '',
     learner_name TEXT NOT NULL DEFAULT '',
     sp_name TEXT NOT NULL DEFAULT '',
+    preceptor_name TEXT NOT NULL DEFAULT '',
     recording_start_time TEXT NOT NULL DEFAULT '',
     consent_ref TEXT NOT NULL DEFAULT '',
+    cloud_release INTEGER NOT NULL DEFAULT 0,
+    cloud_release_basis TEXT NOT NULL DEFAULT '',
     audio_camera TEXT NOT NULL DEFAULT ''
 );
 
@@ -108,6 +111,15 @@ def _migrate(conn):
     cols = {row["name"] for row in conn.execute("PRAGMA table_info(cases)")}
     if "audio_camera" not in cols:
         conn.execute("ALTER TABLE cases ADD COLUMN audio_camera TEXT NOT NULL DEFAULT ''")
+    if "preceptor_name" not in cols:
+        conn.execute("ALTER TABLE cases ADD COLUMN preceptor_name TEXT NOT NULL DEFAULT ''")
+    # Interlock defaults to 0 (blocked) for every pre-existing row -- see
+    # models.Case and docs/asr_provider_spec.md §9. Fail closed: a case is
+    # cleared for third-party ASR only by explicit, recorded decision.
+    if "cloud_release" not in cols:
+        conn.execute("ALTER TABLE cases ADD COLUMN cloud_release INTEGER NOT NULL DEFAULT 0")
+    if "cloud_release_basis" not in cols:
+        conn.execute("ALTER TABLE cases ADD COLUMN cloud_release_basis TEXT NOT NULL DEFAULT ''")
 
     _seed_cameras_once(conn)
 

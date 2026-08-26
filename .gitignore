@@ -1,6 +1,12 @@
 # Data and secrets never enter git (pipeline doc §2)
 data/
 logs/
+
+# Per-run benchmark outputs hold transcript text, and students self-identify
+# verbally in OSCE encounters — so raw provider responses carry real names.
+# Scores and provenance travel in git (benchmarks/results/runs.csv); the text
+# does not. See docs/asr_provider_spec.md §7/§9.
+benchmarks/runs/
 *.mp4
 *.mp3
 *.wav

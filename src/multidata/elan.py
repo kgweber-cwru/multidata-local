@@ -4,12 +4,19 @@ Promoted from `notebooks/transcription_suite.ipynb` cell 5 (the evolved version,
 with speaker-name normalization) of the old multidata repo. Runs in **md-speech**.
 
 Granularity is **word-level**: one annotation per word, one tier per speaker.
-Note this differs from doc §7's "start utterance-level" suggestion — the working
-notebook code is word-level, so that is what was promoted. Revisit if annotators
-find word-level tiers unwieldy in ELAN.
+That's what the working notebook produced, and it no longer needs to match the
+gold workflow — gold is utterance-level and hand-segmented (see below).
 
-The generated .eaf is the *machine draft*. Save human-corrected versions under a
-distinct name so a re-run never overwrites hand-labels.
+The generated .eaf is the *machine draft*, and since 2026-08-26 it is **not an
+annotation starting point**. Gold references are produced blind and from
+scratch against `elan/template.etf`, because correcting a Whisper draft biases
+the reference toward Whisper in a way that can't be detected afterward
+(docs/transcription_standards.md §9). This draft's remaining jobs are to be a
+browsable artifact for the production pipeline and the comparison document for
+pass-2 adjudication.
+
+Never write a draft over hand-labelled work: gold lives under
+`data/gold/<case_id>/` with distinct names and is treated as immutable.
 """
 import json
 import logging
@@ -25,11 +32,18 @@ _BARE_INT = re.compile(r"^\d+$")
 
 _ORPHAN_PUNCT = [".", ",", "?", "!"]
 
-# Every draft starts with these, empty, regardless of what the diarizer's raw
-# SPEAKER_NN tiers hold — diarization has no notion of clinical role, so an
-# annotator's job is to *move* words here, not create the tiers by hand first
-# (gold_annotation_guide.md §3/§4b). Pre-creating them keeps naming consistent
-# across every annotator and every case.
+# Role tiers, pre-created empty on every draft, mirroring the naming used by
+# the hand-annotation template (`elan/template.etf`) so a draft and a gold file
+# can be read side by side in pass-2 adjudication
+# (docs/transcription_standards.md §4/§9).
+#
+# NOTE: these no longer exist for anyone to *move* words into. Gold is now
+# annotated blind and from scratch against the template, not by correcting this
+# draft, so nothing reattributes the diarizer's raw SPEAKER_NN tiers here any
+# more. They're kept for naming consistency and side-by-side reading; if that
+# stops earning its keep, dropping them is safe. The template's NOTES tier is
+# deliberately *not* mirrored — it's for human observations, and a machine
+# draft has none.
 DEFAULT_TIERS = ("LEARNER", "PATIENT", "PRECEPTOR", "ANNOUNCEMENT", "OUTSIDE_ROOM")
 
 
