@@ -184,6 +184,27 @@ def all_cases(path=DEFAULT_PATH):
     return [Case.from_row(r) for r in rows]
 
 
+def names_for_case(case_id, path=DEFAULT_PATH):
+    """{"learner": ..., "patient": ..., "preceptor": ...} for one case — the
+    redaction map `multidata.redact.redact_names` needs, read from the three
+    manifest name columns (docs/transcription_standards.md §8). A missing name
+    comes back as "" (redact_names treats a falsy name as "skip this role"),
+    not an error -- not every case has a recorded preceptor.
+    """
+    with closing(connect(path)) as conn:
+        row = conn.execute(
+            "SELECT learner_name, sp_name, preceptor_name FROM cases WHERE case_id = ?",
+            (case_id,),
+        ).fetchone()
+    if row is None:
+        raise KeyError(f"case_id {case_id!r} not in {path}")
+    return {
+        "learner": row["learner_name"],
+        "patient": row["sp_name"],
+        "preceptor": row["preceptor_name"],
+    }
+
+
 def _camera_sort_key(camera):
     """Numeric cameras sort numerically ("9" before "10"); anything else
     falls back to plain string sort, after all numeric ids."""
