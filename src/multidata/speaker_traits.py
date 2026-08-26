@@ -6,7 +6,7 @@ register: adult voices cluster roughly 85-180 Hz "male-typical" vs.
 165-255 Hz "female-typical", with a real overlap band around 145-185 Hz
 (naturally low-pitched women, naturally high-pitched men, atypical voices
 generally). This exists purely to help pick a diverse sample of vocal
-registers for gold annotation (docs/gold_annotation_guide.md §2) — treat the
+registers for gold annotation (docs/transcription_standards.md §3) — treat the
 bucket labels as a rough stratification knob, never as a fact recorded about
 a real person.
 

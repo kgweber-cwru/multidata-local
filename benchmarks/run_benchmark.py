@@ -10,7 +10,13 @@ fully-attributed row to benchmarks/results/runs.csv — a benchmark you can't
 attribute to an exact config is noise (doc §8d).
 
 Requires a gold reference at benchmarks/references/<case_id>.txt. Those are
-the expensive, essential part; see docs/gold_annotation_guide.md.
+the expensive, essential part; see docs/transcription_standards.md.
+
+> Predates the multi-provider design in docs/asr_provider_spec.md: this script
+> still computes a single WER/CER pair, where the spec calls for a dual report
+> (L0 verbatim + L1 filler-neutral, spec §6) and a wider provenance row
+> (spec §8). It also writes into benchmarks/results/ directly rather than a
+> per-run directory (spec §7). Not yet reconciled.
 """
 import argparse
 import csv
@@ -80,7 +86,7 @@ def main():
 
     reference_path = Path(args.reference or REFERENCES / f"{args.case}.txt")
     if not reference_path.exists():
-        sys.exit(f"No gold reference at {reference_path} — see docs/gold_annotation_guide.md")
+        sys.exit(f"No gold reference at {reference_path} — see docs/transcription_standards.md")
     ref = reference_path.read_text()
 
     kwargs = {} if args.engine == "suite" else {"model_name": args.model}

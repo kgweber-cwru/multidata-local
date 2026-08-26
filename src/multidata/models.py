@@ -28,6 +28,20 @@ class Case:
     audio-derived stages (audio/asr/diarize/elan) -- see
     `manifest.ensure_audio_camera()`. Empty until a video row exists and one
     of those stages first runs for the case; sticky once set.
+
+    `learner_name`/`sp_name`/`preceptor_name` double as the **redaction map**
+    for gold references: annotators transcribe names verbatim and redaction is
+    applied mechanically at export/scoring time from these columns
+    (docs/transcription_standards.md §8). That is also why manifest.sqlite is
+    gitignored.
+
+    `cloud_release` is the **safety interlock** for third-party ASR providers
+    (docs/asr_provider_spec.md §9): 0 by default, and no adapter may send a
+    case's audio off this machine without it. Today's corpus is uniformly OSCE
+    simulated-patient material so it sorts nothing -- its job is to already
+    exist on the day real clinical data lands. `cloud_release_basis` records
+    *why* a case is eligible (e.g. "simulated_patient",
+    "consented_third_party"), because a bare boolean can't be audited.
     """
 
     case_id: str
@@ -37,8 +51,11 @@ class Case:
     room_number: str = ""
     learner_name: str = ""
     sp_name: str = ""
+    preceptor_name: str = ""
     recording_start_time: str = ""
     consent_ref: str = ""
+    cloud_release: int = 0
+    cloud_release_basis: str = ""
     audio_camera: str = ""
 
     @classmethod
