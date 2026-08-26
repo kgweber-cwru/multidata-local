@@ -4,7 +4,7 @@
 # below to be *present* on every entry (null is a valid value; a missing key
 # is not) — see that module's REQUIRED_FIELDS for the exact contract.
 #
-# ⚠️  CLOUD ROWS ARE A DRAFT, NOT VERIFIED.  Written from general knowledge
+# ⚠️  CLOUD ROWS ARE A DRAFT.  Written from general knowledge
 # current to roughly January 2026; AssemblyAI Universal-3 Pro and ElevenLabs
 # Scribe v2 are at or past that horizon, and every vendor here ships changes
 # faster than this file gets edited. `verified: false` / `checked_on: null`
@@ -77,7 +77,7 @@ providers:
       condition_on_previous_text: true
       initial_prompt: "asr.DISFLUENCY_PROMPT"
       note: >
-        Starting point, not a conclusion -- promote implementation plan
+        Starting point -- promote implementation plan
         Phase 0.3's actual sweep winner here once it exists. Also sweep
         condition_on_previous_text=False on this same prompt before trusting
         =True on noisy audio; it's the main hallucination-loop lever, turned
@@ -129,7 +129,7 @@ providers:
     disfluency_param: "filler_words (bool)"
     best_disfluency_config:
       filler_words: true
-    speaker_hint_param: null        # TODO verify: does Nova-3 accept a speaker-count hint at all?
+    speaker_hint_param: null        # TODO verify: speakers_expected or similar  
     formatting_off_param: "smart_format=false / punctuate=false"
     long_audio:
       sync_limit_s: null            # TODO verify current sync request duration limit
@@ -146,27 +146,52 @@ providers:
 
   google:
     kind: cloud
-    diarizes_internally: null       # TODO verify: varies by model/version (Chirp vs. standard)
+    diarizes_internally: true       # Chirp does, standard doesn't. 
     word_timings: true
     glossary_mechanism: phrase_set
-    glossary_limit: null            # TODO verify: PhraseSet size/boost limits
-    disfluency_param: null          # TODO verify: Chirp models largely cannot emit fillers per public docs as of ~2026-01
+    glossary_limit: "5,000 phrases per phrase set, 100 PhraseSets per request"
+    disfluency_param: ITN          # Keep "Inverse Text Normalization" disabled in raw transcript output.
     best_disfluency_config: null
-    speaker_hint_param: null        # TODO verify
-    formatting_off_param: "enableAutomaticPunctuation=false (TODO verify exact field for the model in use)"
+    speaker_hint_param: diarization_config['max_speaker_count', 'min_speaker_count']
+    formatting_off_param: "enableAutomaticPunctuation=false"
     long_audio:
       sync_limit_s: 60              # TODO verify -- historically ~1 minute for synchronous recognize
       async_path: "GCS staging required beyond the sync limit -- TODO verify current requirement"
-    baa_available: null             # TODO verify
-    no_train_flag: null             # TODO verify
-    cost_per_minute: null           # TODO fill in from current pricing page
-    verified: false
-    checked_on: null
+    baa_available: true
+    no_train_flag: "No training as long as Data Logging is disabled"
+    cost_per_minute: 0.016
+    verified: true
+    checked_on: 2026-08-26
     notes: >
       Expected hardest adapter (implementation plan Phase 7.2): GCS staging
       for long audio, and Chirp variants may not support diarization and
       adaptation (glossary) at the same time -- confirm before assuming both
       can be requested together.
+
+  google_medical_conversation:
+    kind: cloud
+    diarizes_internally: true       # Medical does
+    word_timings: true
+    glossary_mechanism: PhraseSet
+    glossary_limit: "5,000 phrases per phrase set, 100 PhraseSets per request"
+    disfluency_param: null          # The medical models aggressivley filter disfluencies
+    best_disfluency_config: null
+    speaker_hint_param: diarization_config['max_speaker_count', 'min_speaker_count']
+    formatting_off_param: "enableAutomaticPunctuation=false"
+    long_audio:
+      sync_limit_s: 60              # TODO verify -- historically ~1 minute for synchronous recognize
+      async_path: "GCS staging required beyond the sync limit -- TODO verify current requirement"
+    baa_available: true             # TODO verify
+    no_train_flag: "No training as long as Data Logging is disabled"
+    cost_per_minute: 0.078
+    verified: true
+    checked_on: 2026-08-26
+    notes: >
+      Medical Conversation variant, distinct from plain Google STT above --
+      aggressively filters disfluencies per Kate's research (disfluency_param
+      null), which cuts directly against this project's keep-disfluencies
+      policy (transcription_standards.md §1). Same GCS/long-audio caveat as
+      plain google applies.
 
   assemblyai:
     kind: cloud

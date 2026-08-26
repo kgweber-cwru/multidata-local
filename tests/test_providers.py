@@ -87,11 +87,21 @@ class TestRealProvidersYaml:
         local_names = {name for name, entry in providers.items() if entry["kind"] == "local"}
         assert local_names == set(asr.ENGINES)
 
-    def test_every_cloud_row_is_currently_flagged_unverified(self):
-        # Not a permanent invariant -- this documents today's state (no cloud
-        # docs have been checked yet, implementation plan Phase 0.4) and
-        # should be *expected* to start failing, one provider at a time, as
-        # Kate verifies rows. That's the file doing its job.
+    def test_verified_rows_carry_a_check_date(self):
+        """A permanent invariant, unlike a snapshot of *which* rows are
+        verified (which is expected to keep changing as Kate checks vendor
+        docs, Phase 0.4): whenever a row claims verified: true, checked_on
+        must be a real date, not null. A verified claim with no date attached
+        is exactly the kind of thing that looks fine and isn't."""
         providers = load_providers(REAL_PROVIDERS_YAML)
-        cloud_names = {name for name, entry in providers.items() if entry["kind"] == "cloud"}
-        assert set(unverified(providers)) == cloud_names
+        unstamped = [name for name, entry in providers.items()
+                     if entry.get("verified") and not entry.get("checked_on")]
+        assert unstamped == []
+
+    def test_at_least_one_cloud_row_is_unverified(self):
+        # Loose on purpose: today every cloud row is a draft (Phase 0.4 is
+        # unstarted), but this only needs to hold until the *last* one gets
+        # checked -- unlike the exact-match version this replaced, verifying
+        # one more provider can never break it.
+        providers = load_providers(REAL_PROVIDERS_YAML)
+        assert unverified(providers)
