@@ -59,6 +59,20 @@ You will not hand-annotate 300–400 encounters. Draw a **stratified sample**
 **Record why each case was chosen.** Report results as estimates over this sample
 with the strata named — never imply the whole corpus is gold.
 
+### Excerpts are valid references
+
+A reference does **not** have to be a whole encounter. A carefully annotated
+5-minute excerpt is a valid reference as long as scoring is restricted to that
+span — WER is a rate, not a total.
+
+This matters because annotator time is the binding constraint. For a fixed
+budget, **six 5-minute excerpts across varied conditions beat two full 20-minute
+encounters**: better strata coverage, more cases, same cost. Prefer breadth over
+completeness unless a specific question needs whole-encounter continuity.
+
+Record the span bounds with the reference, so scoring can restrict to it and so
+nobody later mistakes an excerpt for a full transcript.
+
 **Constraint:** gold annotation is human-local and could be done on any case, but
 cross-provider scoring requires a case that's cloud-releasable
 (`cases.cloud_release`, provider spec §9). Draw the sample from releasable cases
@@ -351,6 +365,19 @@ re-annotate. Do not average the confusion.
 > **The annotator-vs-annotator error rate is your noise floor.** No engine can
 > meaningfully "beat" it. Report it alongside every engine WER — a benchmark
 > without it can't distinguish a good model from a saturated metric.
+
+### When there's only one annotator
+
+With a single annotator there is **no noise floor at all**. That's a realistic
+situation here, so name the options rather than letting it slide:
+
+1. **Second-annotate one excerpt yourself.** Five minutes is enough for *an*
+   estimate, and a rough floor beats none.
+2. **Report engine numbers with an explicit statement that no floor was
+   established.**
+
+Do not quietly omit it. The absence of a floor is a limitation on every number in
+the report, and it belongs next to them.
 
 ---
 

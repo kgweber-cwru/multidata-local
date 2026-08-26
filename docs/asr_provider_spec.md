@@ -259,6 +259,7 @@ exact config is noise (pipeline doc §8d). Beyond the existing columns:
 | `glossary_sha` | null for headline runs (§3) |
 | `glossary_lossiness` | what the renderer dropped |
 | `normalizer_version` | scores are only comparable within a version |
+| `gold_sha` | hash of the reference actually used — gold gets revised, and a re-export silently invalidates old numbers |
 | `wer_verbatim` / `wer_filler_neutral` | dual report (§6) |
 | `cost_usd` | non-trivial at corpus scale |
 | `cloud_release_basis` | why this case was eligible (§9) |
@@ -266,6 +267,21 @@ exact config is noise (pipeline doc §8d). Beyond the existing columns:
 Local engines are pinned and reproducible. Cloud providers are **not** — a model
 id is a moving target. `provider_model_returned` is the only defense, and it's
 imperfect. Say so when reporting results.
+
+> **Two numbers are only comparable if `normalizer_version` *and* `gold_sha`
+> match.** Both change over time — the normalizer when §6 is revised, gold when
+> a standards fix triggers a re-export. Neither failure is visible in the score:
+> both numbers look fine, and the comparison is meaningless. The comparison tool
+> checks this mechanically rather than trusting anyone to remember.
+
+### Disfluency-tuning parity
+
+Each provider's **`best_disfluency_config`** is recorded in the registry. If one
+engine gets a hand-tuned prompt and another gets a single flag, the comparison is
+rigged — so the fair comparison is every provider at its own documented best
+effort, not at whatever effort it happened to receive. For Deepgram that's one
+parameter; for Whisper it may be a prompt register plus a
+`condition_on_previous_text` tradeoff. Both are "this provider, tuned."
 
 ---
 
