@@ -3,7 +3,7 @@
 
     python benchmarks/run_benchmark.py --case 132704 \
         --audio data/audio/132704/41.wav \
-        --engine faster_whisper --model large-v3
+        --engine whisperx_disfluent --model medium
 
     # score a transcript already on disk instead of re-running the engine --
     # e.g. one run_stage.py already produced, or a slow engine you don't want

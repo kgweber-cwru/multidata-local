@@ -9,6 +9,9 @@ is carried over.
 
 ## Start here
 
+0. **[docs/current_status.md](docs/current_status.md)** — picking this up
+   cold (new session, new contributor)? Read this one first: what's real vs.
+   built-but-unproven, active threads, the one open blocking question.
 1. **[multidata_local_pipeline.md](multidata_local_pipeline.md)** — the full
    build & run guide (machine prep, envs, every stage, scaling to 300–400 videos).
 2. **[docs/transcription_standards.md](docs/transcription_standards.md)** — the
