@@ -30,7 +30,9 @@ is carried over.
 ## Layout
 
 ```
-env/            conda envs — speech (ASR) and pose, kept separate on purpose
+env/            conda envs — speech (ASR) and pose, kept separate on purpose;
+                pose has two variants (pose.yml Mac / pose-nvidia.yml Linux+CUDA)
+                that both build the same md-pose env name -- see Quick start
 src/multidata/  stages: manifest, ingest, audio, asr, diarize, elan, pose
                 helpers: kinematics (pose features), acoustics (Praat features)
                 ASR benchmark wing: normalize, redact, records, providers,
@@ -57,7 +59,20 @@ logs/           GITIGNORED — run_stage.py's structured log + nohup/PID files
 # environments (see pipeline doc §3)
 conda env create -f env/utility.yml    # md-utility: manifest, Excel import, notebooks
 conda env create -f env/speech.yml     # md-speech:  audio, asr, diarize, elan, benchmarks
-conda env create -f env/pose.yml       # md-pose:    rtmlib pose
+
+# md-pose builds differently depending on the box -- same env name, different
+# onnxruntime backend, because there's no single onnxruntime wheel that covers
+# both CoreML (Mac) and CUDA (Linux/Nvidia). Pick ONE of these two, matching
+# the machine you're on:
+conda env create -f env/pose.yml         # Mac (Apple Silicon):  onnxruntime, CoreML EP
+conda env create -f env/pose-nvidia.yml  # Linux (Nvidia/CUDA):  onnxruntime-gpu[cuda,cudnn]
+
+# Linux/CUDA only, REQUIRED after the pose-nvidia.yml create: rtmlib hard-
+# depends on plain (CPU) onnxruntime regardless of what's requested above, and
+# it silently wins the shared onnxruntime/ install path more often than not.
+# See the comment at the top of env/pose-nvidia.yml before assuming CUDA works.
+conda activate md-pose && pip install --force-reinstall --no-deps "onnxruntime-gpu[cuda,cudnn]"
+
 huggingface-cli login                  # pyannote is gated — accept model terms
 
 # install the multidata package into each env (once per env — see pipeline doc §3)

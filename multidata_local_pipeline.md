@@ -684,41 +684,55 @@ prefix, so it works unchanged against either.
 **Device split, resolved via `--profile` (measure, don't guess):**
 - The **YOLOX detector** is pinned to CPU only on `mps` — CoreML can build a
   session for it but crashes at inference on its dynamic NMS output shape,
-  confirmed on Apple Silicon. On `cuda` the detector also runs on the GPU:
-  a production batch on `tofino`'s original RTX 3070 (Ubuntu, 2026-07, before
-  that card failed) ran detector+pose net both on CUDA and processed full
-  ~30-minute encounters at **~1.3x-2.2x realtime (mean ~1.5x)**, no crashes or
-  fallback. That card is gone, so these numbers are a baseline to reconfirm
-  on its replacement, not a settled result — re-run `--profile` there before
-  trusting them for capacity planning. CUDA also needs
-  `onnxruntime.preload_dlls()` called before session creation: pip-installed
-  `onnxruntime-gpu`'s CUDA/cuDNN shared libraries aren't on the loader's
-  default search path, and without it the CUDA EP silently fails to load and
-  rtmlib falls back to CPU.
+  confirmed on Apple Silicon. On `cuda` the detector also runs on the GPU.
+  Measured throughput on `tofino`, detector+pose net both on CUDA, full
+  encounters end-to-end, no crashes or fallback:
+  - Original RTX 3070 (Ubuntu, 2026-07, before that card failed):
+    **~1.3x-2.2x realtime (mean ~1.5x)** across a multi-video production batch.
+  - Its replacement, RTX 5080 (2026-09): **~1.98x realtime** on a `--profile`
+    smoke test (~15.7-min encounter) — consistent with the 3070 range, at the
+    high end, as expected from a newer card. Split: decode 3% /
+    detect[cuda] 51% / pose[cuda] 46% — detect and pose are roughly balanced
+    on CUDA, unlike the CPU-detector Mac case below where detect alone is
+    ~85-93%; moving the detector to CUDA didn't make it free, just brought it
+    in line with the pose network's cost.
+
+  CUDA also needs `onnxruntime.preload_dlls()` called before session
+  creation: pip-installed `onnxruntime-gpu`'s CUDA/cuDNN shared libraries
+  aren't on the loader's default search path, and without it the CUDA EP
+  silently fails to load and rtmlib falls back to CPU. Separately,
+  `onnxruntime-gpu` and plain `onnxruntime` share the same on-disk import
+  path, and rtmlib hard-depends on plain `onnxruntime` regardless of what
+  `env/pose-nvidia.yml` requests — so a fresh `md-pose` env needs `pip install
+  --force-reinstall --no-deps "onnxruntime-gpu[cuda,cudnn]"` run *after*
+  `conda env create`, or CUDA silently isn't actually available (see the
+  comment at the top of `env/pose-nvidia.yml`).
 - The **RTMPose/RTMW pose network** uses `multidata.device.best_torch_device()`
-  (mps > cuda > cpu) — no flag needed, it auto-picks CoreML on Apple Silicon
-  and CUDA on Nvidia.
-- Profiling on real clips showed the CPU-bound detector, not the accelerated
-  pose network, dominates wall-clock time (~85–93%) regardless of pose model
-  size. That made `--detect-every N` (re-run the detector only every Nth
-  frame, holding bboxes for frames in between, still fed to the pose net every
-  frame) the real lever on throughput — not a lighter model or a fancier
-  device. Validated ~2.8–4x faster on real clips with no observed correctness
-  regression; sanity-check `render_overlay()` at your chosen stride on a clip
-  with real movement before trusting a new stride for a full batch, since a
-  held (stale) bbox can lag a fast-moving person.
+  (mps > cuda > cpu) *if* torch is importable — neither pose env installs
+  torch, so this auto-detect path isn't actually usable in `md-pose`; `device`
+  is always passed explicitly via `--accel-device cuda`/`mps` in practice.
+- Profiling on real clips (Mac, CPU-pinned detector) showed the CPU-bound
+  detector, not the accelerated pose network, dominates wall-clock time
+  (~85–93%) regardless of pose model size. That made `--detect-every N`
+  (re-run the detector only every Nth frame, holding bboxes for frames in
+  between, still fed to the pose net every frame) the real lever on
+  throughput there — not a lighter model or a fancier device. Validated
+  ~2.8–4x faster on real clips with no observed correctness regression;
+  sanity-check `render_overlay()` at your chosen stride on a clip with real
+  movement before trusting a new stride for a full batch, since a held
+  (stale) bbox can lag a fast-moving person.
 
 **This answers what §11 originally left open ("does pose stay local, or move
 to GPU/cloud?"):** pose now runs split across **two machines** simultaneously,
 both driven by the same `run_stage.py pose` against `manifest.sqlite`:
 - The **Mac** (this machine, Apple Silicon / `mps`).
 - A Linux box, hostname **`tofino`** (CUDA, `--accel-device cuda`). Its
-  original RTX 3070 failed in 2026-07 mid-batch; the CUDA-specific tweaking
-  that was sitting uncommitted on that box at the time (the CUDA detector
-  routing and `preload_dlls()` fix described above) has since been merged
-  back into main (2026-09). What's still open: re-running `--profile` on the
-  3070's replacement GPU to confirm the ~1.5x-realtime baseline still holds
-  before trusting it for a full batch.
+  original RTX 3070 failed in 2026-07 mid-batch and was replaced with an RTX
+  5080; the CUDA-specific tweaking that was sitting uncommitted on that box at
+  the time (the CUDA detector routing and `preload_dlls()` fix described
+  above) has since been merged back into main and reconfirmed on the 5080
+  (2026-09) — see `docs/running_job_notes.md` for the batch currently running
+  there.
 
 `manifest.sqlite` moves between the two via `sqlite3 manifest.sqlite ".backup
 <path>"` snapshots, **never** raw `cp`/`rsync` on the live file (risk of a

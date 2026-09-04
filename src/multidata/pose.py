@@ -50,9 +50,13 @@ def extract(video_path, out_path=None, max_persons=MAX_PERSONS,
     trusting it for a full batch.
 
     `device` (the pose-network device) defaults to the best available
-    (`multidata.device.best_torch_device` — mps > cuda > cpu), so this picks
-    CoreML on Apple Silicon and CUDA on an Nvidia box with no flag needed. The
-    detector (YOLOX) is pinned to CPU only on `mps`: onnxruntime's CoreML EP
+    (`multidata.device.best_torch_device` — mps > cuda > cpu) *if* torch is
+    importable -- neither `env/pose.yml` nor `env/pose-nvidia.yml` installs
+    torch, so in the actual `md-pose` env leaving `device` unset raises
+    `ModuleNotFoundError` instead of auto-detecting. In practice `device` is
+    always passed explicitly (`run_stage.py --accel-device cuda`/`mps`); don't
+    rely on the auto-detect path in this env. The detector (YOLOX) is pinned
+    to CPU only on `mps`: onnxruntime's CoreML EP
     can build a session for it but crashes at inference time on its dynamic
     NMS output shape (`{1,1,1,8400,8400}` vs the graph's `{1,8400}}`) — a real
     onnxruntime/CoreML limitation, confirmed on Apple Silicon. That's
@@ -60,12 +64,15 @@ def extract(video_path, out_path=None, max_persons=MAX_PERSONS,
     also runs on the GPU. A production batch on an RTX 3070 (Ubuntu, 2026-07)
     processed full ~30-minute encounters end-to-end (detector + pose net both
     on CUDA) at roughly 1.3x-2.2x realtime (mean ~1.5x) with no crashes or
-    fallback -- that card has since failed, so these numbers need
-    reconfirming on its replacement, but they establish that CUDA detection is
-    viable, unlike the CoreML case. RTMPose has no dynamic-shape issue and
-    runs cleanly under CoreML EP; rtmlib falls back to CPU on its own if the
-    installed onnxruntime doesn't expose the requested execution provider at
-    all.
+    fallback -- that card has since failed and been replaced with an RTX 5080.
+    A `--profile` smoke test on the 5080 (2026-09, a ~15.7-minute encounter)
+    confirmed the replacement: ~1.98x realtime, decode=3%/detect[cuda]=51%/
+    pose[cuda]=46% of wall-clock -- note detect and pose are roughly balanced
+    here, unlike the CPU-detector Mac case where detect alone was ~88%; moving
+    the detector to CUDA didn't make it free, just brought it in line with the
+    pose network's cost. RTMPose has no dynamic-shape issue and runs cleanly
+    under CoreML EP; rtmlib falls back to CPU on its own if the installed
+    onnxruntime doesn't expose the requested execution provider at all.
 
     A CUDA `device` also needs `onnxruntime.preload_dlls()` called first --
     pip-installed `onnxruntime-gpu` doesn't put the CUDA/cuDNN wheels' shared

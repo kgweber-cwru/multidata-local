@@ -1,3 +1,21 @@
+# After `conda env create -f env/pose-nvidia.yml`, you MUST also run:
+#
+#   conda activate md-pose
+#   pip install --force-reinstall --no-deps "onnxruntime-gpu[cuda,cudnn]"
+#
+# Why: rtmlib hard-depends on plain `onnxruntime` (CPU-only) regardless of
+# what's listed below, so it always gets pulled in transitively. Both
+# `onnxruntime` and `onnxruntime-gpu` install into the same on-disk
+# `onnxruntime/` package path, so whichever one physically installs its files
+# last silently wins the import -- there's no ordering guarantee within a
+# single `conda env create`, and it has come back as the CPU build (no
+# CUDAExecutionProvider, no error) more than once. The force-reinstall above
+# makes onnxruntime-gpu's files the final ones on disk. Verify it worked:
+#
+#   python -c "import onnxruntime as ort; ort.preload_dlls(); print(ort.get_available_providers())"
+#
+# Confirms: no "Failed to load lib*.so" lines get printed, and the list
+# includes CUDAExecutionProvider.
 name: md-pose
 channels: [conda-forge]
 dependencies:
@@ -5,11 +23,18 @@ dependencies:
   - pip
   - pip:
       - rtmlib
-      # - onnxruntime           # CPU; CoreML EP optional (see pipeline doc §9)
-      - onnxruntime-gpu       # GPU on linux box
-      - onnxruntime-gpu[cuda,cudnn]  # GPU on linux box
+      # - onnxruntime           # CPU; use this instead on a Mac (see env/pose.yml)
+      - onnxruntime-gpu[cuda,cudnn]  # GPU on Linux -- the [cuda,cudnn] extras
+                              # pull the nvidia-*-cuXX pip wheels that bundle
+                              # libcublas/libcudnn/etc.; bare onnxruntime-gpu
+                              # does not, so onnxruntime.preload_dlls() (see
+                              # pose.py) has nothing to find and the CUDA EP
+                              # fails to load at session-creation time.
+                              # See the force-reinstall note at the top of
+                              # this file -- this line alone is not sufficient.
       - mmengine              # for the (M,T,V,C) .pkl dump format
       - opencv-python
       - numpy
+      - tqdm
       - jupyter
       - pandas
