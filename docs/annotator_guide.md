@@ -17,7 +17,7 @@ whoever maintains them.
 
 You need:
 
-- **ELAN 6.x** installed
+- **ELAN 7.x** installed
 - **`elan/template.etf`** — the project template
 - Your assigned case's **video** (`.mp4`) and **audio** (`.wav`)
 - **Headphones.** Not laptop speakers. You will be distinguishing `uh-huh` from
@@ -102,6 +102,18 @@ Nothing downstream needs better.
 
 **Don't mark pauses.** Silence between segments is already measured by the
 timestamps. **[S§5]**
+
+You can **set "delayed mode"** if you find it helpful: it will automatically
+place a boundary a number of milliseconds before you actually hit <enter>.
+200 ms might be a good place to experiment depending on your reaction time.
+
+### Shortcuts
+
+- The default configuration is to hit **Enter** to mark the beginning and again at the end of a segment. 
+- The up-arrow and down-arrow keys will change the tier you are segmenting
+- You can drag a segment around in the area above the tiers. If it's selected (green), you can delete with the **Delete** (or **Backspace**) key and pull its edges back and forth. But don't feel you have to unless you think it'll be difficult to transcribe later. (The transcription mode automatically plays the segment for you)
+- **Control-space** starts and stops the player
+- **space** will play only the sound in the highlighted (blue) part of the audio
 
 ---
 

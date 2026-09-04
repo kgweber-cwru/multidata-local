@@ -2,7 +2,7 @@
 
 `template.etf` — the ELAN template every gold annotation starts from.
 
-**This is a standard, not data.** It lives here, tracked in git, rather than
+**This is a standard.** It lives here, tracked in git, rather than
 under `data/` (which is gitignored) precisely so that two annotators on two
 machines are provably using the same tier set. An untracked template offers no
 such guarantee, and a tier-naming drift between annotators is invisible until it
