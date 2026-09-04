@@ -21,6 +21,7 @@ import cv2
 import mmengine
 import numpy as np
 from tqdm import tqdm
+import onnxruntime as ort
 
 log = logging.getLogger(__name__)
 
@@ -51,17 +52,25 @@ def extract(video_path, out_path=None, max_persons=MAX_PERSONS,
     `device` (the pose-network device) defaults to the best available
     (`multidata.device.best_torch_device` — mps > cuda > cpu), so this picks
     CoreML on Apple Silicon and CUDA on an Nvidia box with no flag needed. The
-    detector (YOLOX) always runs on CPU regardless of platform: onnxruntime's
-    CoreML EP can build a session for it but crashes at inference time on its
-    dynamic NMS output shape (`{1,1,1,8400,8400}` vs the graph's `{1,8400}}`)
-    — a real onnxruntime/CoreML limitation, confirmed on Apple Silicon, not
-    something to route around here. That's specifically a CoreML issue, not a
-    CUDA one, so the CPU-only detector may be leaving CUDA throughput on the
-    table on Linux -- untested, not addressed here. RTMPose has no such
-    dynamic shapes and runs cleanly under CoreML EP, and it's also the network
-    we actually skip on empty frames above, so it's where the device matters
-    most. rtmlib falls back to CPU on its own if the installed onnxruntime
-    doesn't expose the requested execution provider at all.
+    detector (YOLOX) is pinned to CPU only on `mps`: onnxruntime's CoreML EP
+    can build a session for it but crashes at inference time on its dynamic
+    NMS output shape (`{1,1,1,8400,8400}` vs the graph's `{1,8400}}`) — a real
+    onnxruntime/CoreML limitation, confirmed on Apple Silicon. That's
+    specifically a CoreML issue, not a CUDA one, so on `cuda` the detector
+    also runs on the GPU. A production batch on an RTX 3070 (Ubuntu, 2026-07)
+    processed full ~30-minute encounters end-to-end (detector + pose net both
+    on CUDA) at roughly 1.3x-2.2x realtime (mean ~1.5x) with no crashes or
+    fallback -- that card has since failed, so these numbers need
+    reconfirming on its replacement, but they establish that CUDA detection is
+    viable, unlike the CoreML case. RTMPose has no dynamic-shape issue and
+    runs cleanly under CoreML EP; rtmlib falls back to CPU on its own if the
+    installed onnxruntime doesn't expose the requested execution provider at
+    all.
+
+    A CUDA `device` also needs `onnxruntime.preload_dlls()` called first --
+    pip-installed `onnxruntime-gpu` doesn't put the CUDA/cuDNN wheels' shared
+    libraries on the loader's default search path, so without this the CUDA
+    execution provider silently fails to load and rtmlib falls back to CPU.
 
     If `out_path` is given the entry is dumped there as a native OpenMMLab
     pickle.
@@ -71,10 +80,13 @@ def extract(video_path, out_path=None, max_persons=MAX_PERSONS,
     from multidata.device import best_torch_device
 
     device = device or best_torch_device()
+    if device == "cuda":
+        ort.preload_dlls(directory="")
+    det_device = "cpu" if device == "mps" else device
 
     model_cfg = Wholebody.MODE[mode]
     det_model = YOLOX(model_cfg["det"], model_input_size=model_cfg["det_input_size"],
-                       backend="onnxruntime", device="cpu")
+                       backend="onnxruntime", device=det_device)
     pose_model = RTMPose(model_cfg["pose"], model_input_size=model_cfg["pose_input_size"],
                          to_openpose=False, backend="onnxruntime", device=device)
 
@@ -126,10 +138,10 @@ def extract(video_path, out_path=None, max_persons=MAX_PERSONS,
         spent = sum(timings.values()) or 1e-9
         log.info(
             "profile (%d frames, detect_every=%d): decode=%.1fs (%.0f%%)  "
-            "detect[cpu]=%.1fs (%.0f%%)  pose[%s]=%.1fs (%.0f%%)",
+            "detect[%s]=%.1fs (%.0f%%)  pose[%s]=%.1fs (%.0f%%)",
             len(frame_dets), detect_every,
             timings["decode"], 100 * timings["decode"] / spent,
-            timings["detect"], 100 * timings["detect"] / spent,
+            det_device, timings["detect"], 100 * timings["detect"] / spent,
             device, timings["pose"], 100 * timings["pose"] / spent,
         )
     cap.release()

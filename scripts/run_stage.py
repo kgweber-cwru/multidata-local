@@ -227,7 +227,7 @@ def stage_elan(row, args):
 def stage_pose(row, args):
     from multidata import pose
 
-    log.info("extracting pose: %s/%s", row["case_id"], row["camera"])
+    log.info("extracting pose: %s/%s/%s seconds", row["case_id"], row["camera"], row["duration_s"])
     pose.extract(row["filepath"], _out("pose", row, ".pkl"),
                 device=args.accel_device, profile=args.profile,
                 detect_every=args.detect_every)
