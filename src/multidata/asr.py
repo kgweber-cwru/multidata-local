@@ -15,7 +15,7 @@ Engines (doc §6: "keep those code paths behind a --engine flag"):
   an existing RTTM if one's already on disk, writing one otherwise) via
   whisperx's own engine-agnostic `assign_word_speakers`. Confirmed empirically
   (benchmarks/timing_bench.py) to be slightly *faster* end-to-end than
-  whisperx at the same model size, not just simpler.
+  whisperx at the same model size.
 - ``whisperx`` — bundles transcribe + wav2vec2 word alignment + pyannote
   diarization in one call. Available for testing/comparison via `--engine`;
   word-level alignment is arguably higher-quality timing than a CT2 model's
