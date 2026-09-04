@@ -682,10 +682,19 @@ order, as plain `Body` output (nose=0, ...) — `kinematics.py` only reads that
 prefix, so it works unchanged against either.
 
 **Device split, resolved via `--profile` (measure, don't guess):**
-- The **YOLOX detector** is pinned to CPU always, on every platform — CoreML
-  can build a session for it but crashes at inference on its dynamic NMS
-  output shape. Confirmed on Apple Silicon; untested (not addressed) on CUDA,
-  so this may be leaving throughput on the table on a CUDA box specifically.
+- The **YOLOX detector** is pinned to CPU only on `mps` — CoreML can build a
+  session for it but crashes at inference on its dynamic NMS output shape,
+  confirmed on Apple Silicon. On `cuda` the detector also runs on the GPU:
+  a production batch on `tofino`'s original RTX 3070 (Ubuntu, 2026-07, before
+  that card failed) ran detector+pose net both on CUDA and processed full
+  ~30-minute encounters at **~1.3x-2.2x realtime (mean ~1.5x)**, no crashes or
+  fallback. That card is gone, so these numbers are a baseline to reconfirm
+  on its replacement, not a settled result — re-run `--profile` there before
+  trusting them for capacity planning. CUDA also needs
+  `onnxruntime.preload_dlls()` called before session creation: pip-installed
+  `onnxruntime-gpu`'s CUDA/cuDNN shared libraries aren't on the loader's
+  default search path, and without it the CUDA EP silently fails to load and
+  rtmlib falls back to CPU.
 - The **RTMPose/RTMW pose network** uses `multidata.device.best_torch_device()`
   (mps > cuda > cpu) — no flag needed, it auto-picks CoreML on Apple Silicon
   and CUDA on Nvidia.
@@ -703,11 +712,13 @@ prefix, so it works unchanged against either.
 to GPU/cloud?"):** pose now runs split across **two machines** simultaneously,
 both driven by the same `run_stage.py pose` against `manifest.sqlite`:
 - The **Mac** (this machine, Apple Silicon / `mps`).
-- A Linux box, hostname **`tofino`** (CUDA, `--accel-device cuda`). Its old
-  RTX 3070 died mid-run in 2026-07; if/when that box comes back with a
-  replacement GPU, expect local CUDA-specific tweaking on that box that never
-  made it back into this repo's git history — treat re-deploying there as a
-  real merge, not a routine `git pull`.
+- A Linux box, hostname **`tofino`** (CUDA, `--accel-device cuda`). Its
+  original RTX 3070 failed in 2026-07 mid-batch; the CUDA-specific tweaking
+  that was sitting uncommitted on that box at the time (the CUDA detector
+  routing and `preload_dlls()` fix described above) has since been merged
+  back into main (2026-09). What's still open: re-running `--profile` on the
+  3070's replacement GPU to confirm the ~1.5x-realtime baseline still holds
+  before trusting it for a full batch.
 
 `manifest.sqlite` moves between the two via `sqlite3 manifest.sqlite ".backup
 <path>"` snapshots, **never** raw `cp`/`rsync` on the live file (risk of a
