@@ -685,17 +685,21 @@ prefix, so it works unchanged against either.
 - The **YOLOX detector** is pinned to CPU only on `mps` — CoreML can build a
   session for it but crashes at inference on its dynamic NMS output shape,
   confirmed on Apple Silicon. On `cuda` the detector also runs on the GPU.
-  Measured throughput on `tofino`, detector+pose net both on CUDA, full
-  encounters end-to-end, no crashes or fallback:
-  - Original RTX 3070 (Ubuntu, 2026-07, before that card failed):
-    **~1.3x-2.2x realtime (mean ~1.5x)** across a multi-video production batch.
-  - Its replacement, RTX 5080 (2026-09): **~1.98x realtime** on a `--profile`
-    smoke test (~15.7-min encounter) — consistent with the 3070 range, at the
-    high end, as expected from a newer card. Split: decode 3% /
-    detect[cuda] 51% / pose[cuda] 46% — detect and pose are roughly balanced
-    on CUDA, unlike the CPU-detector Mac case below where detect alone is
-    ~85-93%; moving the detector to CUDA didn't make it free, just brought it
-    in line with the pose network's cost.
+  `tofino`'s permanent card is an **RTX 5080** — its original RTX 3070 failed
+  in 2026-07 and is not coming back, so the numbers below are the settled
+  baseline for this box going forward, not a placeholder pending
+  reconfirmation. Measured on an 18-video/~17.3h production batch (2026-09,
+  detector+pose net both on CUDA, zero crashes/fallback):
+  **1.67x realtime aggregate** (mean 1.72x per-video, range 1.38x-2.39x,
+  stdev 0.31), split decode ~4% / detect[cuda] ~60% / pose[cuda] ~37% of
+  wall-clock. Detect is still the larger cost on this card — closer to the
+  old CPU-bound-detector shape (below) than a single short `--profile`
+  smoke-test clip suggested (that one clip ran decode 3%/detect 51%/pose 46%,
+  which is why the *batch* aggregate, not a one-off smoke test, is what
+  capacity planning should use). The old RTX 3070 batch (2026-07, before it
+  failed) measured ~1.3x-2.2x realtime (mean ~1.5x) — kept here only as
+  history; the 3070 itself is gone and its numbers aren't the current
+  hardware's baseline.
 
   CUDA also needs `onnxruntime.preload_dlls()` called before session
   creation: pip-installed `onnxruntime-gpu`'s CUDA/cuDNN shared libraries
@@ -726,13 +730,13 @@ prefix, so it works unchanged against either.
 to GPU/cloud?"):** pose now runs split across **two machines** simultaneously,
 both driven by the same `run_stage.py pose` against `manifest.sqlite`:
 - The **Mac** (this machine, Apple Silicon / `mps`).
-- A Linux box, hostname **`tofino`** (CUDA, `--accel-device cuda`). Its
-  original RTX 3070 failed in 2026-07 mid-batch and was replaced with an RTX
-  5080; the CUDA-specific tweaking that was sitting uncommitted on that box at
-  the time (the CUDA detector routing and `preload_dlls()` fix described
-  above) has since been merged back into main and reconfirmed on the 5080
-  (2026-09) — see `docs/running_job_notes.md` for the batch currently running
-  there.
+- A Linux box, hostname **`tofino`** (CUDA, `--accel-device cuda`), now
+  permanently on an RTX 5080. Its original RTX 3070 failed in 2026-07
+  mid-batch; the CUDA-specific tweaking that was sitting uncommitted on that
+  box at the time (the CUDA detector routing and `preload_dlls()` fix
+  described above) has since been merged back into main and reconfirmed with
+  a full production batch on the 5080 (2026-09) — see
+  `docs/running_job_notes.md` for that batch's results.
 
 `manifest.sqlite` moves between the two via `sqlite3 manifest.sqlite ".backup
 <path>"` snapshots, **never** raw `cp`/`rsync` on the live file (risk of a

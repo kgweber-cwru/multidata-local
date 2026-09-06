@@ -1,28 +1,46 @@
-# Notes for checking on the running pose job
+# Notes for launching and checking on the pose job
 
-Read `multidata_local_pipeline.md` §9 for the architecture, then come back
-here for the actual commands.
+Read `multidata_local_pipeline.md` §9 for the architecture and the current
+throughput baseline, then come back here for the actual commands.
 
-**Current run (started 2026-09-04 13:05, `tofino`, RTX 5080):** single
-worker, no sharding -- only 18 pending rows left, not worth splitting across
-workers. `--profile` is on, so `logs/run_stage.log` gets a decode/detect/pose
-timing line per video; keep an eye on those to track how processing time
-moves as the GPU/driver/onnxruntime stack changes over time, not just whether
-the batch finished.
+**No job is running right now.** Last run: 2026-09-04 13:05 -> 23:30 on
+`tofino` (RTX 5080), all 18 pending rows, zero errors, zero fallback.
+Manifest is at `60 done, 1 failed` (the failed one is a real content issue —
+"no frames, or nobody detected" — not a device problem) with nothing
+`pending`. Full throughput numbers (1.67x realtime aggregate, detect/pose
+split, etc.) are recorded in `multidata_local_pipeline.md` §9 as the settled
+RTX 5080 baseline — update that doc, not this one, when a future batch
+changes the numbers enough to matter.
+
+One estimation lesson from that run: the pre-launch ETA (~8.5-9h) was built
+off a single `--profile` smoke-test clip's realtime factor (1.98x) and
+undershot the actual wall clock (10h25m, 1.67x aggregate) by about 20%.
+A single short clip's ratio runs faster than a mixed real batch — use the
+in-progress aggregate (total processed duration / total wall clock so far)
+for a better mid-run estimate next time, not a pre-batch smoke test alone.
+
+## Launching a new batch
 
 ```bash
 cd ~/projects/multidata-local
 
-conda activate md-pose && python scripts/run_stage.py pose --accel-device cuda --profile \
+conda activate md-pose && nohup python scripts/run_stage.py pose --accel-device cuda --profile \
   > logs/nohup_pose.out 2>&1 &
 echo $! > logs/pose_job.pid   # verify with `ps -p $(cat logs/pose_job.pid)` -- nohup's
                               # own `&` can hand back the wrong $! if you're piping the
                               # launch command through another wrapper shell; confirm the
                               # PID's COMMAND column actually says run_stage.py before
                               # trusting the .pid file
+disown                        # so the launching shell exiting doesn't take the job with it
 ```
 
-PID: `138126` (`logs/pose_job.pid`).
+`--profile` is worth leaving on for every run, not just spot checks: it costs
+nothing but a few `time.perf_counter()` calls, and gives a per-video
+decode/detect/pose split in `logs/run_stage.log` for tracking how processing
+time moves as the GPU/driver/onnxruntime stack changes over time — that's
+what produced the current §9 baseline.
+
+## Checking on it
 
 ```bash
 cd ~/projects/multidata-local
@@ -51,14 +69,6 @@ for row in conn.execute('select pose_status, count(*) from videos group by pose_
 # to stop it
 kill "$(cat logs/pose_job.pid)"
 ```
-
-18 rows pending at launch, ~17.3 hours of total video content. At the
-measured ~1.98x realtime (5080, `--profile` smoke test, 2026-09-04 -- see
-`multidata_local_pipeline.md` §9), that's **very roughly 8.5-9 hours**
-wall clock, i.e. expect it done sometime around 2026-09-04 21:30-22:00 --
-not a committed number, just a planning estimate; the pending list mixes
-~30-70 minute encounters and per-video overhead (model load, detector
-warmup) isn't free, so actual time will drift from this.
 
 If you need to restart (e.g. after a code change), completed rows stay
 `done` in the manifest either way, so a restart just picks up wherever

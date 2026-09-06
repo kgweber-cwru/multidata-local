@@ -61,18 +61,18 @@ def extract(video_path, out_path=None, max_persons=MAX_PERSONS,
     NMS output shape (`{1,1,1,8400,8400}` vs the graph's `{1,8400}}`) — a real
     onnxruntime/CoreML limitation, confirmed on Apple Silicon. That's
     specifically a CoreML issue, not a CUDA one, so on `cuda` the detector
-    also runs on the GPU. A production batch on an RTX 3070 (Ubuntu, 2026-07)
-    processed full ~30-minute encounters end-to-end (detector + pose net both
-    on CUDA) at roughly 1.3x-2.2x realtime (mean ~1.5x) with no crashes or
-    fallback -- that card has since failed and been replaced with an RTX 5080.
-    A `--profile` smoke test on the 5080 (2026-09, a ~15.7-minute encounter)
-    confirmed the replacement: ~1.98x realtime, decode=3%/detect[cuda]=51%/
-    pose[cuda]=46% of wall-clock -- note detect and pose are roughly balanced
-    here, unlike the CPU-detector Mac case where detect alone was ~88%; moving
-    the detector to CUDA didn't make it free, just brought it in line with the
-    pose network's cost. RTMPose has no dynamic-shape issue and runs cleanly
-    under CoreML EP; rtmlib falls back to CPU on its own if the installed
-    onnxruntime doesn't expose the requested execution provider at all.
+    also runs on the GPU. `tofino`'s permanent card is an RTX 5080 (its
+    original RTX 3070 failed in 2026-07 and is not coming back). Settled
+    baseline, an 18-video/~17.3h production batch (2026-09, detector + pose
+    net both on CUDA, zero crashes/fallback): 1.67x realtime aggregate (mean
+    1.72x per-video, range 1.38x-2.39x, stdev 0.31), decode ~4% /
+    detect[cuda] ~60% / pose[cuda] ~37% of wall-clock. Detect is still the
+    larger cost on this card, closer to the old CPU-bound-detector shape than
+    a single short smoke-test clip suggested -- plan capacity off the batch
+    aggregate (1.67x), not the smoke-test number. RTMPose has no dynamic-shape
+    issue and runs cleanly under CoreML EP; rtmlib falls back to CPU on its
+    own if the installed onnxruntime doesn't expose the requested execution
+    provider at all.
 
     A CUDA `device` also needs `onnxruntime.preload_dlls()` called first --
     pip-installed `onnxruntime-gpu` doesn't put the CUDA/cuDNN wheels' shared
