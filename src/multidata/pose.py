@@ -28,6 +28,11 @@ log = logging.getLogger(__name__)
 MAX_PERSONS = 4  # fixed M slots; frames with fewer people leave slots at zero
 KPT_THR = 0.3
 
+_cuda_dlls_preloaded = False  # module-level: preload_dlls() is a process-wide
+# DLL search-path setup, not a per-call thing -- run_stage.py calls extract()
+# once per pending video row, and re-running it for every row in a batch is
+# pure waste once the first call has already primed the loader.
+
 # One fixed BGR color per slot, so "P0" is the same hue across the whole video.
 SLOT_COLORS = [(0, 0, 255), (0, 200, 0), (255, 128, 0), (255, 0, 255),
                (0, 255, 255), (255, 255, 0)]
@@ -87,8 +92,10 @@ def extract(video_path, out_path=None, max_persons=MAX_PERSONS,
     from multidata.device import best_torch_device
 
     device = device or best_torch_device()
-    if device == "cuda":
+    global _cuda_dlls_preloaded
+    if device == "cuda" and not _cuda_dlls_preloaded:
         ort.preload_dlls(directory="")
+        _cuda_dlls_preloaded = True
     det_device = "cpu" if device == "mps" else device
 
     model_cfg = Wholebody.MODE[mode]
