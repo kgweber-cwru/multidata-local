@@ -146,7 +146,7 @@ Rejected alternatives, so nobody re-litigates them:
 |---|---|
 | `gcsfuse` mount of the media | ELAN scrubs and loops constantly. Random-access seeking through a FUSE layer is exactly gcsfuse's weak case; even with file caching it's a UX gamble on the single most latency-sensitive part of the work. |
 | Filestore (managed NFS) | Right performance profile, but 1 TiB minimum (~$200/mo) to serve a handful of cases, and it re-creates the shared-visibility problem §3 just solved. |
-| Local disk, staged from GCS | **Chosen.** Native seek performance, least privilege, costs pennies. Staging a case is a one-time ~1–3 GB in-region copy — under a minute. |
+| Local disk, staged from GCS | **Chosen.** Native seek performance, least privilege, costs pennies. A kit is small: measured on the real corpus, a 32-minute encounter is ~143 MB of H.264 plus an ~88 MB wav, so ~230 MB staged, or well under 100 MB with the §4.3 proxy. Seconds, not minutes. |
 
 Bucket configuration: uniform bucket-level access (no ACLs), object versioning
 on (a `rsync` that races an ELAN save must be recoverable), and a lifecycle rule
@@ -473,13 +473,13 @@ Order-of-magnitude only — check current rates.
 | Item | Monthly |
 |---|---|
 | `e2-standard-4` (4 vCPU / 16 GB), 8 h/day | ~$23 |
-| 100 GB balanced PD (billed while stopped too) | ~$10 |
+| 50 GB balanced PD (billed while stopped too) — a kit is ~230 MB, so this is OS + ELAN headroom | ~$5 |
 | Remote-desktop egress (~2 Mbps while connected) | ~$15–20 |
 | **Per annotator** | **~$50** |
 | GCS, per TB of corpus staged in the bucket | ~$20 |
 | HTTPS load balancer + IAP (one, shared across annotators) | ~$18 |
 
-No GPU. Three annotators plus a terabyte lands near $190/month, and the dominant
+No GPU. Three annotators plus a terabyte lands near $175/month, and the dominant
 lever is stopping VMs — an always-on VM triples its own line. Egress is the
 line item people don't predict: a remote desktop is a continuous video stream out
 of the datacenter, so a 1080p full-video scrub costs real money as well as real
