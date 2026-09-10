@@ -292,16 +292,19 @@ actor, so there is no patient PHI. But the **learner and preceptor are real
 people**, and two things follow:
 
 1. **Their voices go to a vendor.** Not HIPAA, but identifiable human-subjects
-   data. IRB coverage for third-party processing and an explicit no-train /
-   zero-retention flag on **every** request are requirements, not preferences.
-   Vendor defaults frequently permit retention.
+   data. **IRB cleared vendor inference on 2026-09-10.** That settles coverage;
+   it does not settle retention. An explicit no-train / zero-retention flag on
+   **every** request remains a requirement, not a preference — vendor defaults
+   frequently permit retention, so an approved study sending default-configured
+   requests still leaks.
 2. **Students self-identify verbally** — "Hi, I'm Jamie, third-year." So
    transcript *text* carries real names even with a simulated patient.
 
 ### The interlock
 
-`cases.cloud_release` (**to be added**), defaulting false. Cloud adapters refuse
-any row without it. Today it sorts nothing — the corpus is uniformly OSCE. Its
+`cases.cloud_release`, defaulting false. Cloud adapters refuse any row without
+it. **The column exists; the refusal does not yet** — no code reads it (see the
+implementation plan's 4.2). Build the check before the first adapter, not after. Today it sorts nothing — the corpus is uniformly OSCE. Its
 job is to **already exist**, on the day real clinical data lands, so nothing
 leaks because someone forgot to add a check later. Cheap now, impossible to
 retrofit safely.
@@ -344,7 +347,7 @@ Before any of this is built:
 - [ ] Confirm AssemblyAI Universal-3 Pro + Medical Mode availability and params
 - [ ] Confirm ElevenLabs Scribe v2 — diarization, word timings, any keyterm mechanism
 - [ ] Confirm which Google STT v2 / Chirp variants support diarization *and* adaptation together
-- [ ] Confirm BAA availability and no-train flags per vendor
+- [ ] Confirm BAA availability and no-train flags per vendor — Google is already covered by the institution's enterprise BAA; the others are not
 - [ ] Confirm long-audio limits — OSCE encounters exceed several sync limits
-- [ ] Get IRB position on third-party processing of learner/preceptor voice
-- [ ] Add `cases.cloud_release`, `cases.cloud_release_basis`, `cases.preceptor_name`
+- [x] Get IRB position on third-party processing of learner/preceptor voice — **cleared 2026-09-10** for inference with online vendors
+- [x] Add `cases.cloud_release`, `cases.cloud_release_basis`, `cases.preceptor_name` — columns added; enforcement still outstanding (plan 4.2)

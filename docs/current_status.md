@@ -6,9 +6,10 @@ commit and now badly stale), this is meant to travel with a `git clone` and
 stay current. Update it whenever a session ends with real state changed;
 delete stale sections rather than letting them rot.
 
-**Last updated:** 2026-09-04, folding in Kate's second gold case (261473,
-scored 2026-09-02) on top of the Phase 1/2 merge (`b70a592`). All 178 tests
-pass (`conda activate md-speech && python -m pytest -q`).
+**Last updated:** 2026-09-10 — IRB cleared third-party vendor inference
+(see below), which unblocks Phase 4. Previously 2026-09-04, folding in Kate's
+second gold case (261473, scored 2026-09-02) on top of the Phase 1/2 merge
+(`b70a592`). All 178 tests pass (`conda activate md-speech && python -m pytest -q`).
 
 ---
 
@@ -57,8 +58,9 @@ Kate is hand-researching cloud providers directly in
 check there first). As of this writing:
 
 - **Google**: researched and done (two distinct entries — plain STT and
-  `google_medical_conversation`). Deprioritized as a deployment candidate:
-  GCS staging for long audio is more complexity than it's worth right now.
+  `google_medical_conversation`). ~~Deprioritized as a deployment candidate:
+  GCS staging for long audio is more complexity than it's worth right now.~~
+  **The reason for that deprioritization has expired** — see below.
 - **AssemblyAI**: in progress, and the recommended next cloud provider —
   its `disfluencies` param is a real preservation switch (the same property
   that made `whisperx_disfluent` win), and it's structurally the closest
@@ -69,6 +71,24 @@ check there first). As of this writing:
   leading with it.
 - **ElevenLabs**: least-specified row; likely no glossary mechanism at all
   and "Scribe v2" itself is unconfirmed against public docs.
+
+**Google's deprioritization is worth revisiting (2026-09-10).** It rested on
+one stated cost — "GCS staging for long audio is more complexity than it's worth"
+— and two facts just removed it: the project is standing up a GCS bucket in the
+enterprise org anyway (annotation environment, §4.1), so the staging path stops
+being extra work and becomes reuse; and Google is *inside the existing BAA*,
+where AssemblyAI, Deepgram and ElevenLabs would each need their own agreement
+plus a per-request no-train flag before any audio can go to them (0.6). That's a
+material asymmetry in time-to-first-real-result.
+
+This does **not** overturn the AssemblyAI recommendation on the research merits
+— its `disfluencies` switch is still the closest thing to a direct test of the
+property that made `whisperx_disfluent` win, and that's the actual open
+scientific question. It does mean the *ordering* argument has flipped: Google is
+now the cheapest vendor to get a real number from, and AssemblyAI is the most
+informative one. Pick deliberately rather than inheriting the old ranking; if
+the goal is to exercise the adapter pattern end to end against real audio
+without waiting on paperwork, Google is now the path of least resistance.
 
 **Architecture decision, settled**: cloud adapters call vendors via
 `requests` directly, not vendor SDKs. Reasoning: the raw `response.json()`
@@ -84,14 +104,56 @@ candidate for that — moot while deprioritized).
 
 ---
 
-## The one blocking question, not yet resolved
+## The blocking question, now resolved — and what it exposed
 
-**Whether IRB/consent actually covers sending learner/preceptor voice to a
-third-party vendor.** `cases.cloud_release` defaults to 0 and enforces this
-at the code level (no adapter can send audio for a case without it), but
-that's a technical gate, not a policy answer. Confirm the real-world status
-*before* spending real effort on a cloud adapter or vendor account billing,
-not after — this is cheap to check now and expensive to discover late.
+**IRB cleared inference with online vendors (2026-09-10).** Sending
+learner/preceptor voice to a third-party ASR vendor is approved. This was the
+one item gating Phase 4, and it is no longer gating anything: implementation
+plan **0.5 is done**.
+
+What it does *not* cover, and don't let the good news blur these:
+
+- **Storing the corpus in a third-party cloud** is a different question from
+  running inference against a vendor API. That one is *also* now settled, but
+  separately: the corpus lives in the institution's **enterprise Google
+  instance under BAA**
+  ([annotation_environment_design.md](annotation_environment_design.md) §0).
+  Note a BAA covers a named service list, not "Google" — see that doc's §4.5
+  for the one component that trips on this.
+- **Per-request no-train / zero-retention flags are still requirements**, not
+  preferences (`asr_provider_spec.md` §9). Vendor defaults frequently permit
+  retention, so IRB approval plus a default-configured request is still a
+  leak. This is per-vendor account configuration *and* per-request parameters —
+  plan item 0.6, still open.
+
+### The interlock does not actually exist yet
+
+Worth stating plainly because the previous version of this note got it wrong:
+it claimed `cloud_release` "enforces this at the code level (no adapter can
+send audio for a case without it)." **No code anywhere reads
+`cases.cloud_release`.** The column exists (`manifest.py`, `models.py`) and the
+intent is documented (`asr_provider_spec.md` §9), but the check is
+implementation plan item **4.2, unchecked**. The claim was vacuously true only
+because no cloud adapter exists to be gated.
+
+That distinction stopped being academic the moment IRB cleared vendor
+inference, because the first cloud adapter is now the active work. The order
+that matters:
+
+1. **4.2 before 4.3.** Build the interlock before the adapter that would be
+   subject to it, and verify it deliberately — point it at a `cloud_release=0`
+   case and confirm it refuses *before any audio is read*. A gate that fails
+   open is worse than no gate, because it gets trusted.
+2. **Then 0.7** — set `cloud_release=1` with a recorded
+   `cloud_release_basis` on the dev subset. Right now **0 of 1307 cases** have
+   it set, which is the correct default and also means every cloud run will
+   refuse until someone makes a deliberate, auditable decision. Record the IRB
+   determination reference in the basis, not just `simulated_patient`.
+
+Related and currently unenforced: **`consent_ref` is empty on all 1307 cases**,
+while the pipeline doc says to "refuse to process rows without it." Not
+urgent for local stages, but if `cloud_release_basis` is going to cite consent,
+the field it cites should have something in it.
 
 ---
 

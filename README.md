@@ -11,19 +11,22 @@ is carried over.
 
 0. **[docs/current_status.md](docs/current_status.md)** — picking this up
    cold (new session, new contributor)? Read this one first: what's real vs.
-   built-but-unproven, active threads, the one open blocking question.
+   built-but-unproven, active threads, and what IRB clearance did and didn't unblock.
 1. **[multidata_local_pipeline.md](multidata_local_pipeline.md)** — the full
    build & run guide (machine prep, envs, every stage, scaling to 300–400 videos).
 2. **[docs/transcription_standards.md](docs/transcription_standards.md)** — the
    conventions every gold reference obeys (policy; versioned).
 3. **[docs/annotator_guide.md](docs/annotator_guide.md)** — step-by-step ELAN
    walkthrough for producing one gold transcript.
-4. **[docs/asr_provider_spec.md](docs/asr_provider_spec.md)** — how local and
+4. **[docs/annotation_environment_design.md](docs/annotation_environment_design.md)**
+   — design (not built) for a GCP-hosted virtual desktop that hands annotators a
+   pre-linked ELAN session, keeping encounter media off personal machines.
+5. **[docs/asr_provider_spec.md](docs/asr_provider_spec.md)** — how local and
    cloud ASR providers plug in, and how the selection bake-off is scored.
-5. **[docs/asr_provider_implementation_plan.md](docs/asr_provider_implementation_plan.md)**
+6. **[docs/asr_provider_implementation_plan.md](docs/asr_provider_implementation_plan.md)**
    — the build checklist for the spec above: what's done, what's deliberately
    deferred, and why.
-6. **[docs/running_job_notes.md](docs/running_job_notes.md)** — PIDs, log
+7. **[docs/running_job_notes.md](docs/running_job_notes.md)** — PIDs, log
    paths, and check-in commands for whatever batch job is actually running
    right now (currently: pose, split across this Mac and a Linux CUDA box).
 
@@ -122,6 +125,8 @@ delete it from `asr.py` if you'd rather it not be there.
 > simulated-patient encounters — the "patient" is an actor, so there is no
 > patient PHI — but the learner and preceptor are real people, and they
 > self-identify verbally, so transcripts carry real names. Nothing leaves this
-> machine for a third-party ASR provider without `cases.cloud_release`. See
+> machine for a third-party ASR provider without `cases.cloud_release` — a
+> column that exists but is **not yet enforced in code** (see
+> [current_status.md](docs/current_status.md)). See
 > pipeline doc §11, [transcription_standards.md](docs/transcription_standards.md) §8,
 > and [asr_provider_spec.md](docs/asr_provider_spec.md) §9.
