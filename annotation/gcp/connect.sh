@@ -5,14 +5,16 @@
 #
 # One-time setup on the annotator's own computer:
 #   1. Install the Google Cloud CLI:  https://cloud.google.com/sdk/install
-#   2. Run:  gcloud auth login              (use your CWRU account)
+#   2. Install a Remote Desktop client:
+#        macOS    "Windows App" (formerly Microsoft Remote Desktop), free
+#                 from the Mac App Store
+#        Windows  already installed -- Remote Desktop Connection
+#        Linux    Remmina, or any FreeRDP client
+#   3. Run:  gcloud auth login              (use your CWRU account)
 #            gcloud config set project <the name the project lead gives you>
 #
-# On a Mac that is all -- Screen Sharing is already installed. On Windows or
-# Linux you also need a VNC viewer (TigerVNC or RealVNC).
-#
-# The project lead gives you a VNC password as well. It is not your CWRU
-# password; it belongs to the machine.
+# The project lead also gives you a username and password for the desktop.
+# They are not your CWRU credentials; they belong to the machine.
 #
 # After that this script is the whole routine. Nothing on your own computer
 # ever holds the recordings or your ELAN file -- they stay on the machine at
@@ -21,13 +23,14 @@
 # ---------------------------------------------------------------------------
 # How this connects, because the obvious way does not work.
 #
-# The desktop listens on 127.0.0.1:5901 on the remote machine. Tunnelling IAP
-# straight at port 5901 cannot work -- IAP connects to the VM on its internal
-# interface, and nothing is listening there.
+# The desktop is served over RDP, not VNC, because VNC's protocol carries no
+# audio at all and the whole job is listening.
 #
-# So we go the way that does work: IAP to port 22, which is how every other
-# script here reaches these machines, and then SSH forwards a local port to the
-# remote loopback. That is also the better arrangement:
+# We reach it by tunnelling IAP to port 22 -- the path every other script here
+# uses -- and letting SSH forward a local port to the machine's RDP port.
+# Pointing IAP straight at the desktop port does not work: IAP connects to the
+# VM on its internal interface, and the desktop is not listening there. Going
+# via SSH is also the better arrangement:
 #
 #   * The firewall only ever needs port 22 open to IAP's range.
 #   * The real authentication is Google IAM, against a named person; the VNC
@@ -43,7 +46,7 @@ set -euo pipefail
 ANNOTATOR="${ANNOTATOR:-${USER}}"
 ZONE="${ZONE:-us-east5-a}"
 PROJECT="${PROJECT:-}"
-PORT="${PORT:-5901}"
+PORT="${PORT:-3389}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -128,7 +131,7 @@ echo "Starting your annotation desktop..."
 
 gcloud compute ssh "$VM" \
   --zone "$ZONE" --project "$PROJECT" --tunnel-through-iap \
-  -- -N -L "${PORT}:localhost:5901" &
+  -- -N -L "${PORT}:localhost:3389" &
 TUNNEL=$!
 trap 'kill $TUNNEL 2>/dev/null || true' EXIT
 
@@ -169,11 +172,17 @@ fi
 
 cat <<EOF
 
-Ready. Connect your VNC viewer to:  localhost:${PORT}
-On a Mac you can just run:          open vnc://localhost:${PORT}
+Ready. Open your Remote Desktop client and connect to:
 
-It will ask for a password. That is the VNC password the project lead gave
-you -- not your CWRU password.
+  localhost:${PORT}
+
+Sign in with the desktop username and password the project lead gave you --
+not your CWRU credentials.
+
+FIRST TIME ONLY, and this is the point of the whole thing: in the client's
+settings for this connection, turn audio ON ("Play sound: On this computer"
+in the Mac app). Without it you get a silent desktop, and you cannot
+transcribe what you cannot hear.
 
 Leave this window open while you work. Close it when you're done for the day --
 your session and your file stay where they are.

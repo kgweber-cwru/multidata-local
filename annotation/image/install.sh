@@ -3,8 +3,8 @@
 # image build (annotation/gcp/build_image.sh), never on a running annotator's
 # machine.
 #
-# What you get: Xfce, a VNC server on :1, ELAN, three desktop launchers, and
-# the guide. Nothing else.
+# What you get: Xfce served over RDP (port 3389) with audio, ELAN, three
+# desktop launchers, and the guide. Nothing else.
 set -euo pipefail
 
 # ---------------------------------------------------------------------------
@@ -30,21 +30,19 @@ echo "==> packages"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 
-# The desktop, the VNC server, and the media stack get their Recommends.
+# The desktop and the media stack get their Recommends.
 #
 # An earlier version installed everything with --no-install-recommends, which
 # was a mistake worth spelling out: `xfce4` is a metapackage whose Recommends
-# *are* most of the desktop, and TigerVNC's vncserver needs xauth to create the
-# X authority cookie before it will start at all. Stripping recommends produced
-# a machine that installed cleanly and had no working session. For media it is
-# worse than a nuisance -- a silently missing codec is exactly the failure this
-# image most needs to avoid, and disk is not scarce here.
+# *are* most of the desktop. Stripping them produced a machine that installed
+# cleanly and had no working session. For media it is worse than a nuisance --
+# a silently missing codec is exactly the failure this image most needs to
+# avoid, and disk is not scarce here.
 #
 # xauth, x11-xkb-utils and xfonts-base are named explicitly as well as being
 # pulled in, so that a future Recommends change cannot quietly drop them.
 apt-get install -y -qq \
   xfce4 xfce4-terminal dbus-x11 \
-  tigervnc-standalone-server tigervnc-common \
   xauth x11-xkb-utils xfonts-base \
   vlc libavcodec-extra
 
@@ -53,6 +51,61 @@ apt-get install -y -qq --no-install-recommends \
   fonts-dejavu fonts-liberation \
   firefox-esr pandoc zenity \
   python3 curl ca-certificates cron
+
+# ---------------------------------------------------------------------------
+# RDP, with audio.
+#
+# The desktop is served over RDP rather than VNC for one reason: VNC's protocol
+# has no audio channel, and the entire job is listening. See
+# docs/annotator_image_design.md §4b.
+#
+# Audio needs PipeWire, not PulseAudio: pulseaudio-module-xrdp does not exist
+# as a Debian 12 package at all, while pipewire-module-xrdp does -- in
+# backports, which sit at apt priority 100 and so need an explicit -t.
+#
+# Versions are PINNED. A backport moves under you, and "rebuild the image" has
+# to keep meaning "rebuild the same image" (standards §12, same reasoning as
+# ELAN). Bump these deliberately, and re-run the fidelity test in §4b when you
+# do -- this is the audio path for phonetic judgements, not background music.
+# ---------------------------------------------------------------------------
+XRDP_VERSION="${XRDP_VERSION:-0.9.24-5~bpo12+1}"
+PIPEWIRE_VERSION="${PIPEWIRE_VERSION:-1.4.2-1~bpo12+1}"
+WIREPLUMBER_VERSION="${WIREPLUMBER_VERSION:-0.5.8-1~bpo12+1}"
+PW_XRDP_VERSION="${PW_XRDP_VERSION:-0.2-2~bpo12+1}"
+
+if ! grep -rq bookworm-backports /etc/apt/sources.list /etc/apt/sources.list.d/ \
+     /etc/apt/mirrors/ 2>/dev/null; then
+  echo "    adding bookworm-backports"
+  echo "deb http://deb.debian.org/debian bookworm-backports main" \
+    > /etc/apt/sources.list.d/backports.list
+  apt-get update -qq
+fi
+
+# xfce4's Recommends bring PulseAudio in, and pipewire-pulse replaces it. Say
+# so, rather than leaving a reader to wonder why apt removed something.
+if dpkg -l pulseaudio 2>/dev/null | grep -q '^ii'; then
+  echo "    replacing pulseaudio with pipewire-pulse"
+fi
+
+echo "==> RDP and audio (xrdp $XRDP_VERSION, pipewire $PIPEWIRE_VERSION)"
+apt-get install -y -qq -t bookworm-backports \
+  "xrdp=$XRDP_VERSION" \
+  xorgxrdp \
+  "pipewire=$PIPEWIRE_VERSION" \
+  "pipewire-pulse=$PIPEWIRE_VERSION" \
+  "pipewire-bin=$PIPEWIRE_VERSION" \
+  "wireplumber=$WIREPLUMBER_VERSION" \
+  "pipewire-module-xrdp=$PW_XRDP_VERSION"
+
+# xrdp needs to read the snakeoil TLS certificate.
+adduser xrdp ssl-cert >/dev/null
+
+# Show the channel settings rather than editing keys blind. Audio needs the
+# rdpsnd channel; xrdp enables it by default when the module is present, and
+# guessing at .ini keys has cost this project enough already.
+echo "    xrdp channel settings, as shipped:"
+grep -inE 'allow_channels|rdpsnd|^port|^address' /etc/xrdp/xrdp.ini \
+  | sed 's/^/      /' || true
 
 # The launchers use zenity for their handful of dialogs. gcloud moves kits and
 # submissions; GCE Debian images normally ship it, but don't assume.
@@ -77,8 +130,8 @@ echo "==> checking the packages gave us what we need"
 # wrong package name should cost seconds here rather than surfacing at the end
 # of the build -- or worse, when an annotator clicks something.
 MISSING=""
-for cmd in vncserver vncpasswd startxfce4 xauth xrdb pandoc zenity \
-          firefox-esr python3 gcloud; do
+for cmd in xrdp startxfce4 xauth xrdb pandoc zenity \
+          firefox-esr python3 gcloud pipewire; do
   command -v "$cmd" >/dev/null || MISSING="$MISSING $cmd"
 done
 if [[ -n "$MISSING" ]]; then
@@ -86,11 +139,6 @@ if [[ -n "$MISSING" ]]; then
   echo "  !! the package names in this script need fixing for this Debian" >&2
   exit 1
 fi
-# Record where vncserver actually is rather than hard-coding /usr/bin/vncserver
-# in the service file: some TigerVNC versions ship it as tigervncserver with
-# vncserver as an alternative, and the unit would then point at nothing.
-VNCSERVER="$(command -v vncserver)"
-echo "    vncserver: $VNCSERVER"
 
 echo "==> ELAN $ELAN_VERSION"
 echo "    from $ELAN_DEB_URL"
@@ -218,36 +266,30 @@ for doc in annotator_guide transcription_standards; do
   fi
 done
 
-echo "==> the VNC password"
-# A password, despite the desktop being unreachable except through an
-# authenticated SSH tunnel (see vncserver@.service). The reason is the client,
-# not the threat model: macOS's built-in Screen Sharing cannot handle a VNC
-# server offering no authentication -- it prompts anyway and then hangs. Giving
-# it something to authenticate with means Mac annotators need NO viewer
-# installed at all, which removes a step from onboarding.
+echo "==> the desktop password"
+# xrdp authenticates through PAM, so the annotator account needs a real
+# password. This replaces the VNC password, which only ever existed because
+# macOS Screen Sharing refuses a server offering no authentication -- still one
+# credential, just a different kind.
 #
 # Not in annotation/config.sh, because that file is tracked in git. Supply
-# VNC_PASSWORD to reproduce a previous image; otherwise one is generated and
-# printed at the end of the build.
-VNC_PASSWORD="${VNC_PASSWORD:-$(head -c 32 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 8)}"
-install -d -m 700 "$ANNOTATOR_HOME/.vnc"
-printf '%s' "$VNC_PASSWORD" | vncpasswd -f > "$ANNOTATOR_HOME/.vnc/passwd"
-chmod 600 "$ANNOTATOR_HOME/.vnc/passwd"
+# DESKTOP_PASSWORD to reproduce a previous image; otherwise one is generated
+# and printed at the end of the build.
+DESKTOP_PASSWORD="${DESKTOP_PASSWORD:-${VNC_PASSWORD:-$(head -c 32 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 12)}}"
 
 echo "==> the desktop session"
-# TigerVNC's own convention: ~/.vnc/xstartup, executable. Using the default
-# path rather than passing -xstartup means one less flag that can be wrong.
-cat > "$ANNOTATOR_HOME/.vnc/xstartup" <<'EOF'
+# xrdp runs ~/.xsession. Same Xfce desktop the VNC setup served, reached a
+# different way.
+cat > "$ANNOTATOR_HOME/.xsession" <<'EOF'
 #!/bin/sh
-unset SESSION_MANAGER DBUS_SESSION_BUS_ADDRESS
 exec startxfce4
 EOF
-chmod +x "$ANNOTATOR_HOME/.vnc/xstartup"
+chmod +x "$ANNOTATOR_HOME/.xsession"
 
 echo "==> the annotator account"
 # CREATED LAST, ON PURPOSE. adduser copies /etc/skel as it stands at that
 # moment, so the account has to come after everything above has been written
-# into it -- the ELAN preferences, the desktop launchers, and ~/.vnc/xstartup.
+# into it -- the ELAN preferences, the desktop launchers, and ~/.xsession.
 # Creating it earlier produces a machine that builds cleanly and boots to
 # nothing, because the home directory is empty and the VNC session has no
 # xstartup to run.
@@ -262,77 +304,47 @@ if id annotator >/dev/null 2>&1; then
 fi
 adduser --disabled-password --gecos "" annotator
 adduser annotator video    # so VLC/ELAN can reach the display hardware paths
+adduser annotator audio    # and the audio devices PipeWire exposes
+printf '%s\n%s\n' "$DESKTOP_PASSWORD" "$DESKTOP_PASSWORD" | passwd annotator >/dev/null 2>&1
 
-echo "==> VNC on :1 (port 5901)"
-# Debian's tigervnc-standalone-server ships its own vncserver@.service in
-# /usr/lib/systemd/system, driven by /etc/tigervnc/vncserver.users. Ours lands
-# in /etc/systemd/system, which systemd prefers, so ours is the one that runs.
-sed "s|@VNCSERVER@|$VNCSERVER|g" "$IMAGE_DIR/desktop/vncserver@.service" \
-  > /etc/systemd/system/vncserver@.service
-chmod 644 /etc/systemd/system/vncserver@.service
-systemctl enable vncserver@1.service
+echo "==> RDP on 3389"
+# xrdp ships its own systemd units; enable rather than write our own. The
+# previous VNC unit is gone -- two desktop servers competing for display :1 is
+# exactly the "X server already running" mess this project already hit once.
+systemctl enable xrdp.service
+systemctl enable xrdp-sesman.service
 
 echo "==> proving the desktop actually starts"
-# `systemctl is-enabled` was not enough: enabled means the service will be
-# *attempted* at boot, not that it works.
+# `systemctl is-enabled` is not enough: enabled means it will be *attempted* at
+# boot, not that it works. Three separate "cannot connect" rounds came from
+# trusting that, so the build starts the service and requires it to answer.
 #
-# The first version of this check was not enough either, and its failure is
-# instructive. It broke out of the loop the moment 5901 appeared -- but Xvnc
-# opens the port BEFORE running xstartup, so a session that then dies leaves the
-# port open for a second or two. The check passed, the service exited 255, and
-# the build shipped a machine with no desktop. So: wait for the port, then wait
-# again and require the service to still be running.
-systemctl stop vncserver@1.service 2>/dev/null || true
-rm -f /tmp/.X1-lock /tmp/.X11-unix/X1 /home/annotator/.vnc/*.pid
-systemctl start vncserver@1.service || true
+# What this canNOT check is whether audio reaches a client -- that needs an RDP
+# client and a pair of ears (image design §4b). It rules out the obvious
+# failures; the fidelity test is still a person's job.
+systemctl restart xrdp.service || true
 
 for _ in $(seq 1 30); do
-  ss -lnt 2>/dev/null | grep -q ':5901' && break
+  ss -lnt 2>/dev/null | grep -q ':3389' && break
   sleep 1
 done
 
 desktop_failed() {
   echo "  !! $1" >&2
-  systemctl status vncserver@1 --no-pager -l >&2 || true
-  journalctl -u vncserver@1 --no-pager -n 40 >&2 || true
-  cat /home/annotator/.vnc/*.log >&2 2>/dev/null || true
+  systemctl status xrdp --no-pager -l >&2 || true
+  journalctl -u xrdp -u xrdp-sesman --no-pager -n 40 >&2 || true
   exit 1
 }
 
-ss -lnt 2>/dev/null | grep -q ':5901' \
-  || desktop_failed "nothing ever listened on 5901."
+ss -lnt 2>/dev/null | grep -q ':3389' \
+  || desktop_failed "nothing ever listened on 3389."
 
-# Give xstartup time to fail, then check the service survived it.
-sleep 8
-systemctl is-active --quiet vncserver@1.service \
-  || desktop_failed "5901 opened but the session died -- xstartup failed."
+sleep 5
+systemctl is-active --quiet xrdp.service \
+  || desktop_failed "3389 opened but xrdp did not stay up."
 
-# Require loopback, the opposite of what an earlier version checked. The
-# desktop is reached by SSH forwarding to this address (see
-# annotation/gcp/connect.sh and the unit file), so a listener that somehow came
-# up on 0.0.0.0 would mean a no-password desktop exposed to the VPC.
-if ! ss -lnt 2>/dev/null | grep -E '127\.0\.0\.1:5901' >/dev/null; then
-  echo "  !! 5901 is not on loopback:" >&2
-  ss -lnt | grep 5901 >&2
-  echo "  !! A no-password desktop must not listen beyond 127.0.0.1." >&2
-  exit 1
-fi
-echo "    listening on 127.0.0.1:5901, and still up after 8s"
-
-# Stop it and clear what the test left behind, so the image ships with the
-# service enabled-but-not-running and carries no log or pid file naming the
-# builder's hostname.
-systemctl stop vncserver@1.service || true
-sleep 2
-rm -f /home/annotator/.vnc/*.log /home/annotator/.vnc/*.pid
-rm -f /tmp/.X1-lock /tmp/.X11-unix/X1
-
-# Clear the journal. Otherwise every machine made from this image ships with
-# the builder's logs in it, which is worse than untidy: debugging a real machine
-# means reading entries from a differently-named host mixed in with the live
-# ones, and that has already sent one investigation down the wrong path.
-journalctl --rotate >/dev/null 2>&1 || true
-journalctl --vacuum-time=1s >/dev/null 2>&1 || true
+echo "    listening on 3389, and still up after 5s"
+ss -lnt | grep ':3389' | sed 's/^/      /'
 
 echo "==> five-minute backup of work in progress"
 install -m 755 "$IMAGE_DIR/desktop/backup-work" /usr/local/bin/backup-work
@@ -367,13 +379,16 @@ check "the launcher it points at exists" \
 check "the annotator account exists"  "id annotator >/dev/null 2>&1"
 # These four prove /etc/skel was populated BEFORE the account was created.
 # Getting that order wrong is invisible until someone tries to connect.
-check "~/.vnc/xstartup is there"      "[[ -x /home/annotator/.vnc/xstartup ]]"
-check "~/.vnc/passwd is there"        "[[ -s /home/annotator/.vnc/passwd ]]"
+check "~/.xsession is there"          "[[ -x /home/annotator/.xsession ]]"
+check "the account has a password"    "passwd -S annotator | grep -q ' P '"
 check "the three launchers are there" \
       "[[ \$(ls /home/annotator/Desktop/*.desktop 2>/dev/null | wc -l) -eq 3 ]]"
 check "~/.elan_data exists"           "[[ -d /home/annotator/.elan_data ]]"
 check "the desktop service is enabled" \
-      "systemctl is-enabled vncserver@1.service >/dev/null 2>&1"
+      "systemctl is-enabled xrdp.service >/dev/null 2>&1"
+check "the xrdp audio module is installed" \
+      "ls /usr/lib/pipewire-0.3/libpipewire-module-xrdp* >/dev/null 2>&1"
+check "pipewire-pulse is present"     "command -v pipewire-pulse >/dev/null"
 check "the staging directory exists"  "[[ -d /srv/multidata/case ]]"
 check "the guide rendered"            \
       "[[ -f /usr/local/share/annotation-guide/annotator_guide.html ]]"
@@ -389,11 +404,11 @@ fi
 
 echo
 echo "================================================================"
-echo "  VNC password for this image:  $VNC_PASSWORD"
+echo "  Desktop login for this image:  annotator / $DESKTOP_PASSWORD"
 echo
-echo "  Annotators need this to open the desktop. Keep it somewhere"
-echo "  that is not this repository. To rebuild an identical image,"
-echo "  pass it back in as VNC_PASSWORD."
+echo "  Annotators need both to open the desktop over RDP. Keep the"
+echo "  password somewhere that is not this repository. To rebuild an"
+echo "  identical image, pass it back in as DESKTOP_PASSWORD."
 echo "================================================================"
 echo
 echo "Done. Record the ELAN version ($ELAN_VERSION) with the image."

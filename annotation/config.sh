@@ -19,7 +19,7 @@
 : "${SUBNET:=default}"
 
 # --- the machine image --------------------------------------------------------
-: "${ANNOTATOR_IMAGE:=annotator-v1}"
+: "${ANNOTATOR_IMAGE:=annotator-v4}"
 : "${ELAN_VERSION:=7.1}"
 : "${ELAN_DEB_URL:=https://www.mpi.nl/tools/elan/ELAN_7-1_linux.deb}"
 : "${ELAN_DEB_SHA256:=01c52cb5cde3090b2e9a46a299936b7a358363e7231507f7fc8a01fba7394073}"
