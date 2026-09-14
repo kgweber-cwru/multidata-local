@@ -77,7 +77,8 @@ echo "==> checking the packages gave us what we need"
 # wrong package name should cost seconds here rather than surfacing at the end
 # of the build -- or worse, when an annotator clicks something.
 MISSING=""
-for cmd in vncserver startxfce4 xauth xrdb pandoc zenity firefox-esr python3 gcloud; do
+for cmd in vncserver vncpasswd startxfce4 xauth xrdb pandoc zenity \
+          firefox-esr python3 gcloud; do
   command -v "$cmd" >/dev/null || MISSING="$MISSING $cmd"
 done
 if [[ -n "$MISSING" ]]; then
@@ -217,10 +218,25 @@ for doc in annotator_guide transcription_standards; do
   fi
 done
 
+echo "==> the VNC password"
+# A password, despite the desktop being unreachable except through an
+# authenticated SSH tunnel (see vncserver@.service). The reason is the client,
+# not the threat model: macOS's built-in Screen Sharing cannot handle a VNC
+# server offering no authentication -- it prompts anyway and then hangs. Giving
+# it something to authenticate with means Mac annotators need NO viewer
+# installed at all, which removes a step from onboarding.
+#
+# Not in annotation/config.sh, because that file is tracked in git. Supply
+# VNC_PASSWORD to reproduce a previous image; otherwise one is generated and
+# printed at the end of the build.
+VNC_PASSWORD="${VNC_PASSWORD:-$(head -c 32 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 8)}"
+install -d -m 700 "$ANNOTATOR_HOME/.vnc"
+printf '%s' "$VNC_PASSWORD" | vncpasswd -f > "$ANNOTATOR_HOME/.vnc/passwd"
+chmod 600 "$ANNOTATOR_HOME/.vnc/passwd"
+
 echo "==> the desktop session"
 # TigerVNC's own convention: ~/.vnc/xstartup, executable. Using the default
 # path rather than passing -xstartup means one less flag that can be wrong.
-install -d -m 755 "$ANNOTATOR_HOME/.vnc"
 cat > "$ANNOTATOR_HOME/.vnc/xstartup" <<'EOF'
 #!/bin/sh
 unset SESSION_MANAGER DBUS_SESSION_BUS_ADDRESS
@@ -352,6 +368,7 @@ check "the annotator account exists"  "id annotator >/dev/null 2>&1"
 # These four prove /etc/skel was populated BEFORE the account was created.
 # Getting that order wrong is invisible until someone tries to connect.
 check "~/.vnc/xstartup is there"      "[[ -x /home/annotator/.vnc/xstartup ]]"
+check "~/.vnc/passwd is there"        "[[ -s /home/annotator/.vnc/passwd ]]"
 check "the three launchers are there" \
       "[[ \$(ls /home/annotator/Desktop/*.desktop 2>/dev/null | wc -l) -eq 3 ]]"
 check "~/.elan_data exists"           "[[ -d /home/annotator/.elan_data ]]"
@@ -370,6 +387,14 @@ if [[ $FAILED -ne 0 ]]; then
   exit 1
 fi
 
+echo
+echo "================================================================"
+echo "  VNC password for this image:  $VNC_PASSWORD"
+echo
+echo "  Annotators need this to open the desktop. Keep it somewhere"
+echo "  that is not this repository. To rebuild an identical image,"
+echo "  pass it back in as VNC_PASSWORD."
+echo "================================================================"
 echo
 echo "Done. Record the ELAN version ($ELAN_VERSION) with the image."
 echo "Before handing this to anyone, work through the acceptance checklist in"

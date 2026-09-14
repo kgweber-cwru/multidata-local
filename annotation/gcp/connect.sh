@@ -5,10 +5,14 @@
 #
 # One-time setup on the annotator's own computer:
 #   1. Install the Google Cloud CLI:  https://cloud.google.com/sdk/install
-#   2. Install a VNC viewer (TigerVNC, RealVNC, or macOS's built-in Screen
-#      Sharing, which needs nothing installed).
-#   3. Run:  gcloud auth login              (use your CWRU account)
+#   2. Run:  gcloud auth login              (use your CWRU account)
 #            gcloud config set project <the name the project lead gives you>
+#
+# On a Mac that is all -- Screen Sharing is already installed. On Windows or
+# Linux you also need a VNC viewer (TigerVNC or RealVNC).
+#
+# The project lead gives you a VNC password as well. It is not your CWRU
+# password; it belongs to the machine.
 #
 # After that this script is the whole routine. Nothing on your own computer
 # ever holds the recordings or your ELAN file -- they stay on the machine at
@@ -17,20 +21,17 @@
 # ---------------------------------------------------------------------------
 # How this connects, because the obvious way does not work.
 #
-# The desktop listens on 127.0.0.1:5901 on the remote machine, and it is not
-# our choice: TigerVNC will not expose a no-password server to the network, so
-# it binds loopback regardless of what you pass it. Tunnelling IAP straight to
-# port 5901 therefore cannot work -- IAP connects to the VM on its internal
+# The desktop listens on 127.0.0.1:5901 on the remote machine. Tunnelling IAP
+# straight at port 5901 cannot work -- IAP connects to the VM on its internal
 # interface, and nothing is listening there.
 #
 # So we go the way that does work: IAP to port 22, which is how every other
 # script here reaches these machines, and then SSH forwards a local port to the
 # remote loopback. That is also the better arrangement:
 #
-#   * No VNC password to create, distribute, or rotate. The desktop is
-#     unreachable except from inside an authenticated SSH session.
 #   * The firewall only ever needs port 22 open to IAP's range.
-#   * One authentication, by Google IAM, against a named person.
+#   * The real authentication is Google IAM, against a named person; the VNC
+#     password is a second lock inside an already-authenticated tunnel.
 # ---------------------------------------------------------------------------
 set -euo pipefail
 
@@ -115,6 +116,9 @@ cat <<EOF
 
 Ready. Connect your VNC viewer to:  localhost:${PORT}
 On a Mac you can just run:          open vnc://localhost:${PORT}
+
+It will ask for a password. That is the VNC password the project lead gave
+you -- not your CWRU password.
 
 Leave this window open while you work. Close it when you're done for the day --
 your session and your file stay where they are.

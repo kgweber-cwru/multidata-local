@@ -8,28 +8,29 @@ User=annotator
 WorkingDirectory=/home/annotator
 Environment=HOME=/home/annotator
 
-# Binds 127.0.0.1 only, and that is not a choice we get to make: TigerVNC
-# refuses to expose a server with -SecurityTypes None to the network, and binds
-# loopback whatever you pass it. (Proven the hard way -- removing -localhost
-# from this line changed nothing; it still came up on 127.0.0.1.) The two
-# settings are coupled: no password means loopback, full stop.
+# Binds 127.0.0.1 only, deliberately. There IS a VNC password (install.sh
+# writes ~/.vnc/passwd), so TigerVNC would be willing to listen on the network
+# -- we decline. The desktop is reached by SSH port forwarding to this loopback
+# address, so no VNC port is open to anything, anywhere.
 #
 # So the desktop is reached by SSH port forwarding, not by pointing IAP at
 # 5901. annotation/gcp/connect.sh tunnels IAP to port 22 -- the path every other
 # script here already uses -- and forwards a local port to this loopback
 # address. That is the better arrangement anyway:
 #
-#   * No VNC password to create, distribute or rotate. The desktop is
-#     unreachable except from inside an authenticated SSH session.
 #   * The firewall only needs port 22 open to IAP's range, never 5901.
-#   * One authentication, by Google IAM, against a named person.
+#   * The real authentication is Google IAM, against a named person.
 #
-# -localhost yes is therefore stated explicitly, as documentation of an intended
-# property rather than an attempt to change TigerVNC's behaviour.
+# The VNC password exists for the client's sake, not the threat model's: macOS
+# Screen Sharing cannot connect to a server offering no authentication -- it
+# prompts and then hangs -- and giving it a password means Mac annotators need
+# no viewer installed at all. It is a weak secret by protocol design (8
+# characters, and VNC's challenge-response is old), which is fine here: it
+# travels inside the SSH tunnel and is the second of two locks, not the first.
 #
 # Runs ~/.vnc/xstartup, which install.sh writes -- TigerVNC's own default path.
 ExecStart=@VNCSERVER@ :%i -fg \
-          -localhost yes -SecurityTypes None \
+          -localhost yes \
           -geometry 1600x1000 -depth 24
 ExecStop=@VNCSERVER@ -kill :%i
 Restart=on-failure

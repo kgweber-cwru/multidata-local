@@ -91,7 +91,9 @@ environment again on top of that, so nothing travels on its own. If you run
 ```bash
 annotation/gcp/new_vm.sh --annotator jamie
 # grant them access (new_vm.sh prints the two commands), then send them
-# annotation/gcp/connect.sh and walk them through it once -- 15 minutes
+# annotation/gcp/connect.sh and the VNC password, and walk them through it
+# once -- 15 minutes. On a Mac they install only the Google Cloud CLI;
+# Screen Sharing is already there.
 ```
 
 **Per case, three commands:**
@@ -240,11 +242,16 @@ its *internal interface*, and nothing is listening there.
 
 This is the better arrangement regardless:
 
-- **No VNC password** to create, distribute, or rotate. The desktop is
-  unreachable except from inside an authenticated SSH session.
 - **No VNC port open anywhere.** The firewall only needs `tcp:22` from IAP's
   range — `setup_project.sh` opens nothing else.
-- **One authentication**, by Google IAM, against a named person.
+- **The real authentication is Google IAM**, against a named person.
+
+There *is* a VNC password, generated per image and printed at the end of the
+build. It exists for the client's sake rather than the threat model's: **macOS
+Screen Sharing cannot connect to a server offering no authentication** — it
+prompts and then hangs — so giving it a password means Mac annotators need no
+viewer installed at all. Keep it out of the repo; pass it back as
+`VNC_PASSWORD` to rebuild an identical image.
 
 Annotators therefore need SSH access to their own machine, which `new_vm.sh`
 prints the grants for. That gives them a shell as well as a desktop; fine under
@@ -260,8 +267,12 @@ sudo cat /home/annotator/.vnc/*.log  # usually the most specific error
 
 # clearest signal of all -- run it by hand, in the foreground
 sudo -u annotator HOME=/home/annotator \
-  vncserver :2 -localhost yes -SecurityTypes None -geometry 1280x800 -fg
+  vncserver :2 -localhost yes -geometry 1280x800 -fg
 ```
+
+A viewer that prompts for a password and then spins usually means the server
+has no password file (`sudo ls -l /home/annotator/.vnc/passwd`) — macOS Screen
+Sharing cannot complete a no-authentication connection.
 
 `cat /etc/elan-version /etc/elan-launcher` first — no `elan-launcher` means the
 machine came from a `v1` image, built before several of these fixes.
