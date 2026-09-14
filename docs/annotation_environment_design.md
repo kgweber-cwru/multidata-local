@@ -5,7 +5,16 @@ work ELAN session: correct template, correct tiers, media already linked, nothin
 to install, nothing to configure, and no encounter media on a personal machine.
 
 **Status: design only.** Nothing here is built. Read
-[current_status.md](current_status.md) for what *is* built.
+[current_status.md](current_status.md) for what *is* built. The companion
+[annotator_image_design.md](annotator_image_design.md) specifies the machine
+image this design assumes.
+
+**Scope this is sized for (2026-09-14).** The first gold campaign is **5–10
+hours of video** — roughly 10–20 cases, a small number of annotators, a few
+weeks of work. That is ~4 GB of media in total and about 60–100 hours of human
+annotation effort. Every choice below is made for *that*, not for the full
+1,307-case corpus: the scarce resources are annotator time and setup time, not
+bytes or dollars. Where a decision would change at larger scale, it says so.
 
 Companion docs: [annotator_guide.md](annotator_guide.md) is the workflow this
 environment has to serve; [transcription_standards.md](transcription_standards.md)
@@ -85,39 +94,85 @@ document, not simplify the deployment.
 
 ---
 
-## 2. Architecture at a glance
+## 2. The network boundary, and the shape it forces
+
+The two machines that run the pipeline sit on a **private network that can reach
+out but cannot be reached in.** Annotators are at home or on campus, and
+**neither position lets them see that private network.** Those two facts together
+decide the shape of everything else, so state them plainly:
+
+- The pipeline cannot serve annotators directly. Not "inconveniently" — at all.
+- Annotators must therefore work somewhere reachable from anywhere, which means
+  the cloud environment this document describes.
+- Anything the annotators need must be **pushed out** from the private side.
+  Nothing can be pulled in from outside.
+
+The relief is how little has to cross. **Annotators do not need the manifest.**
+Everything an annotator needs to know is about five facts — which case, which two
+media files, which template, which time window — and everything they produce is
+one ELAN file plus who did it and when. The `gold` table is written by
+`eaf_to_gold.py` on the private side, *after* the file comes back.
+
+So the boundary carries, per case, **~230 MB out and a few hundred KB back**:
+about 4 GB outbound for the whole first campaign, a dozen-odd times, a few
+hundred KB returning. That is small enough and rare enough to be **two commands
+a human runs**, in the one direction that works. It needs no tunnel into the
+private network, no VPN, no sync daemon, and no always-on connection.
+
+> **The design deliberately keeps it that way.** Automating this boundary would
+> mean either opening an inbound path to the private network or granting a cloud
+> service credentials to reach in. Both are real risk for a transfer that takes
+> ten seconds by hand a dozen times. If the campaign ever grows to hundreds of
+> cases, revisit — but revisit it as "should the private side push on a
+> schedule," never as "should the cloud side be able to pull."
+
+### Architecture at a glance
 
 ```
-  ADMIN SIDE (Mac mini — unchanged, single writer)
+  PRIVATE NETWORK (outbound only — GCP cannot reach in)
   ┌───────────────────────────────────────────────────┐
-  │ manifest.sqlite   data/raw/   data/audio/         │
-  │ elan/template.etf                                 │
+  │ Mac mini — single writer, holds all the state     │
+  │   manifest.sqlite   data/raw/   data/audio/       │
+  │   elan/template.etf                               │
   │                                                   │
   │  make_kit.py  ─────────────┐   ingest_submissions.py
   └────────────────────────────┼──────────────▲───────┘
                                │              │
+        ···························│··············│························
+          the only boundary:       │  ~230 MB out │  a few hundred KB back,
+          pushed by hand, outbound  │  per case    │  pulled by hand
+        ···························│··············│························
+                               │              │
                         ┌──────▼──────────────┴──────┐
-                        │  GCS bucket (regional)     │
+                        │  GCS bucket (us-east5)     │
                         │  kits/<case>/<annotator>/  │  ← read by one VM only
                         │  work/<case>/<annotator>/  │  ← written by one VM only
                         └──────▲──────────────┬──────┘
-                               │ stage at boot│ rsync every 5 min
+                               │ stage on     │ sync every 5 min
+                               │ assignment   │
                         ┌──────┴──────────────▼──────┐
-   annotator's browser  │  Annotator VM (ephemeral)  │
-   ──── remote desktop ─▶  Debian + Xfce + ELAN 7.x  │
+   annotator, anywhere  │  Annotator VM (one each)   │
+   ─── private tunnel ──▶  Debian + Xfce + ELAN 7.x  │
    (no data leaves it)  │  /srv/multidata/…          │  ← canonical mount path
                         └────────────────────────────┘
 ```
 
-One VM per annotator, created for an assignment and deleted after the submission
-is ingested. The VM is cattle; the bucket and the mini hold state.
+**One VM per annotator**, kept for the length of the campaign, with cases staged
+onto it one at a time — not one VM per case. At 10–20 cases that's two or three
+machines instead of twenty, and the property that matters is unchanged: each
+annotator has their own machine, so nobody can see anyone else's work (§5). Delete
+the machines when the campaign ends.
+
+At full-corpus scale, go back to one VM per assignment — it bounds how much
+material sits on any one machine. At 10–20 cases that bound buys nothing, because
+an annotator is allowed to see their own completed work anyway.
 
 ---
 
-## 3. Why one VM per annotator
+## 3. Why a machine per annotator
 
-A single shared multi-user annotation host is the obvious-looking alternative and
-it is worse on every axis that matters here:
+A single shared annotation host that everyone logs into is the obvious-looking
+alternative, and it is worse on every axis that matters here:
 
 - **R5 falls out for free.** A VM only ever has one annotator's assigned case
   staged on it, and its service account can only read that case's kit prefix. On
@@ -128,8 +183,9 @@ it is worse on every axis that matters here:
   copy is gone. On a shared host, cleanup is a script you have to trust.
 - **Blast radius.** A misconfigured shared host exposes the whole corpus.
 
-The cost is N images to keep in sync, which is why §4.4 makes the image a build
-artifact with a version tag rather than a hand-tended pet.
+The cost is several machines built from the same image, which is why
+[annotator_image_design.md](annotator_image_design.md) makes the image a build
+artifact with a version tag rather than something configured by hand per machine.
 
 ---
 
@@ -240,84 +296,72 @@ one, and the drift stops.
 ### 4.4 The image — where "no configuring ELAN" actually lives
 
 One custom Compute Engine image, versioned (`annotator-v1`, `-v2`, …), built by a
-script and never hand-edited in place. Contents:
+script and never hand-edited in place. It carries Debian, a light desktop, a
+pinned ELAN, a pre-configured set of ELAN preferences, the annotator guide, and
+three launchers — and nothing else.
 
-- Debian 12, Xfce4 (light, predictable, no compositing to fight the remote
-  desktop), fonts, `vlc` + `libavcodec-extra` for ELAN's media backend.
-- **ELAN 7.x, pinned**, from the Linux distribution (it ships its own JRE, so
-  there's no separate Java to manage). The version goes in the image tag and
-  into `kit.json` — an ELAN upgrade is a change-control event under [S§12] the
-  same way a model version is, and unpinned upgrades across a corpus are exactly
-  the drift the pipeline doc warns about.
-- **A golden ELAN preferences directory, baked into `/etc/skel`** so every new
-  session starts from it. This is the payload of R2. It should pre-set:
-  - segmentation-mode keystroke config and **delayed mode**, calibrated per §8 —
-    the guide currently tells annotators to go experiment with 200 ms, which is
-    a per-person setting that should be a per-deployment one;
-  - **autosave on, short interval** — the guide has to nag "save often" today;
-    that's a human failure mode we can simply delete;
-  - tier colours/fonts, waveform display prefs, default template and media
-    directories pointing at `/srv/multidata/`.
+**Specified in full in
+[annotator_image_design.md](annotator_image_design.md).** Two points belong here
+because the rest of this document leans on them:
 
-  Verify the exact preferences path and file set while building the image (`~/.elan_data`
-  on Linux, as of ELAN 6/7) and record what was set and why alongside the build
-  script — a golden prefs blob nobody can read is a liability.
-- **The guide on the desktop.** The guide assumes the cheat sheet is printed or
-  on a second screen; on a single remote desktop it should be a window. Ship the
-  guide and standards as local HTML with a desktop launcher.
-- Desktop launchers: **Start annotating** (opens the staged `.eaf` in ELAN),
-  **Submit finished pass**, **Guide & cheat sheet**. Nothing else — no browser,
-  no file manager pointed anywhere interesting, no terminal for a non-admin user.
+- **The pre-configured ELAN preferences are the payload of R2.** "No configuring
+  ELAN" is not achieved by better instructions; it is achieved by shipping a
+  preferences directory that already has segmentation shortcuts, delayed mode,
+  and autosave set, so the annotator never opens a settings dialog.
+- **The ELAN version is pinned and recorded.** It goes in the image tag and into
+  `kit.json`. An ELAN upgrade is a change-control event under [S§12] the same way
+  a model version is — an unpinned upgrade partway through a corpus is exactly the
+  drift the pipeline doc warns about.
 
-### 4.5 Access layer
+### 4.5 How annotators reach their machine
 
-The only genuinely open judgement call, and the only piece the rest of the design
-doesn't depend on — but the BAA narrows it. **Recommendation: (b).**
+**Recommendation: a private tunnel, not a web address.** This reverses an earlier
+draft of this document, and the reason is scope — see the note at the end.
 
-**(b) IAP + browser VNC — recommended.** Xfce + KasmVNC on the VM, behind an
-HTTPS load balancer with Identity-Aware Proxy. The annotator opens a URL, signs
-in with their institutional Google account, and IAM decides whether they get a
-desktop.
+The annotator installs two things once: Google's command-line tool, and a desktop
+viewer. They then run a short script you hand them, which opens a private tunnel
+from their own machine to their VM and launches the viewer. Google's
+Identity-Aware Proxy carries that tunnel (`gcloud compute start-iap-tunnel`), so:
 
-- **Every component is a Google Cloud service** under the agreement — Compute
-  Engine, Cloud Load Balancing, IAP, GCS, IAM. Nothing about the session leaves
-  the covered perimeter.
-- **Nothing to install, and no per-account setup.** A URL and the account they
-  already have. This is now the *lower*-friction option for the annotator, not
-  the higher one.
-- **Every session is an IAM event against a named principal** — who connected
-  to which case VM, when. Under a BAA that's not a nice-to-have; it's the
-  access-log story (§5).
-- **Clipboard and file transfer are yours to configure** directly in the VNC
-  server, rather than via a client-side Chrome policy you're trusting to apply.
-  Turn both off: "off personal machines" (R1) has to include "can't be dragged
-  onto one".
-- The cost: a load balancer, a managed certificate, an OAuth brand, and
-  host-based routing to per-annotator backends. This is real Terraform, roughly
-  a day of setup, and about $18/month standing (§9).
+- **The VM has no public address and no open ports.** Nothing about it is
+  reachable from the open internet. The tunnel is authorized by the annotator's
+  own institutional Google account, and IAM decides whether they get in.
+- **Every component is a Google Cloud service** the BAA covers. Nothing about
+  the session leaves that perimeter.
+- **Every connection is an identity event against a named person** — who
+  connected to which machine, when (§5).
+- **It costs nothing to stand up.** No load balancer, no certificate, no DNS, no
+  Terraform. A handful of `gcloud` commands and a firewall rule that permits
+  only IAP's own address range.
+- **Clipboard and file copying are yours to switch off** in the desktop server's
+  own configuration, rather than through a policy applied on the annotator's
+  computer. Switch both off: "off personal machines" (R1) has to include "can't
+  be dragged onto one".
 
-**(a) Chrome Remote Desktop — the fast path, probably now closed.** Zero
-networking: the startup script installs the CRD host, the annotator connects at
-`remotedesktop.google.com`, and there's no load balancer, certificate, or public
-IP anywhere. It was the original recommendation for exactly that reason.
+The cost is a **one-time 15-minute screen share per annotator** to get the two
+installs and the script working on their machine. With two or three annotators
+that is plainly cheaper than a day of your own setup time, and it is the whole
+of the friction — after that, they run one script and get a desktop.
 
-The problem is scope. A remote-desktop session carries the pixels of
-identifiable video and the keystrokes of a transcript containing real names, and
-it routes them through Google's CRD relay — **a Chrome service, not a Google
-Cloud one, and so almost certainly not on the Cloud BAA's covered-services
-list.** Access control isn't the issue; the annotators are on institutional
-accounts either way. The issue is whether that traffic is inside the agreement.
+> **What changed.** An earlier draft recommended putting an HTTPS load balancer
+> with Identity-Aware Proxy in front, so annotators would only need to open a URL
+> — no installs at all. That is genuinely nicer for the annotator and it is the
+> right answer at scale: it costs about a day of setup and ~$18/month standing,
+> which amortizes to nothing across dozens of annotators and hundreds of cases.
+> Across **two or three annotators and 10–20 cases it does not amortize at all.**
+> So: tunnel now, load balancer if the operation grows. The swap touches only the
+> launcher script and one firewall rule — storage, kits, the image, and the submit
+> path are identical either way.
 
-> **Verify this against the actual agreement before dismissing it** — the
-> covered-services list is a published document and the institution's contract
-> may differ. If CRD *is* covered, (a) is a legitimate way to skip a day of
-> Terraform and $18/month, and the rest of this design is unchanged. Treat "not
-> covered" as the working assumption, because that's the direction where guessing
-> wrong is expensive.
-
-Only the launchers and the startup script differ between (a) and (b). Storage,
-kits, the image, and the submit path are identical, so this is a reversible
-decision — which is the reason to record it as a decision rather than a default.
+> **Chrome Remote Desktop is the option to avoid**, despite being the easiest to
+> set up (no networking whatsoever). A remote-desktop session carries the pixels
+> of identifiable video and the keystrokes of a transcript full of real names, and
+> CRD routes them through a Chrome relay — **a Chrome service, not a Google Cloud
+> one, and so almost certainly not on the Cloud BAA's covered-services list.**
+> Access control isn't the issue; annotators are on institutional accounts either
+> way. Whether that traffic is inside the agreement is. Verify against the actual
+> agreement if you want to reconsider, but treat "not covered" as the working
+> assumption — that is the direction where guessing wrong is expensive.
 
 ### 4.6 Submit path, and the single-writer rule
 
@@ -354,10 +398,11 @@ a policy.
 |---|---|
 | [S§9] blind pass 1 | The VM's service account can read `kits/<case>/<annotator>/` and write `work/<case>/<annotator>/`. It cannot list the bucket, cannot read another annotator's prefix, and no machine draft is ever staged. |
 | [S§10] independent double annotation | Two annotators on the same case get two kits, two prefixes, two VMs. Neither can reach the other's, so the second pass is blind by construction, not by agreement. |
-| [S§8] Layer 1 stays on managed storage | No public IP; egress via Cloud NAT only (or none at all, if the image needs no runtime internet). No file transfer, no clipboard (§4.5). No browser on the desktop. Data path is bucket ↔ VM, both inside the project. |
+| [S§8] Layer 1 stays on managed storage | No public IP; egress via Cloud NAT only (or none at all, if the image needs no runtime internet). No file transfer, no clipboard (§4.5). No browser on the desktop.
+Nothing inbound to the private network at all (§2). Data path is bucket ↔ VM, both inside the project. |
 | [S§8] Layer 2 is derived, never hand-edited | Unchanged: `eaf_to_gold.py` runs admin-side, off the submitted `.eaf`. |
 | [S§4] identical tier set | Kits are generated from the tracked `elan/template.etf` by one script. An annotator cannot start from anything else, because they never create a file. |
-| BAA — demonstrable access records | **Enable Cloud Audit Logs Data Access logging on the bucket.** It is off by default for GCS, which means the record of who read which case's media does not exist unless someone turns it on. Combined with IAP's per-session events (§4.5b), "who accessed case 261456, when" becomes answerable rather than inferred. Turn it on when the bucket is created, not after the first question about it. |
+| BAA — demonstrable access records | **Enable Cloud Audit Logs Data Access logging on the bucket.** It is off by default for GCS, which means the record of who read which case's media does not exist unless someone turns it on. Combined with the tunnel's per-connection identity events (§4.5), "who accessed case 261456, when" becomes answerable rather than inferred. Turn it on when the bucket is created, not after the first question about it. |
 
 VPC Service Controls would draw a perimeter around the bucket so a stolen
 credential couldn't pull data out of the org at all. It's org-level configuration
@@ -370,17 +415,23 @@ asking for while the project is being created instead of retrofitting.
 
 ## 6. Annotator experience, end to end
 
-1. Email: "case 261456 is ready — here's your link."
-2. Open the link in a browser, sign in with the institutional account. An Xfce
-   desktop appears with three icons.
+**Once, at onboarding** (15 minutes, with you on a screen share): install
+Google's command-line tool and a desktop viewer, and save the connect script you
+hand them. Done forever.
+
+**Then, per case:**
+
+1. Email: "case 261456 is on your machine — go ahead."
+2. Run the connect script. A desktop appears with three icons.
 3. Click **Start annotating**. ELAN opens on `261456.pass1.eaf`: six empty tiers,
    waveform loaded, video loaded, segmentation shortcuts and delayed mode already
    set, autosave already on. Nothing to configure, no dialog to dismiss.
-4. Work the guide. Close the browser tab whenever; the session and the file stay
-   put. Come back tomorrow and continue.
-5. Click **Submit finished pass**. It checks for empty segments, syncs, and says
-   done.
-6. Admin ingests, exports gold, deletes the VM.
+4. Work the guide. Disconnect whenever; the session and the file stay put. Come
+   back tomorrow and continue where you were.
+5. Click **Submit finished pass**. It checks for empty segments, uploads, and
+   says done.
+6. You pull the submission down, export gold, and stage their next case onto the
+   same machine.
 
 Steps 3 and 5 are the ones that don't exist today, and they're most of the value.
 
@@ -388,43 +439,54 @@ Steps 3 and 5 are the ones that don't exist today, and they're most of the value
 
 ## 7. Deploy and operate
 
-Proposed layout — scripts, not a framework, matching R9:
+Proposed layout — scripts, not a framework, matching R9. The `image/` contents
+are specified in [annotator_image_design.md](annotator_image_design.md).
 
 ```
 annotation-env/
-├── image/
-│   ├── build_image.sh        # configure a VM, snapshot it, tag it
-│   ├── install_elan.sh       # pinned ELAN 7.x + media deps
-│   ├── elan_prefs/           # the golden preferences dir + a note on each setting
-│   └── desktop/              # launchers, guide/cheat-sheet HTML, CRD host policy
+├── image/                    # see annotator_image_design.md
 ├── provision/
-│   ├── make_kit.py           # manifest + template + media -> kit in GCS
-│   ├── new_annotator_vm.sh   # one VM from the image, kit as metadata
+│   ├── make_kit.py           # manifest + template + media -> a kit, locally
+│   ├── push_kit.sh           # kit -> GCS, and stage it onto an annotator's VM
+│   ├── new_annotator_vm.sh   # one VM from the image, for one annotator
+│   ├── connect.sh            # handed to the annotator: tunnel + viewer
 │   └── delete_annotator_vm.sh
 ├── ingest/
-│   └── ingest_submissions.py # submission -> data/gold/, then eaf_to_gold.py
+│   └── pull_submissions.py   # submission -> data/gold/, then eaf_to_gold.py
 └── README.md
 ```
 
-Operating an assignment is three commands:
+**Once per annotator:**
+
+```bash
+annotation-env/provision/new_annotator_vm.sh --annotator jamie
+# hand them connect.sh + the two installs, once
+```
+
+**Per case, three commands:**
 
 ```bash
 python annotation-env/provision/make_kit.py --case 261456 --annotator jamie
-annotation-env/provision/new_annotator_vm.sh --annotator jamie --case 261456
+annotation-env/provision/push_kit.sh --case 261456 --annotator jamie
 # ... annotator works, submits ...
-python annotation-env/ingest/ingest_submissions.py --case 261456 --annotator jamie
+python annotation-env/ingest/pull_submissions.py --case 261456 --annotator jamie
 ```
 
-Terraform is the right call if IT wants the project reproducible from
-declaration, and it's the natural companion to access layer (b). For two or three
-VMs managed by one person, an instance template plus these scripts is less to
-learn, less to break, and reviewable in an afternoon.
+All three run on the private side and only ever reach *outward*, which is the
+only direction that works (§2).
 
-**Idle shutdown**, with care: R6 means a session must survive a disconnect for
-days, so shut down on *no active session AND no input* for something long (60
-minutes), never on disconnect alone. The five-minute rsync means an
-over-aggressive shutdown loses minutes at worst — but ELAN state doesn't survive
-a stop, and re-finding your place in an encounter is expensive. Err long.
+Terraform is the right call if IT wants the project reproducible from a
+declaration, and it becomes the natural companion to the load-balancer variant of
+§4.5. For two or three machines managed by one person, an instance template plus
+these scripts is less to learn, less to break, and reviewable in an afternoon.
+
+**Stopping machines to save money.** At this scale, don't bother automating it.
+The whole campaign costs about $40 (§9), so an idle-shutdown rule that
+accidentally interrupts someone mid-encounter costs more in annoyance than it
+saves in dollars. Stop the machines by hand when a campaign pauses. If this ever
+runs continuously with many annotators, add idle shutdown then — and make it
+shut down on *no connection AND no input for 60 minutes*, never on disconnect
+alone, because R6 means a session has to survive days of elapsed time.
 
 ---
 
@@ -467,23 +529,32 @@ it's systematic, it stacks with human reaction time, and the guide's suggested
 
 ## 9. Cost sketch
 
-Per active annotator, assuming ~8 h/day of real annotation on ~21 days/month.
-Order-of-magnitude only — check current rates.
+Sized for the actual first campaign: **5–10 hours of video, ~10–20 cases, two or
+three annotators, a few weeks.** 10 hours of material at 6–10x realtime is
+60–100 hours of annotation work. Order-of-magnitude only — check current rates.
 
-| Item | Monthly |
+| Item | Whole campaign |
 |---|---|
-| `e2-standard-4` (4 vCPU / 16 GB), 8 h/day | ~$23 |
-| 50 GB balanced PD (billed while stopped too) — a kit is ~230 MB, so this is OS + ELAN headroom | ~$5 |
-| Remote-desktop egress (~2 Mbps while connected) | ~$15–20 |
-| **Per annotator** | **~$50** |
-| GCS, per TB of corpus staged in the bucket | ~$20 |
-| HTTPS load balancer + IAP (one, shared across annotators) | ~$18 |
+| `e2-standard-4` (4 vCPU / 16 GB) × ~80 annotator-hours | ~$11 |
+| 50 GB disk × 2–3 machines × ~6 weeks (billed while stopped too) | ~$15 |
+| Egress from desktop streaming (~2 Mbps while connected) | ~$9 |
+| GCS for ~4 GB of kits and submissions | pennies |
+| **Total, for the entire first gold campaign** | **~$35–40** |
 
-No GPU. Three annotators plus a terabyte lands near $175/month, and the dominant
-lever is stopping VMs — an always-on VM triples its own line. Egress is the
-line item people don't predict: a remote desktop is a continuous video stream out
-of the datacenter, so a 1080p full-video scrub costs real money as well as real
-latency. Another reason for the proxy in §4.3.
+Not per month — **total.** No GPU, no load balancer, no Cloud SQL.
+
+**So stop optimizing for money and optimize for your setup time.** That single
+fact drives the recommendations above: a tunnel instead of a load balancer (§4.5),
+one machine per annotator instead of per case (§2), no idle-shutdown automation
+(§7), and no pipeline across the network boundary (§2). Every one of those trades
+infrastructure you'd have to build for a small amount of money or a one-time
+15-minute call.
+
+The numbers only change shape at full-corpus scale, where the two lines that grow
+are **egress** (a remote desktop is a continuous video stream out of the
+datacenter — another reason for the proxy video in §4.3) and **machine-hours**
+(where stopping idle VMs starts to matter, and the load-balancer variant of §4.5
+starts to amortize). Neither is worth engineering for now.
 
 ---
 
@@ -501,26 +572,37 @@ latency. Another reason for the proxy in §4.3.
 - **Automating assignment.** Who annotates what, and which 20% gets
   double-annotated ([S§10]), is a research judgement made a few times a month.
   A scheduler for that is machinery in search of a problem.
+- **Automating the network boundary** — §2. The transfer is ~230 MB out and a few
+  hundred KB back, a dozen times. Automating it would mean opening an inbound
+  path to the private network or handing a cloud service credentials to reach in.
+  Not worth it for a ten-second manual push.
+- **Giving annotator machines database access.** They don't need it: a kit carries
+  the five facts an annotator needs as flat text, and the `gold` table is written
+  on the private side after the file comes back (§4.6). This was already the right
+  call for isolation reasons; the network boundary makes it structural.
+- **Moving the manifest to Postgres for this.** It's the right destination for the
+  two-machine pipeline, and it contributes nothing to annotation. See
+  [current_status.md](current_status.md) for the sequencing.
+- **An idle-shutdown rule** — §7. At ~$40 a campaign it would cost more in
+  interrupted sessions than it saves.
 
 ---
 
 ## 11. Open questions
 
 1. ~~Data residency~~ — **resolved.** Enterprise Google instance under BAA (§0).
-2. **Is Chrome Remote Desktop on the BAA's covered-services list?** (§4.5) The
-   only question standing between (a) and (b). Assume no and build (b); if the
-   agreement says otherwise, (a) saves a day and $18/month for an identical
-   annotator experience. This is a document lookup, not an investigation.
-3. **Proxy video resolution** (§4.3) — 480p is a guess. The trial run's real question
-   is whether speaker identification survives it; if it doesn't, 720p and a
-   larger egress bill.
-4. **Does the corpus itself move to GCS**, or does the bucket stay a staging area
-   fed from the mini? This design assumes staging, which is the smaller
-   commitment and answers the pipeline doc's open storage question (§"Data volume
-   & governance") in only one direction. Wholesale migration is a separate
-   decision with a much larger IRB surface.
+2. ~~Can the private network serve annotators?~~ — **resolved, no.** It can
+   reach out but not be reached in, and annotators at home or on campus cannot
+   see it either way (§2). That's what makes the cloud environment necessary
+   rather than optional, and what keeps the boundary one-directional.
+3. **Is Chrome Remote Desktop on the BAA's covered-services list?** (§4.5) Only
+   matters if you want to skip the tunnel's two client installs. Assume no. This
+   is a document lookup, not an investigation.
+4. **Proxy video resolution** (§4.3) — 480p is a guess. The trial run's real
+   question is whether speaker identification survives it; if it doesn't, 720p
+   and a slightly larger egress bill.
 5. **What happens to pass 2.** Adjudication ([S§9]) *does* consult the machine
    draft, so it needs a kit variant that stages the draft `.eaf` alongside the
    frozen pass 1 — the one case where the blind-pass isolation is deliberately
-   relaxed. Same environment, different kit; out of scope here, but the kit format
-   should not make it awkward.
+   relaxed. Same environment, different kit; out of scope here, but the kit
+   format should not make it awkward.

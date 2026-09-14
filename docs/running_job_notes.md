@@ -3,6 +3,12 @@
 Read `multidata_local_pipeline.md` §9 for the architecture and the current
 throughput baseline, then come back here for the actual commands.
 
+> **Pose is parked as of 2026-09-14** — the priority is audio transcription
+> validation. This file stays accurate as the launch/check reference for when it
+> resumes, but read **[pose_parked.md](pose_parked.md)** first: it records what
+> state the work is in and what to do before running another batch (notably:
+> change the output format *before* generating more of it).
+
 **No job is running right now.** Last run: 2026-09-04 13:05 -> 23:30 on
 `tofino` (RTX 5080), all 18 pending rows, zero errors, zero fallback.
 Manifest is at `60 done, 1 failed` (the failed one is a real content issue —

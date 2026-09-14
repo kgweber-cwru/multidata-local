@@ -20,15 +20,19 @@ is carried over.
    walkthrough for producing one gold transcript.
 4. **[docs/annotation_environment_design.md](docs/annotation_environment_design.md)**
    — design (not built) for a GCP-hosted virtual desktop that hands annotators a
-   pre-linked ELAN session, keeping encounter media off personal machines.
+   pre-linked ELAN session, keeping encounter media off personal machines, plus
+   **[docs/annotator_image_design.md](docs/annotator_image_design.md)** — the
+   machine image it runs on (also design only, under review).
 5. **[docs/asr_provider_spec.md](docs/asr_provider_spec.md)** — how local and
    cloud ASR providers plug in, and how the selection bake-off is scored.
 6. **[docs/asr_provider_implementation_plan.md](docs/asr_provider_implementation_plan.md)**
    — the build checklist for the spec above: what's done, what's deliberately
    deferred, and why.
 7. **[docs/running_job_notes.md](docs/running_job_notes.md)** — PIDs, log
-   paths, and check-in commands for whatever batch job is actually running
-   right now (currently: pose, split across this Mac and a Linux CUDA box).
+   paths, and check-in commands for launching/checking a pose batch. Nothing is
+   running right now: **pose is parked**, and
+   **[docs/pose_parked.md](docs/pose_parked.md)** is the resumption note — where
+   the work got to, what blocks it, and what to do first when it comes back.
 
 ## Layout
 

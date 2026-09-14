@@ -6,10 +6,75 @@ commit and now badly stale), this is meant to travel with a `git clone` and
 stay current. Update it whenever a session ends with real state changed;
 delete stale sections rather than letting them rot.
 
-**Last updated:** 2026-09-10 — IRB cleared third-party vendor inference
-(see below), which unblocks Phase 4. Previously 2026-09-04, folding in Kate's
-second gold case (261473, scored 2026-09-02) on top of the Phase 1/2 merge
-(`b70a592`). All 178 tests pass (`conda activate md-speech && python -m pytest -q`).
+**Last updated:** 2026-09-14 — **pose parked, annotation environment is the
+active work.** See the priorities section immediately below, and
+[pose_parked.md](pose_parked.md) before touching anything pose-related. Earlier:
+2026-09-10 IRB cleared third-party vendor inference (unblocking Phase 4);
+2026-09-04 folded in Kate's second gold case (261473) on top of the Phase 1/2
+merge (`b70a592`). All 178 tests pass
+(`conda activate md-speech && python -m pytest -q`).
+
+---
+
+## Priorities, as of 2026-09-14
+
+**One thing is being worked on: getting audio transcription validation going.**
+Everything below either serves that or is explicitly parked.
+
+**Active:**
+
+1. **The annotation environment** — a cloud desktop that hands an annotator a
+   ready-to-work ELAN session, so gold references can actually be produced at
+   more than one-per-Kate.
+   [annotation_environment_design.md](annotation_environment_design.md) is the
+   environment; [annotator_image_design.md](annotator_image_design.md) is the
+   machine image. Both are **design only, under review — nothing is built.**
+2. **More gold references.** The first campaign is 5–10 hours of video, to be
+   selected by the people who need the gold. Two references exist today.
+3. **The first cloud ASR adapter**, now that IRB has cleared vendor inference —
+   but build the `cloud_release` interlock first (see below).
+
+**Parked, deliberately:**
+
+- **Pose.** Generation works and is finished for the current sample; usability is
+  barely started. **[pose_parked.md](pose_parked.md)** records where it got to,
+  the one gap that blocks everything downstream (pose output has no person
+  identity), and what to do first on return. Read that rather than reconstructing
+  it.
+- **Postgres for the manifest.** Agreed as the right destination, deliberately
+  *not* next. It solves the two-machine fork problem — `manifest.sqlite` forking
+  when both boxes write `pose_status` — and that problem is parked with pose.
+  Near-term transcription work is single-machine on the mini, where a file-based
+  database has nothing to reconcile. Meanwhile the cost is real: a driver in all
+  three conda envs including the deliberately-minimal `md-pose`
+  ([manifest.py:21](../src/multidata/manifest.py#L21) says "stdlib `sqlite3` on
+  purpose"), a server that must be up before anything runs, and a test suite that
+  currently builds a throwaway database file per test and would need either a
+  live server or two SQL dialects maintained forever.
+  **What keeps it cheap to do later:** all database code already lives inside
+  `manifest.py`, and nothing else in the repo imports `sqlite3`. Keep it that way
+  and the move stays a contained job. When it happens, it goes in a container on
+  tofino, with nightly dumps to somewhere that isn't tofino.
+- **One shared copy of `data/`** on the private network's 1 TB disk. Same
+  reasoning: it's the fix for two machines drifting, and that's the parked
+  pipeline. Annotation doesn't need it — a case kit is ~230 MB.
+- **The production pipeline** that sends everything somewhere for long
+  processing (probably tofino). Aware of it, not designing it yet.
+
+**Settled, don't re-litigate:**
+
+- **Where the data lives.** Irreplaceable bytes (raw video, gold `.eaf`) belong
+  in one authoritative place with a backup; regenerable bytes (pose, wav,
+  transcripts) are caches and should not be synced between machines. The mini has
+  313 GB free and the full corpus projects to ~1.5 TB as things stand, so the mini
+  is not the long-term home — but with pose parked and the near-term job at 5–10
+  hours of video (~4 GB), that deadline is not close.
+- **The network shape.** The mini and tofino sit on a private network that can
+  reach out but cannot be reached in, and annotators at home or on campus cannot
+  see it either way. That is *why* annotators work in the cloud, and why the
+  boundary is one-directional and manual. Annotators never need the manifest, so
+  this costs nothing — see
+  [annotation_environment_design.md](annotation_environment_design.md) §2.
 
 ---
 
