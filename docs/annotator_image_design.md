@@ -270,10 +270,56 @@ Two consequences:
   kits, the launchers, the submit path, the checks — all untouched. This is the
   §4.5 swap the portability was for.
 
-**The known risk:** `pulseaudio-module-xrdp` is not in Debian main. If there's
-no candidate package it has to be built from source against the installed
-PulseAudio, which is fiddly but scripted. Check availability before committing
-to this route.
+### The package route, checked 2026-09-14
+
+**`pulseaudio-module-xrdp` does not exist in Debian 12** — not "no candidate",
+no such package. That was the fiddly source-build risk, and it is simply not the
+route.
+
+**`pipewire-module-xrdp` does exist**, in `bookworm-backports`. So audio over
+RDP is packaged after all, using PipeWire rather than PulseAudio, with
+`pipewire-pulse` providing the PulseAudio-compatible socket that ELAN and VLC
+expect. A dry run resolves cleanly: 23 packages, no removals, no source build.
+
+Backports sit at apt priority 100, so this needs an explicit
+`-t bookworm-backports` — without it apt reports no candidate and it looks
+broken.
+
+**Pin every one of these.** A backport's version moves under you, and "rebuild
+the image" has to keep meaning "rebuild the same image" — the same [S§12]
+concern that pinned ELAN 7.1.
+
+| Package | Version | From |
+|---|---|---|
+| `xrdp` | `0.9.24-5~bpo12+1` | backports |
+| `xorgxrdp` | `1:0.9.19-1` | **main** |
+| `pipewire`, `pipewire-pulse`, `pipewire-bin` | `1.4.2-1~bpo12+1` | backports |
+| `wireplumber` | `0.5.8-1~bpo12+1` | backports |
+| `pipewire-module-xrdp` | `0.2-2~bpo12+1` | backports |
+
+Three things to keep in view:
+
+- **`xrdp` 0.9.24 from backports pairs with `xorgxrdp` 0.9.19 from main.** Those
+  are normally version-coupled; apt accepts it, so the declared dependency
+  allows it. If X sessions misbehave over RDP, suspect this pairing first.
+- **The clean dry run was misleading about PulseAudio.** It ran on a v2 machine,
+  which — because of the `--no-install-recommends` bug — had no audio server at
+  all, so there was nothing to remove. With Recommends restored, `xfce4` pulls
+  PulseAudio in, and `pipewire-pulse` has to displace it. `install.sh` handles
+  that transition explicitly rather than trusting `-y` to.
+- **Debian 12 is now *oldstable*.** Building a new image on oldstable in order to
+  use oldstable-backports is a dead end worth naming: Debian 13 likely has this
+  stack in main, which would make the next image generation simpler rather than
+  harder. Not worth rebasing now — that would mean revalidating everything — but
+  it is the right move whenever this image is next built from scratch rather
+  than patched.
+
+### What the build can and cannot check
+
+`install.sh` can confirm xrdp is running, that 3389 is listening, and that the
+PipeWire xrdp module is installed. **It cannot confirm that audio works**, which
+needs an RDP client and a pair of ears. So the fidelity test below stays an
+interactive gate, and the build's checks only rule out the obvious failures.
 
 ### The acceptance test is fidelity, not presence
 
