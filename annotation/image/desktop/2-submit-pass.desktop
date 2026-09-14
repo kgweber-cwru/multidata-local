@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=② Submit finished pass
+Comment=Check and hand in your finished transcription
+Exec=/usr/local/bin/submit-pass
+Icon=document-send
+Terminal=false

@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# Open the staged case in ELAN. No file chooser: the machine knows what's here.
+set -euo pipefail
+
+shopt -s nullglob
+CASES=(/srv/multidata/case/*/)
+shopt -u nullglob
+
+if [[ ${#CASES[@]} -eq 0 ]]; then
+  zenity --error --width 340 --text \
+    "No case is on this machine yet.
+
+The project lead stages one when it is ready." 2>/dev/null \
+    || echo "No case staged yet."
+  exit 0
+fi
+
+if [[ ${#CASES[@]} -eq 1 ]]; then
+  CASE_DIR="${CASES[0]}"
+else
+  # More than one case: ask, showing which are already submitted.
+  OPTIONS=()
+  for d in "${CASES[@]}"; do
+    if [[ -f "$d/.submitted" ]]; then state="submitted"; else state="in progress"; fi
+    OPTIONS+=("$(basename "$d")" "$state")
+  done
+  CHOICE="$(zenity --list --title "Which case?" --width 360 --height 280 \
+    --column Case --column Status "${OPTIONS[@]}" 2>/dev/null)" || exit 0
+  CASE_DIR="/srv/multidata/case/$CHOICE/"
+fi
+
+EAF=""
+for f in "$CASE_DIR"*.eaf; do EAF="$f"; break; done
+if [[ -z "$EAF" ]]; then
+  echo "no .eaf in $CASE_DIR" >&2
+  exit 1
+fi
+
+exec elan "$EAF"

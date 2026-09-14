@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Put one case's kit onto this machine, at the path its .eaf expects.
+#   sudo stage-case 261473
+# Called by push_kit.sh over SSH; not something an annotator runs.
+set -euo pipefail
+
+CASE="${1:?usage: stage-case <case_id>}"
+META=http://metadata.google.internal/computeMetadata/v1/instance/attributes
+meta() { curl -fsSL -H "Metadata-Flavor: Google" "$META/$1"; }
+
+BUCKET="$(meta bucket)"
+ANNOTATOR="$(meta annotator)"
+DEST="/srv/multidata/case/$CASE"
+
+install -d -m 755 "$DEST"
+gcloud storage rsync --recursive "$BUCKET/kits/$CASE/$ANNOTATOR" "$DEST"
+chown -R "$ANNOTATOR:$ANNOTATOR" "$DEST"
+
+echo "case $CASE staged at $DEST for $ANNOTATOR"

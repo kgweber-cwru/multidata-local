@@ -27,3 +27,6 @@ HANDOFF.md
 
 Manifest.session.sql
 manifest.sqlite*
+# Annotation kits -- real-name media, built per assignment
+annotation/kits/
+annotation/image/docs/*.md

@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=③ Guide & cheat sheet
+Comment=The annotator guide and the transcription standards
+Exec=/usr/local/bin/open-guide
+Icon=help-contents
+Terminal=false

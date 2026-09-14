@@ -113,8 +113,8 @@ media files, which template, which time window — and everything they produce i
 one ELAN file plus who did it and when. The `gold` table is written by
 `eaf_to_gold.py` on the private side, *after* the file comes back.
 
-So the boundary carries, per case, **~230 MB out and a few hundred KB back**:
-about 4 GB outbound for the whole first campaign, a dozen-odd times, a few
+So the boundary carries, per case, **~57 MB out and a few hundred KB back** (measured on case 261473):
+about 1 GB outbound for the whole first campaign, a dozen-odd times, a few
 hundred KB returning. That is small enough and rare enough to be **two commands
 a human runs**, in the one direction that works. It needs no tunnel into the
 private network, no VPN, no sync daemon, and no always-on connection.
@@ -139,7 +139,7 @@ private network, no VPN, no sync daemon, and no always-on connection.
   └────────────────────────────┼──────────────▲───────┘
                                │              │
         ···························│··············│························
-          the only boundary:       │  ~230 MB out │  a few hundred KB back,
+          the only boundary:       │  ~57 MB out  │  a few hundred KB back,
           pushed by hand, outbound  │  per case    │  pulled by hand
         ···························│··············│························
                                │              │
@@ -445,33 +445,36 @@ Proposed layout — scripts, not a framework, matching R9. The `image/` contents
 are specified in [annotator_image_design.md](annotator_image_design.md).
 
 ```
-annotation-env/
-├── image/                    # see annotator_image_design.md
-├── provision/
-│   ├── make_kit.py           # manifest + template + media -> a kit, locally
-│   ├── push_kit.sh           # kit -> GCS, and stage it onto an annotator's VM
-│   ├── new_annotator_vm.sh   # one VM from the image, for one annotator
-│   ├── connect.sh            # handed to the annotator: tunnel + viewer
-│   └── delete_annotator_vm.sh
-├── ingest/
-│   └── pull_submissions.py   # submission -> data/gold/, then eaf_to_gold.py
+annotation/
+├── make_kit.py          # manifest + template + media -> a kit, locally
+├── submit_checks.py     # the two checks, stdlib-only (runs on the VM too)
+├── pull_submission.py   # submission -> data/gold/, then eaf_to_gold.py
+├── gcp/                 # thin gcloud wrappers: build_image, new_vm, push_kit,
+│                        #   connect (handed to the annotator), delete_vm
+├── image/               # see annotator_image_design.md
 └── README.md
 ```
+
+**Built as of 2026-09-14** — see [../annotation/README.md](../annotation/README.md)
+for what has been run for real and what hasn't. One directory rather than the
+three-way `image/provision/ingest` split an earlier draft proposed: at this size
+the split was filing, not structure, and "everything about annotation is here"
+is the better handoff story.
 
 **Once per annotator:**
 
 ```bash
-annotation-env/provision/new_annotator_vm.sh --annotator jamie
+annotation/gcp/new_vm.sh --annotator jamie
 # hand them connect.sh + the two installs, once
 ```
 
 **Per case, three commands:**
 
 ```bash
-python annotation-env/provision/make_kit.py --case 261456 --annotator jamie
-annotation-env/provision/push_kit.sh --case 261456 --annotator jamie
+python annotation/make_kit.py --case 261456 --annotator jamie
+annotation/gcp/push_kit.sh   --case 261456 --annotator jamie
 # ... annotator works, submits ...
-python annotation-env/ingest/pull_submissions.py --case 261456 --annotator jamie
+python annotation/pull_submission.py --case 261456 --annotator jamie
 ```
 
 All three run on the private side and only ever reach *outward*, which is the

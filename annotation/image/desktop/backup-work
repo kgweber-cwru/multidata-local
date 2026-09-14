@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Every five minutes, copy work in progress up to the bucket.
+#
+# Insurance against losing days of irreplaceable human effort sitting on one
+# disk -- NOT the hand-off, which is the Submit button. Bucket versioning makes
+# a copy that races an ELAN save recoverable.
+set -euo pipefail
+
+META=http://metadata.google.internal/computeMetadata/v1/instance/attributes
+meta() { curl -fsSL -H "Metadata-Flavor: Google" "$META/$1"; }
+BUCKET="$(meta bucket)"
+ANNOTATOR="$(meta annotator)"
+
+shopt -s nullglob
+for d in /srv/multidata/case/*/; do
+  gcloud storage rsync --recursive "$d" \
+    "$BUCKET/work-in-progress/$(basename "$d")/$ANNOTATOR"
+done

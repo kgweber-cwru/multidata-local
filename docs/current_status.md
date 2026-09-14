@@ -28,7 +28,19 @@ Everything below either serves that or is explicitly parked.
    more than one-per-Kate.
    [annotation_environment_design.md](annotation_environment_design.md) is the
    environment; [annotator_image_design.md](annotator_image_design.md) is the
-   machine image. Both are **design only, under review — nothing is built.**
+   machine image. **The package is built** (`annotation/`, 2026-09-14) —
+   [../annotation/README.md](../annotation/README.md) is the operating guide and
+   says plainly what has been run for real and what hasn't.
+   - **Verified against real data:** kit generation (57 MB kit from case 261473
+     in 18 s, media URLs canonical), the submit checks (which found two empty
+     segments in the existing 261473 gold — harmless, since `eaf_to_gold.py`
+     already skips empties, but exactly the class of thing they exist for), and
+     27 new unit tests. 205 tests pass.
+   - **Never run:** anything touching GCP. `ELAN_DEB_URL` is unset on purpose,
+     and `annotation/image/elan_prefs/` is empty on purpose — both fail loudly
+     rather than pretending. See that README's Status section.
+   - **Next:** one image, one machine, one annotator, one real excerpt. Playback
+     first (image design §5).
 2. **More gold references.** The first campaign is 5–10 hours of video, to be
    selected by the people who need the gold. Two references exist today.
 3. **The first cloud ASR adapter**, now that IRB has cleared vendor inference —

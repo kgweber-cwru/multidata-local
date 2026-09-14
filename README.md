@@ -52,6 +52,9 @@ benchmarks/     ASR benchmarking wing
                 references/ tracked gold references (<case_id>.gold.txt/.rttm)
                 results/    tracked runs.csv (append-only provenance ledger)
                 runs/, cache/  GITIGNORED — per-run detail + response cache (see spec §7/§9)
+annotation/     the annotation package — build a kit, put it on a machine an
+                annotator can reach, get the finished .eaf back, export gold.
+                See annotation/README.md; design in docs/
 elan/           template.etf — the versioned annotation template
 docs/           guides
 tests/          pytest — see tests/README.md for what is/isn't covered

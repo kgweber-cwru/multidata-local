@@ -53,8 +53,13 @@ and should stay small.
 
 Plus media codecs (`vlc`, `libavcodec-extra`) for ELAN's playback, and fonts.
 
-No browser and no mail client, for the plain reason that there's nothing for them
-to do — not as a security boundary (§7.4).
+**A browser (`firefox-esr`) is installed, for one reason: to read the guide**
+(§2.4) — there has to be something that renders local HTML. Decision 4 (§7) is
+what makes that acceptable rather than a hole: annotators are trusted, so the
+desktop is kept uncluttered for usability, not as a containment boundary. If
+that decision is ever reversed, the browser and the guide viewer change
+together. No mail client, for the plain reason that there is nothing for it to
+do.
 
 ### 2.2 ELAN
 
@@ -158,13 +163,21 @@ One script, run once, producing a tagged image — not a machine configured by
 hand.
 
 ```
-annotation-env/image/
-├── build_image.sh    # boot a VM, run the installers, snapshot, tag
-├── install.sh        # Debian + Xfce + codecs + ELAN 7.1 (checksum verified)
-├── elan_prefs/       # autosave setting + NOTES.md on what and why
-├── desktop/          # the three launchers, guide/standards HTML
-└── submit_checks.py  # the two checks from §2.5
+annotation/image/
+├── install.sh      # Debian + Xfce + codecs + ELAN 7.1 (checksum verified)
+├── elan_prefs/     # the one non-default setting + NOTES.md on what and why
+├── desktop/        # the three launchers and the small helpers behind them
+└── docs/           # the guide markdown, staged in at build time (gitignored)
+
+annotation/gcp/build_image.sh   # boots a VM, runs install.sh, snapshots, tags
+annotation/submit_checks.py     # the checks from §2.5 -- shared with the
+                                #   private side, so one copy, not two
 ```
+
+**Built as of 2026-09-14.** `install.sh` and `build_image.sh` are written and
+syntax-checked but have never been run — no project existed to run them against.
+[../annotation/README.md](../annotation/README.md) lists what is verified and
+what isn't.
 
 The reason to script it isn't automation for its own sake — it's that several
 machines built from one image are provably identical. That's the same argument
@@ -267,6 +280,8 @@ rather than wonder what was forgotten.
    and in the bucket, never on a personal machine) does the real work, and a
    clipboard doesn't undermine it. [S§8] tells annotators not to move Layer 1
    files around, and they won't. **Blind-pass isolation is unaffected** — see §5.
+   This decision is also what let a browser onto the desktop (§2.1), which the
+   guide needs anyway.
 5. **If the maintainer is unavailable, work stops.** No bus-factor design. The
    build script and the §2.3 notes exist for the maintainer's own memory, not for
    a handover.

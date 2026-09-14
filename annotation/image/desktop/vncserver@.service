@@ -1,0 +1,17 @@
+[Unit]
+Description=Annotation desktop (VNC display %i)
+After=network.target
+
+[Service]
+Type=simple
+User=annotator
+WorkingDirectory=/home/annotator
+# -localhost: the desktop accepts connections only from this machine. The only
+# way in is the IAP tunnel (annotation/gcp/connect.sh), which terminates here.
+ExecStart=/usr/bin/vncserver :%i -localhost yes -geometry 1600x1000 \
+          -depth 24 -xstartup /home/annotator/.vnc-xstartup -fg
+ExecStop=/usr/bin/vncserver -kill :%i
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
