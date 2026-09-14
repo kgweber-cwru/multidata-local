@@ -257,25 +257,52 @@ chmod 644 /etc/systemd/system/vncserver@.service
 systemctl enable vncserver@1.service
 
 echo "==> proving the desktop actually starts"
-# `systemctl is-enabled` was not enough, and this is the lesson from three
-# separate "port 5901" failures: enabled means it will be *attempted* at boot,
-# not that it works. Start it here and require something to be listening. A
-# broken session becomes a failed build instead of an annotator staring at a
-# viewer that will not connect.
+# `systemctl is-enabled` was not enough: enabled means the service will be
+# *attempted* at boot, not that it works.
+#
+# The first version of this check was not enough either, and its failure is
+# instructive. It broke out of the loop the moment 5901 appeared -- but Xvnc
+# opens the port BEFORE running xstartup, so a session that then dies leaves the
+# port open for a second or two. The check passed, the service exited 255, and
+# the build shipped a machine with no desktop. So: wait for the port, then wait
+# again and require the service to still be running.
+systemctl stop vncserver@1.service 2>/dev/null || true
+rm -f /tmp/.X1-lock /tmp/.X11-unix/X1 /home/annotator/.vnc/*.pid
 systemctl start vncserver@1.service || true
+
 for _ in $(seq 1 30); do
   ss -lnt 2>/dev/null | grep -q ':5901' && break
   sleep 1
 done
-if ss -lnt 2>/dev/null | grep -q ':5901'; then
-  echo "    listening on 5901"
-else
-  echo "  !! the desktop did not come up. Details follow." >&2
+
+desktop_failed() {
+  echo "  !! $1" >&2
   systemctl status vncserver@1 --no-pager -l >&2 || true
   journalctl -u vncserver@1 --no-pager -n 40 >&2 || true
   cat /home/annotator/.vnc/*.log >&2 2>/dev/null || true
   exit 1
+}
+
+ss -lnt 2>/dev/null | grep -q ':5901' \
+  || desktop_failed "nothing ever listened on 5901."
+
+# Give xstartup time to fail, then check the service survived it.
+sleep 8
+systemctl is-active --quiet vncserver@1.service \
+  || desktop_failed "5901 opened but the session died -- xstartup failed."
+
+# And check it is NOT bound to loopback only. IAP connects to this VM on its
+# internal interface, so a loopback-only listener is unreachable through the
+# tunnel even though it looks perfectly healthy from inside the machine. This
+# exact mistake cost three rounds of debugging; it is worth one grep.
+if ! ss -lnt 2>/dev/null | grep -E '(0\.0\.0\.0|\*):5901' >/dev/null; then
+  echo "  !! 5901 is listening, but only on loopback:" >&2
+  ss -lnt | grep 5901 >&2
+  echo "  !! IAP connects on the internal interface, so the tunnel cannot" >&2
+  echo "  !! reach this. Remove -localhost from vncserver@.service." >&2
+  exit 1
 fi
+echo "    listening on 5901, on all interfaces, and still up after 8s"
 
 # Stop it and clear what the test left behind, so the image ships with the
 # service enabled-but-not-running and carries no log or pid file naming the
@@ -283,6 +310,14 @@ fi
 systemctl stop vncserver@1.service || true
 sleep 2
 rm -f /home/annotator/.vnc/*.log /home/annotator/.vnc/*.pid
+rm -f /tmp/.X1-lock /tmp/.X11-unix/X1
+
+# Clear the journal. Otherwise every machine made from this image ships with
+# the builder's logs in it, which is worse than untidy: debugging a real machine
+# means reading entries from a differently-named host mixed in with the live
+# ones, and that has already sent one investigation down the wrong path.
+journalctl --rotate >/dev/null 2>&1 || true
+journalctl --vacuum-time=1s >/dev/null 2>&1 || true
 
 echo "==> five-minute backup of work in progress"
 install -m 755 "$IMAGE_DIR/desktop/backup-work" /usr/local/bin/backup-work

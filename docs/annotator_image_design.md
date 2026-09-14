@@ -50,6 +50,7 @@ and should stay small.
 | Machine size | `e2-standard-4` (4 vCPU, 16 GB) | ELAN is a Java application decoding video and drawing a waveform. 4 vCPU is the cheap safe answer at ~$0.13/hour. No GPU. |
 | Disk | 50 GB balanced | OS + ELAN + desktop is ~15 GB; a case kit is ~230 MB ([E§4.1]). Rest is headroom. |
 | Region | `us-east5` (Columbus) | Closest region to Cleveland — see §5. |
+| Desktop reachability | VNC on **all interfaces**, port 5901 | Not loopback. IAP TCP forwarding does not terminate on the VM — Google's infrastructure connects to the machine's *internal interface*, so a loopback-only listener is unreachable through the tunnel. The boundary is the firewall (IAP's `35.235.240.0/20` only) plus having no external IP, not the bind address. |
 
 Plus media codecs (`vlc`, `libavcodec-extra`) for ELAN's playback, and fonts.
 

@@ -8,19 +8,37 @@ User=annotator
 WorkingDirectory=/home/annotator
 Environment=HOME=/home/annotator
 
-# -localhost yes   listen only on the loopback interface, so the only way in is
-#                  the IAP tunnel that terminates on this machine.
-# -SecurityTypes None
-#                  no VNC password. Deliberate, not an oversight: the tunnel is
-#                  already authenticated by Google IAM against a named person
-#                  (annotation/gcp/connect.sh), and nothing can reach this port
-#                  without getting through that first. A second shared password
-#                  would add a credential to distribute and rotate without
-#                  adding a boundary. TigerVNC will not start without one of
-#                  these two being set, so it has to be said explicitly.
+# NO -localhost. This is the one setting here that is easy to get wrong in the
+# direction of "more secure, completely broken", and it cost three rounds of
+# "cannot connect to 5901" to find.
+#
+# IAP TCP forwarding does NOT terminate as a process on this machine. gcloud
+# opens a WebSocket to Google, and Google's infrastructure then connects to this
+# VM on its INTERNAL INTERFACE address. So a server bound only to 127.0.0.1 is
+# unreachable through the tunnel -- which is exactly why sshd, which the same
+# tunnel reaches happily, listens on 0.0.0.0.
+#
+# What keeps the port safe is therefore not the bind address. It is two other
+# things, both of which are load-bearing and neither of which is here:
+#
+#   1. The firewall (setup_project.sh) permits tcp:5901 only from
+#      35.235.240.0/20, the fixed range IAP forwards from. Nothing else in the
+#      VPC or on the internet can reach this port.
+#   2. Annotator machines have no external IP at all (new_vm.sh --no-address).
+#
+# -SecurityTypes None means no VNC password, which follows from (1) and (2):
+# traffic that arrives here has already been authenticated by Google IAM against
+# a named person, and a second shared password would be a credential to
+# distribute and rotate without adding a boundary. TigerVNC refuses to start
+# without an explicit choice here, so it has to be said out loud either way.
+#
+# If you ever want defence in depth anyway, the change is a VNC password file in
+# /etc/skel/.vnc/passwd and dropping -SecurityTypes None. Do that if the
+# firewall rule stops being something you can vouch for.
+#
 # Runs ~/.vnc/xstartup, which install.sh writes -- TigerVNC's own default path.
 ExecStart=@VNCSERVER@ :%i -fg \
-          -localhost yes -SecurityTypes None \
+          -SecurityTypes None \
           -geometry 1600x1000 -depth 24
 ExecStop=@VNCSERVER@ -kill :%i
 Restart=on-failure

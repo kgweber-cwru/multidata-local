@@ -228,6 +228,14 @@ add it to.
 
 ## If the desktop doesn't answer
 
+**The cause, three times running, was `-localhost yes` on the VNC server.**
+It looks like the cautious choice and it is simply broken: IAP TCP forwarding
+does not terminate on the VM. `gcloud` opens a WebSocket to Google, and Google
+connects to the machine on its **internal interface address** — so a server
+bound only to `127.0.0.1` is unreachable through the tunnel, which is why sshd,
+reached by the same tunnel, listens on `0.0.0.0`. What keeps 5901 safe is the
+firewall (IAP's range only) and the absence of any external IP.
+
 **As of `v3` this should not reach you** — `install.sh` now starts the VNC
 service during the build and fails if nothing listens on 5901, so a broken
 session is a failed build rather than an annotator staring at a viewer that
