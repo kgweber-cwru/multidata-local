@@ -97,12 +97,26 @@ EOF
 trap cleanup EXIT
 
 echo "==> booting builder VM in $ZONE"
+# The builder is the ONE machine here that gets a public IP, and it needs one:
+# it installs Debian packages and downloads ELAN, so it needs the open internet,
+# and a VM with no external address and no NAT has no outbound route at all.
+#
+# Annotator machines are the opposite and keep --no-address (see new_vm.sh).
+# They never install anything -- it's all baked into the image -- and the only
+# thing they talk to is Google Cloud Storage, which Private Google Access
+# reaches without an external IP. So the machines that hold the recordings can
+# reach Storage and nothing else, while the throwaway builder is the only thing
+# that ever touches the open internet. That's a better split than giving
+# everything NAT.
+#
+# The address is ephemeral and lives only for this build. If your organisation
+# forbids external IPs on VMs, creation fails with a policy error -- see
+# setup_project.sh for the Cloud NAT alternative.
 gcloud compute instances create "$BUILDER" \
   --zone "$ZONE" \
   --machine-type e2-standard-4 \
   --image-family debian-12 --image-project debian-cloud \
-  --boot-disk-size 50GB --boot-disk-type pd-balanced \
-  --no-address   # no public IP anywhere in this design; IAP carries SSH
+  --boot-disk-size 50GB --boot-disk-type pd-balanced
 
 echo "==> waiting for SSH"
 until gcloud compute ssh "$BUILDER" --zone "$ZONE" --tunnel-through-iap \

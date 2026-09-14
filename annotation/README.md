@@ -46,6 +46,18 @@ design §2 for why.
 
 ## Running a campaign
 
+**Once per project**, set up the network, bucket, and identity:
+
+```bash
+export ANNOTATION_BUCKET=gs://som-anno-data-bucket
+annotation/gcp/setup_project.sh
+```
+
+Safe to re-run — every step skips if already done. It creates the IAP firewall
+rule (without which nothing can be reached at all), turns on Private Google
+Access so machines with no public IP can still reach Cloud Storage, creates the
+bucket with versioning, and creates the service account.
+
 **Once**, build the machine image:
 
 ```bash
@@ -116,6 +128,7 @@ than in a README nobody re-reads. `NOTES` is excluded from both `gold.txt` and
 | `make_kit.py` | Manifest + template + media → a kit on local disk. The substance: it writes the pre-linked `.eaf`. |
 | `submit_checks.py` | Two checks on an annotated `.eaf`. Runs on the machine *and* again locally on the way back in. Standard library only, so the VM needs no packages. |
 | `pull_submission.py` | Submission → `data/gold/` → `scripts/eaf_to_gold.py`. |
+| `gcp/setup_project.sh` | One-time: firewall, Private Google Access, bucket, service account. |
 | `gcp/build_image.sh` | Build `annotator-vN` once. |
 | `gcp/new_vm.sh` | One machine per annotator. |
 | `gcp/connect.sh` | Handed to the annotator. Opens a private tunnel to their machine. |
@@ -126,6 +139,23 @@ than in a README nobody re-reads. `NOTES` is excluded from both `gold.txt` and
 | `image/elan_prefs/` | The one ELAN setting that isn't a default, plus notes. |
 
 `kits/` is gitignored — it holds real-name media.
+
+---
+
+## Network shape, since it bit twice
+
+| Machine | Public IP | Why |
+|---|---|---|
+| The image builder | **yes**, ephemeral, for one build | It installs Debian packages and downloads ELAN, so it needs the open internet. A VM with no external address and no NAT has no outbound route at all. |
+| Annotator machines | **no** | They install nothing — it's all in the image — and talk only to Cloud Storage, which Private Google Access reaches without an external address. |
+
+So the machines that hold the recordings can reach Storage and nothing else,
+while the only thing that ever touches the open internet is a VM that gets
+deleted at the end of the build. That's a better split than giving everything
+Cloud NAT, and it's free.
+
+If your organisation forbids external IPs on VMs, the builder can't be created
+and `setup_project.sh` prints the Cloud NAT alternative.
 
 ---
 

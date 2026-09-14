@@ -223,8 +223,15 @@ progress and breaks the link between a gold file and a recorded image version.
   facts they need as flat text.
 - **Any machine-generated transcript.** [S§9] is categorical: pass 1 is blind.
   This is the one item on this list that isn't about tidiness — see §5.
-- **Broad bucket access.** The machine's identity reads its own annotator's kits
-  and writes its own work area. Nothing else.
+- **Access to anything but the bucket.** The machine's identity can reach Cloud
+  Storage and nothing else — no project-wide roles, and no route to the open
+  internet at all (`setup_project.sh`). Note the honest limit: the machines share
+  one service account scoped to the bucket, so what keeps one annotator from
+  another's work is **that only their own case is staged on their own machine**,
+  not an IAM boundary. That is the part that matters for §5's argument — you
+  cannot be unconsciously biased by a file that isn't there — and a per-annotator
+  service account with a prefix condition is the upgrade if the posture ever
+  needs to resist deliberate access too.
 
 ---
 

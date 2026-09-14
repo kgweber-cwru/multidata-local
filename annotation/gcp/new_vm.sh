@@ -4,7 +4,13 @@
 #
 #   annotation/gcp/new_vm.sh --annotator jamie [--image annotator-v1]
 #
-# The machine gets no public IP. Annotators reach it through connect.sh.
+# The machine gets no public IP, and needs none: everything it runs is baked
+# into the image, and the only thing it talks to is Cloud Storage, which Private
+# Google Access reaches without an external address (see setup_project.sh). So
+# the machine holding the recordings can reach Storage and nothing else, and is
+# unreachable from the internet. Annotators get in through connect.sh.
+#
+# Run setup_project.sh once before the first of these.
 set -euo pipefail
 
 ANNOTATOR=""; IMAGE="${ANNOTATOR_IMAGE:-annotator-v1}"
