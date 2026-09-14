@@ -8,9 +8,14 @@
 # cannot be reached from outside, and nothing here tries to change that.
 set -euo pipefail
 
+# Settings come from annotation/config.sh -- bucket, zone, ELAN URL, and so on.
+# Anything already in your environment wins over it.
+CONFIG="$(cd "$(dirname "$0")/.." && pwd)/config.sh"
+# shellcheck source=../config.sh
+[[ -f "$CONFIG" ]] && source "$CONFIG"
+
 CASE=""; ANNOTATOR=""
-ZONE="${ZONE:-us-east5-a}"
-BUCKET="${ANNOTATION_BUCKET:?set ANNOTATION_BUCKET=gs://your-bucket}"
+BUCKET="${ANNOTATION_BUCKET:?Not set, and annotation/config.sh was not found or does not define it. config.sh is where these live}"
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 
 while [[ $# -gt 0 ]]; do

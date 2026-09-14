@@ -20,6 +20,8 @@ publishable.
 """
 import argparse
 import json
+import os
+import re
 import shutil
 import subprocess
 import sys
@@ -27,6 +29,25 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 HERE = Path(__file__).resolve().parent
+
+# annotation/config.sh holds the project settings for the shell scripts. Read
+# the same file rather than keeping a second copy of the bucket name here: two
+# places defining one value is how they drift apart.
+# Allows a trailing comment after the value, which config.sh uses.
+_CONFIG_LINE = re.compile(r'^:\s*"\$\{(\w+):=(.*?)\}"\s*(?:#.*)?$')
+
+
+def config(key, default=None):
+    """A value from the environment, else annotation/config.sh, else default."""
+    if os.environ.get(key):
+        return os.environ[key]
+    path = HERE / "config.sh"
+    if path.exists():
+        for line in path.read_text().splitlines():
+            match = _CONFIG_LINE.match(line.strip())
+            if match and match.group(1) == key:
+                return match.group(2)
+    return default
 
 
 def run(cmd, **kw):
@@ -39,7 +60,7 @@ def main():
     ap.add_argument("--case", required=True)
     ap.add_argument("--annotator", required=True)
     ap.add_argument("--bucket", default=None,
-                    help="gs://... (default: $ANNOTATION_BUCKET)")
+                    help="gs://... (default: from annotation/config.sh)")
     ap.add_argument("--from-dir", default=None,
                     help="skip the download; take the submission from here")
     ap.add_argument("--skip-export", action="store_true",
@@ -56,11 +77,11 @@ def main():
                 shutil.copy2(src / name, dest / name)
                 print(f"copied {name}", flush=True)
     else:
-        import os
-        bucket = args.bucket or os.environ.get("ANNOTATION_BUCKET")
+        bucket = args.bucket or config("ANNOTATION_BUCKET")
         if not bucket:
             raise SystemExit(
-                "need --bucket gs://... or ANNOTATION_BUCKET in the environment")
+                "no bucket: pass --bucket gs://..., or set ANNOTATION_BUCKET in "
+                "annotation/config.sh")
         run(["gcloud", "storage", "rsync",
              f"{bucket}/work/{args.case}/{args.annotator}", str(dest)])
 

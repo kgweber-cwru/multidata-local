@@ -46,10 +46,17 @@ design §2 for why.
 
 ## Running a campaign
 
+**First**, check [config.sh](config.sh) — bucket, region, zone, image name, and
+the ELAN download all live there, and every script reads it. Nothing needs
+exporting. Anything in your environment still overrides it for one run:
+
+```bash
+ZONE=us-central1-a annotation/gcp/new_vm.sh --annotator jamie
+```
+
 **Once per project**, set up the network, bucket, and identity:
 
 ```bash
-export ANNOTATION_BUCKET=gs://som-anno-data-bucket
 annotation/gcp/setup_project.sh
 ```
 
@@ -61,12 +68,10 @@ bucket with versioning, and creates the service account.
 **Once**, build the machine image:
 
 ```bash
-# from the ELAN download page
-export ELAN_DEB_URL=https://www.mpi.nl/tools/elan/ELAN_7-1_linux.deb
-export ELAN_DEB_SHA256=01c52cb5cde3090b2e9a46a299936b7a358363e7231507f7fc8a01fba7394073
-
 annotation/gcp/build_image.sh v1
 ```
+
+The ELAN URL and checksum come from `config.sh`.
 
 `build_image.sh` is safe to re-run: it deletes a leftover builder VM from a
 failed attempt before starting, and it checks up front that `annotator-v1`
@@ -74,8 +79,8 @@ doesn't already exist rather than discovering that at the last step. A failed
 build leaves the builder up on purpose so you can log in and look; the next run
 clears it.
 
-`build_image.sh` hands those to `install.sh` by naming them in the remote
-command. Exporting them in your own shell is necessary but not sufficient:
+`build_image.sh` hands the ELAN settings to `install.sh` by naming them in the
+remote command. Exporting them in your own shell is necessary but not sufficient:
 `gcloud compute ssh` starts a fresh shell on the builder, and `sudo` resets the
 environment again on top of that, so nothing travels on its own. If you run
 `install.sh` by hand, put them on the command line —
@@ -84,7 +89,6 @@ environment again on top of that, so nothing travels on its own. If you run
 **Once per annotator:**
 
 ```bash
-export ANNOTATION_BUCKET=gs://som-anno-data-bucket
 annotation/gcp/new_vm.sh --annotator jamie
 # grant them access (new_vm.sh prints the two commands), then send them
 # annotation/gcp/connect.sh and walk them through it once -- 15 minutes
@@ -128,6 +132,7 @@ than in a README nobody re-reads. `NOTES` is excluded from both `gold.txt` and
 | `make_kit.py` | Manifest + template + media → a kit on local disk. The substance: it writes the pre-linked `.eaf`. |
 | `submit_checks.py` | Two checks on an annotated `.eaf`. Runs on the machine *and* again locally on the way back in. Standard library only, so the VM needs no packages. |
 | `pull_submission.py` | Submission → `data/gold/` → `scripts/eaf_to_gold.py`. |
+| `config.sh` | Every project setting, in one place. Sourced by the shell scripts, parsed by the Python ones. Tracked — none of it is secret. |
 | `gcp/setup_project.sh` | One-time: firewall, Private Google Access, bucket, service account. |
 | `gcp/build_image.sh` | Build `annotator-vN` once. |
 | `gcp/new_vm.sh` | One machine per annotator. |

@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # One-time project setup. Run once, before the first build.
 #
-#   export ANNOTATION_BUCKET=gs://som-anno-data-bucket
 #   annotation/gcp/setup_project.sh
+#
+# Settings come from annotation/config.sh; nothing needs to be exported.
 #
 # Every step checks first and skips if already done, so re-running is safe.
 #
@@ -18,9 +19,13 @@
 #   4. A service account for the annotator machines.
 set -euo pipefail
 
-BUCKET="${ANNOTATION_BUCKET:?set ANNOTATION_BUCKET=gs://your-bucket}"
-REGION="${REGION:-us-east5}"
-SUBNET="${SUBNET:-default}"
+# Settings come from annotation/config.sh -- bucket, zone, ELAN URL, and so on.
+# Anything already in your environment wins over it.
+CONFIG="$(cd "$(dirname "$0")/.." && pwd)/config.sh"
+# shellcheck source=../config.sh
+[[ -f "$CONFIG" ]] && source "$CONFIG"
+
+BUCKET="${ANNOTATION_BUCKET:?Not set, and annotation/config.sh was not found or does not define it. config.sh is where these live}"
 PROJECT="$(gcloud config get-value project 2>/dev/null)"
 SA_NAME="annotator"
 SA="${SA_NAME}@${PROJECT}.iam.gserviceaccount.com"

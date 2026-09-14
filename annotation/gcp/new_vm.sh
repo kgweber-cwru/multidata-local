@@ -13,9 +13,15 @@
 # Run setup_project.sh once before the first of these.
 set -euo pipefail
 
-ANNOTATOR=""; IMAGE="${ANNOTATOR_IMAGE:-annotator-v1}"
-ZONE="${ZONE:-us-east5-a}"
-BUCKET="${ANNOTATION_BUCKET:?set ANNOTATION_BUCKET=gs://your-bucket}"
+# Settings come from annotation/config.sh -- bucket, zone, ELAN URL, and so on.
+# Anything already in your environment wins over it.
+CONFIG="$(cd "$(dirname "$0")/.." && pwd)/config.sh"
+# shellcheck source=../config.sh
+[[ -f "$CONFIG" ]] && source "$CONFIG"
+
+ANNOTATOR=""
+IMAGE="$ANNOTATOR_IMAGE"
+BUCKET="${ANNOTATION_BUCKET:?Not set, and annotation/config.sh was not found or does not define it. config.sh is where these live}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in

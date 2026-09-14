@@ -14,9 +14,23 @@
 # the other end of the tunnel.
 set -euo pipefail
 
+# Defaults are baked in rather than read from a config file: you are handed this
+# one script on its own, not the whole project.
 ANNOTATOR="${ANNOTATOR:-${USER}}"
-PROJECT="${PROJECT:?ask the project lead for the PROJECT value}"
 ZONE="${ZONE:-us-east5-a}"
+PROJECT="${PROJECT:-$(gcloud config get-value project 2>/dev/null)}"
+
+if [[ -z "$PROJECT" || "$PROJECT" == "(unset)" ]]; then
+  cat >&2 <<'EOF'
+No Google Cloud project is set. Run this once, with the project name the
+project lead gave you:
+
+  gcloud config set project <project-name>
+
+Then run this script again.
+EOF
+  exit 1
+fi
 VM="annotate-${ANNOTATOR}"
 PORT="${PORT:-5901}"
 

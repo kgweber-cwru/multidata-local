@@ -7,7 +7,13 @@
 # Layer 1 copy that was living on it. Pull the submissions first.
 set -euo pipefail
 
-ANNOTATOR=""; ZONE="${ZONE:-us-east5-a}"
+# Settings come from annotation/config.sh -- bucket, zone, ELAN URL, and so on.
+# Anything already in your environment wins over it.
+CONFIG="$(cd "$(dirname "$0")/.." && pwd)/config.sh"
+# shellcheck source=../config.sh
+[[ -f "$CONFIG" ]] && source "$CONFIG"
+
+ANNOTATOR=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --annotator) ANNOTATOR="$2"; shift 2 ;;

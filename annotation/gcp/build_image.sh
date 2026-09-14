@@ -12,24 +12,28 @@
 # machine mid-case -- that changes the tool underneath work in progress.
 set -euo pipefail
 
-VERSION="${1:?usage: build_image.sh <version>, e.g. v1}"
-ZONE="${ZONE:-us-east5-a}"
+# Settings come from annotation/config.sh -- bucket, zone, ELAN URL, and so on.
+# Anything already in your environment wins over it.
+CONFIG="$(cd "$(dirname "$0")/.." && pwd)/config.sh"
+# shellcheck source=../config.sh
+[[ -f "$CONFIG" ]] && source "$CONFIG"
 
+VERSION="${1:?usage: build_image.sh <version>, e.g. v1}"
 # Check the ELAN settings HERE, before booting a VM. install.sh needs them, but
 # it runs on the builder -- and a missing value should cost a second locally,
 # not a VM boot and a package install first.
-ELAN_VERSION="${ELAN_VERSION:-7.1}"
 if [[ -z "${ELAN_DEB_URL:-}" ]]; then
   cat >&2 <<'EOF'
-ELAN_DEB_URL is not set. Set it to the ELAN .deb download URL, e.g.
+ELAN_DEB_URL is not set, and annotation/config.sh was not found or does not
+define it. That file is where it lives -- check you are running this from the
+repo, or set it for one run:
 
-  export ELAN_DEB_URL=https://www.mpi.nl/tools/elan/ELAN_7-1_linux.deb
-  export ELAN_DEB_SHA256=...        # optional the first time; see below
+  ELAN_DEB_URL=https://www.mpi.nl/tools/elan/ELAN_7-1_linux.deb \
+    annotation/gcp/build_image.sh v1
 
 ELAN_DEB_SHA256 pins the exact artifact, so a later rebuild installs the same
-ELAN rather than whatever is behind that URL by then (standards §12). If you
-don't have a published checksum, leave it unset: the build prints the one it
-downloaded, and you set it for next time.
+ELAN rather than whatever is behind that URL by then (standards §12). It is
+optional: leave it unset and the build prints the checksum it downloaded.
 EOF
   exit 1
 fi
