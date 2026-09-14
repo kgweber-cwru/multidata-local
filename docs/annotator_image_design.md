@@ -243,6 +243,61 @@ progress and breaks the link between a gold file and a recorded image version.
 
 ---
 
+## 4b. Audio — VNC cannot carry it (found 2026-09-14)
+
+**The desktop had no sound, and VNC has no way to provide any.** The RFB
+protocol has no audio channel; macOS Screen Sharing is not going to invent one.
+
+This is not a comfort issue. **The entire task is listening.** [G§5] turns on
+distinguishing `uh-huh` from `uh-uh` — "one letter apart, opposite meanings, and
+a patient's answer to a clinical question can hinge on it" — and [S§6] makes
+that a scoring-relevant distinction. A silent desktop isn't a degraded
+annotation environment, it's not an annotation environment.
+
+### The plan: RDP instead of VNC
+
+RDP has an audio channel, it is mature, and the macOS client (Microsoft Remote
+Desktop) is free and good. `xrdp` serves the same Xfce session; the tunnel is
+unchanged apart from the port — SSH-forward 3389 instead of 5901, still over
+IAP, still no port open to anything.
+
+Two consequences:
+
+- **The `annotator` account needs a real password**, because xrdp authenticates
+  through PAM. That replaces the VNC password, which existed only because macOS
+  Screen Sharing refuses a no-auth server (§2.3). One credential either way.
+- **Nothing else in the design changes.** Storage, the canonical mount path,
+  kits, the launchers, the submit path, the checks — all untouched. This is the
+  §4.5 swap the portability was for.
+
+**The known risk:** `pulseaudio-module-xrdp` is not in Debian main. If there's
+no candidate package it has to be built from source against the installed
+PulseAudio, which is fiddly but scripted. Check availability before committing
+to this route.
+
+### The acceptance test is fidelity, not presence
+
+"Can you hear it" is the wrong test. The right one:
+
+1. Take a passage from a case you have already annotated locally — 261456 or
+   261473, where you know what's there.
+2. On the remote desktop, **can you still tell `uh-huh` from `uh-uh`?** That's
+   a glottal catch versus an audible /h/, and it is the hardest thing the audio
+   path has to carry.
+3. Loop a hard segment ten times, as an annotator actually would. Listen for
+   dropouts and artifacts, not just clarity.
+
+If the answer is no, marking more `[unintelligible]` is the safe failure and
+guessing is the unsafe one — so a degraded channel doesn't just slow the work,
+it biases the gold.
+
+**Reason for optimism:** the source is already modest. The pipeline extracts
+16 kHz mono (`-ar 16000 -ac 1`), and a kit ships exactly that wav, so any
+modern audio channel has headroom to carry it faithfully. The risk is
+compression artifacts and dropouts, not bandwidth.
+
+---
+
 ## 5. The three things to settle in the trial run
 
 One image, one machine, one annotator, one real excerpt — before anyone else is
@@ -324,9 +379,13 @@ rather than wonder what was forgotten.
 
 ## 8. Still open
 
-1. **Does ELAN 7.1's Linux build play the proxy cleanly?** (§2.2, §5) The only
+1. **Does audio work over RDP, well enough for phonetic judgements?** (§4b)
+   The one that matters most: VNC carries no audio at all, so the remote
+   desktop technology has to change. Everything else in the design survives
+   that swap.
+2. **Does ELAN 7.1's Linux build play the proxy cleanly?** (§2.2, §5) The only
    question that could force a change to the kit format.
-2. **Does delayed mode need setting at all?** (§2.3, §5) A measurement, not a
+3. **Does delayed mode need setting at all?** (§2.3, §5) A measurement, not a
    debate — and there's a reference point now. On a local Mac, with no network
    in the path at all, the settled values were `SegmentationMode.DelayMode=true`
    and `DelayDuration=250` ms — above the ~200 ms [G§3] suggests trying. So 250

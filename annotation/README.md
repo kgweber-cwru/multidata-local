@@ -425,10 +425,16 @@ enabled, and whether it's bound where the tunnel can reach it. `install.sh`
 refuses to snapshot a machine that fails any of them. That's the reason a v3
 build should be uneventful.
 
-**The one thing still unknown, and the reason all of this exists:** whether
-ELAN plays the kit's proxy video and wav together, and whether looping a
-segment holds up over the connection. Nothing so far has tested that — it
-needs a person, a real kit, and an hour.
+**Blocking, found 2026-09-14: there is no audio.** VNC's protocol has no audio
+channel, so the desktop is silent — and the whole task is listening. The plan is
+RDP (`xrdp`) instead of VNC, tunnelled the same way on port 3389, with Microsoft
+Remote Desktop as the Mac client. See the image design §4b for the plan, the
+known risk (`pulseaudio-module-xrdp` isn't in Debian main), and the acceptance
+test, which is *fidelity* — can you still tell `uh-huh` from `uh-uh` — rather
+than whether sound arrives at all.
+
+**Still unknown after that:** whether ELAN plays the kit's proxy video and wav
+together, and whether looping a segment holds up over the connection.
 
 **Also still open:** the latency measurement that settles whether delayed mode
 needs setting (image design §5), and `delete_vm.sh`.
