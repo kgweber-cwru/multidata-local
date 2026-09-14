@@ -304,10 +304,11 @@ three launchers — and nothing else.
 [annotator_image_design.md](annotator_image_design.md).** Two points belong here
 because the rest of this document leans on them:
 
-- **The pre-configured ELAN preferences are the payload of R2.** "No configuring
-  ELAN" is not achieved by better instructions; it is achieved by shipping a
-  preferences directory that already has segmentation shortcuts, delayed mode,
-  and autosave set, so the annotator never opens a settings dialog.
+- **The payload of R2 is that the annotator never creates a file.** Not the
+  preferences — those stay close to ELAN's defaults, with autosave the one
+  deliberate change. What removes the configuration burden is that one click
+  opens the right `.eaf` with the right template, the right tiers, and both media
+  already attached, so the guide's four-step File → New never happens.
 - **The ELAN version is pinned and recorded.** It goes in the image tag and into
   `kit.json`. An ELAN upgrade is a change-control event under [S§12] the same way
   a model version is — an unpinned upgrade partway through a corpus is exactly the
@@ -333,10 +334,12 @@ Identity-Aware Proxy carries that tunnel (`gcloud compute start-iap-tunnel`), so
 - **It costs nothing to stand up.** No load balancer, no certificate, no DNS, no
   Terraform. A handful of `gcloud` commands and a firewall rule that permits
   only IAP's own address range.
-- **Clipboard and file copying are yours to switch off** in the desktop server's
-  own configuration, rather than through a policy applied on the annotator's
-  computer. Switch both off: "off personal machines" (R1) has to include "can't
-  be dragged onto one".
+- **Clipboard and file copying are yours to configure** in the desktop server's
+  own settings rather than through a policy on the annotator's computer, if you
+  ever want them off. Left at defaults for now — R1 is satisfied structurally,
+  because the media and the `.eaf` live on the VM and in the bucket and never land
+  on a personal machine. See
+  [annotator_image_design.md](annotator_image_design.md) §7.4.
 
 The cost is a **one-time 15-minute screen share per annotator** to get the two
 installs and the script working on their machine. With two or three annotators
@@ -398,8 +401,7 @@ a policy.
 |---|---|
 | [S§9] blind pass 1 | The VM's service account can read `kits/<case>/<annotator>/` and write `work/<case>/<annotator>/`. It cannot list the bucket, cannot read another annotator's prefix, and no machine draft is ever staged. |
 | [S§10] independent double annotation | Two annotators on the same case get two kits, two prefixes, two VMs. Neither can reach the other's, so the second pass is blind by construction, not by agreement. |
-| [S§8] Layer 1 stays on managed storage | No public IP; egress via Cloud NAT only (or none at all, if the image needs no runtime internet). No file transfer, no clipboard (§4.5). No browser on the desktop.
-Nothing inbound to the private network at all (§2). Data path is bucket ↔ VM, both inside the project. |
+| [S§8] Layer 1 stays on managed storage | The `.eaf` and the media live on the VM and in the bucket; the data path is bucket ↔ VM, both inside the project. No public IP, no browser on the desktop, and nothing inbound to the private network at all (§2) — so there is no ordinary route by which a Layer 1 file reaches a personal machine. Structural rather than enforced: annotators are trusted, and [S§8] tells them not to move these files around (image design §7.4). |
 | [S§8] Layer 2 is derived, never hand-edited | Unchanged: `eaf_to_gold.py` runs admin-side, off the submitted `.eaf`. |
 | [S§4] identical tier set | Kits are generated from the tracked `elan/template.etf` by one script. An annotator cannot start from anything else, because they never create a file. |
 | BAA — demonstrable access records | **Enable Cloud Audit Logs Data Access logging on the bucket.** It is off by default for GCS, which means the record of who read which case's media does not exist unless someone turns it on. Combined with the tunnel's per-connection identity events (§4.5), "who accessed case 261456, when" becomes answerable rather than inferred. Turn it on when the bucket is created, not after the first question about it. |
@@ -424,8 +426,8 @@ hand them. Done forever.
 1. Email: "case 261456 is on your machine — go ahead."
 2. Run the connect script. A desktop appears with three icons.
 3. Click **Start annotating**. ELAN opens on `261456.pass1.eaf`: six empty tiers,
-   waveform loaded, video loaded, segmentation shortcuts and delayed mode already
-   set, autosave already on. Nothing to configure, no dialog to dismiss.
+   waveform loaded, video loaded, autosave already on. No file to create, no
+   template to pick, no media to locate, no dialog to dismiss.
 4. Work the guide. Disconnect whenever; the session and the file stay put. Come
    back tomorrow and continue where you were.
 5. Click **Submit finished pass**. It checks for empty segments, uploads, and
@@ -501,11 +503,12 @@ while the only cost of a bad answer is that one day.
 **Playback.** ELAN's Linux media stack is historically the least robust of its
 three platforms, and this workflow leans on media playback harder than most —
 looping short segments, scrubbing, waveform plus video in sync. Test with a real
-kit, not a sample file. Mitigations, in order: install VLC and full codecs and
-pin ELAN's preferred media framework in the golden prefs; transcode the proxy to
-plain H.264 baseline + a separate 16 kHz mono wav (which §4.3 does anyway); and
-if a codec still fights, the wav is what the work actually depends on — the video
-can degrade further without stopping anyone.
+kit, not a sample file. Mitigations, in order: install VLC and full codecs;
+transcode the proxy to plain H.264 baseline + a separate 16 kHz mono wav (which
+§4.3 does anyway); and if a codec still fights, the wav is what the work actually
+depends on — the video can degrade further without stopping anyone. Only pin
+ELAN's media framework by hand if the defaults actually misbehave; don't
+pre-solve it.
 
 **Latency, and boundary drift.** This one has a data-quality edge, not just a
 comfort edge. In segmentation mode the boundary lands when the annotator presses
@@ -517,13 +520,17 @@ it's systematic, it stacks with human reaction time, and the guide's suggested
 - **Deploy in `us-east5` (Columbus).** It's the closest region to Cleveland by a
   wide margin — single-digit-millisecond RTT territory. `us-east4` (Ashburn) is
   the fallback. This is a free decision made once; making it wrong is not free.
-- **Measure RTT on the real path, then set delayed mode in the golden prefs** to
-  reaction time plus measured latency, and write down what was measured. Then
-  the guide can stop asking each annotator to guess.
-- **Check it against the audio.** In the trial run, compare a handful of boundaries
-  placed on the VM against the same passage placed locally. If drift shows up
-  above tolerance, delayed mode absorbs a constant offset — that's exactly what
-  it's for.
+- **Measure RTT on the real path** — from a real annotator's home connection, not
+  from your own desk — and write down what you measured.
+- **Then decide whether delayed mode needs setting at all.** If the measurement
+  is comfortably inside tolerance, leave it at ELAN's default and say so in the
+  guide. If it isn't, pick one value for everyone and bake it into the image
+  rather than asking each annotator to guess. Either way it's one decision made
+  once, not a per-person calibration
+  ([annotator_image_design.md](annotator_image_design.md) §2.3).
+- **Check it against the audio** if you do set a value: place a handful of
+  boundaries on the VM and the same passage locally, and compare. Delayed mode
+  absorbs a constant offset, which is exactly what this is.
 
 ---
 
