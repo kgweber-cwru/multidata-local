@@ -29,10 +29,27 @@ IMAGE_DIR="$(cd "$(dirname "$0")" && pwd)"
 echo "==> packages"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y -qq --no-install-recommends \
+
+# The desktop, the VNC server, and the media stack get their Recommends.
+#
+# An earlier version installed everything with --no-install-recommends, which
+# was a mistake worth spelling out: `xfce4` is a metapackage whose Recommends
+# *are* most of the desktop, and TigerVNC's vncserver needs xauth to create the
+# X authority cookie before it will start at all. Stripping recommends produced
+# a machine that installed cleanly and had no working session. For media it is
+# worse than a nuisance -- a silently missing codec is exactly the failure this
+# image most needs to avoid, and disk is not scarce here.
+#
+# xauth, x11-xkb-utils and xfonts-base are named explicitly as well as being
+# pulled in, so that a future Recommends change cannot quietly drop them.
+apt-get install -y -qq \
   xfce4 xfce4-terminal dbus-x11 \
   tigervnc-standalone-server tigervnc-common \
-  vlc libavcodec-extra \
+  xauth x11-xkb-utils xfonts-base \
+  vlc libavcodec-extra
+
+# Leaf tools, where skipping recommends saves real space and risks nothing.
+apt-get install -y -qq --no-install-recommends \
   fonts-dejavu fonts-liberation \
   firefox-esr pandoc zenity \
   python3 curl ca-certificates cron
@@ -60,7 +77,7 @@ echo "==> checking the packages gave us what we need"
 # wrong package name should cost seconds here rather than surfacing at the end
 # of the build -- or worse, when an annotator clicks something.
 MISSING=""
-for cmd in vncserver startxfce4 pandoc zenity firefox-esr python3 gcloud; do
+for cmd in vncserver startxfce4 xauth xrdb pandoc zenity firefox-esr python3 gcloud; do
   command -v "$cmd" >/dev/null || MISSING="$MISSING $cmd"
 done
 if [[ -n "$MISSING" ]]; then
@@ -238,6 +255,34 @@ sed "s|@VNCSERVER@|$VNCSERVER|g" "$IMAGE_DIR/desktop/vncserver@.service" \
   > /etc/systemd/system/vncserver@.service
 chmod 644 /etc/systemd/system/vncserver@.service
 systemctl enable vncserver@1.service
+
+echo "==> proving the desktop actually starts"
+# `systemctl is-enabled` was not enough, and this is the lesson from three
+# separate "port 5901" failures: enabled means it will be *attempted* at boot,
+# not that it works. Start it here and require something to be listening. A
+# broken session becomes a failed build instead of an annotator staring at a
+# viewer that will not connect.
+systemctl start vncserver@1.service || true
+for _ in $(seq 1 30); do
+  ss -lnt 2>/dev/null | grep -q ':5901' && break
+  sleep 1
+done
+if ss -lnt 2>/dev/null | grep -q ':5901'; then
+  echo "    listening on 5901"
+else
+  echo "  !! the desktop did not come up. Details follow." >&2
+  systemctl status vncserver@1 --no-pager -l >&2 || true
+  journalctl -u vncserver@1 --no-pager -n 40 >&2 || true
+  cat /home/annotator/.vnc/*.log >&2 2>/dev/null || true
+  exit 1
+fi
+
+# Stop it and clear what the test left behind, so the image ships with the
+# service enabled-but-not-running and carries no log or pid file naming the
+# builder's hostname.
+systemctl stop vncserver@1.service || true
+sleep 2
+rm -f /home/annotator/.vnc/*.log /home/annotator/.vnc/*.pid
 
 echo "==> five-minute backup of work in progress"
 install -m 755 "$IMAGE_DIR/desktop/backup-work" /usr/local/bin/backup-work

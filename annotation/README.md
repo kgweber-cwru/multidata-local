@@ -228,6 +228,28 @@ add it to.
 
 ## If the desktop doesn't answer
 
+**As of `v3` this should not reach you** — `install.sh` now starts the VNC
+service during the build and fails if nothing listens on 5901, so a broken
+session is a failed build rather than an annotator staring at a viewer that
+will not connect. `systemctl is-enabled` was what it checked before, and that
+passes for a service that fails the moment it runs.
+
+If it happens anyway, SSH to the machine and work down this list:
+
+```bash
+cat /etc/elan-version /etc/elan-launcher     # no elan-launcher => it's a v1 image
+systemctl status vncserver@1 --no-pager -l
+journalctl -u vncserver@1 --no-pager -n 50
+sudo cat /home/annotator/.vnc/*.log          # usually the most specific error
+sudo ss -lntp | grep 5901 || echo "nothing on 5901"
+
+# clearest signal of all -- run it by hand, in the foreground
+sudo -u annotator HOME=/home/annotator \
+  vncserver :2 -localhost yes -SecurityTypes None -geometry 1280x800 -fg
+```
+
+
+
 `connect.sh` failing with `failed to connect to backend ... port 5901` means
 the tunnel reached the machine but nothing is listening. Look at the machine:
 
