@@ -56,6 +56,12 @@ export ELAN_DEB_SHA256=01c52cb5cde3090b2e9a46a299936b7a358363e7231507f7fc8a01fba
 annotation/gcp/build_image.sh v1
 ```
 
+`build_image.sh` is safe to re-run: it deletes a leftover builder VM from a
+failed attempt before starting, and it checks up front that `annotator-v1`
+doesn't already exist rather than discovering that at the last step. A failed
+build leaves the builder up on purpose so you can log in and look; the next run
+clears it.
+
 `build_image.sh` hands those to `install.sh` by naming them in the remote
 command. Exporting them in your own shell is necessary but not sufficient:
 `gcloud compute ssh` starts a fresh shell on the builder, and `sudo` resets the

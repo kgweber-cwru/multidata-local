@@ -38,6 +38,64 @@ IMAGE="annotator-${VERSION}"
 HERE="$(cd "$(dirname "$0")/.." && pwd)"      # annotation/
 REPO="$(cd "$HERE/.." && pwd)"
 
+# The builder is disposable -- it exists only for the length of one build, and a
+# failed run leaves it behind. Clear it out rather than making a retry the thing
+# that has to notice.
+if gcloud compute instances describe "$BUILDER" --zone "$ZONE" >/dev/null 2>&1; then
+  echo "==> removing a leftover builder from a previous run"
+  gcloud compute instances delete "$BUILDER" --zone "$ZONE" --quiet
+fi
+
+# An image of this name would only fail at the very end, after the whole build.
+# Find out now.
+if gcloud compute images describe "$IMAGE" >/dev/null 2>&1; then
+  # Suggest the next version number when it's a plain vN, and stay quiet about
+  # it when it isn't -- a failed arithmetic expansion here would replace the
+  # helpful message with a confusing one.
+  NEXT="the next version"
+  if [[ "$VERSION" =~ ^v([0-9]+)$ ]]; then
+    NEXT="v$(( ${BASH_REMATCH[1]} + 1 ))"
+  fi
+  cat >&2 <<EOF
+Image $IMAGE already exists, and this would fail at the last step.
+
+Either build $NEXT:
+  annotation/gcp/build_image.sh $NEXT
+
+or delete this one first -- safe only if no annotator machine was made from it:
+  gcloud compute images delete $IMAGE --quiet
+EOF
+  exit 1
+fi
+
+# On failure, say where things stand. Deliberately does NOT delete the builder:
+# a build that got far enough to fail interestingly is worth logging into, and
+# the next run cleans it up anyway.
+cleanup() {
+  local code=$?
+  [[ -n "${STAGE:-}" ]] && rm -rf "$STAGE"
+  [[ $code -eq 0 ]] && return 0
+
+  echo >&2
+  echo "Build failed (exit $code)." >&2
+  if gcloud compute instances describe "$BUILDER" --zone "$ZONE" >/dev/null 2>&1; then
+    cat >&2 <<EOF
+The builder VM is still up, on purpose, so you can see what happened:
+
+  gcloud compute ssh $BUILDER --zone $ZONE --tunnel-through-iap
+  sudo bash /tmp/image/install.sh     # run the install by hand and watch it fail
+
+Re-running build_image.sh deletes it and starts clean, so there is nothing to
+tidy up first. To remove it now anyway:
+
+  gcloud compute instances delete $BUILDER --zone $ZONE --quiet
+EOF
+  else
+    echo "No builder VM was created, so there is nothing to clean up." >&2
+  fi
+}
+trap cleanup EXIT
+
 echo "==> booting builder VM in $ZONE"
 gcloud compute instances create "$BUILDER" \
   --zone "$ZONE" \
@@ -52,7 +110,6 @@ until gcloud compute ssh "$BUILDER" --zone "$ZONE" --tunnel-through-iap \
 
 echo "==> staging the image tree (with the guide docs alongside)"
 STAGE="$(mktemp -d)"
-trap 'rm -rf "$STAGE"' EXIT
 cp -R "$HERE/image" "$STAGE/image"
 cp "$HERE/submit_checks.py" "$STAGE/"
 mkdir -p "$STAGE/image/docs"
