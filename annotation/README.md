@@ -164,6 +164,25 @@ and `setup_project.sh` prints the Cloud NAT alternative.
 
 ---
 
+## If a build dies on port 22 or a dropped connection
+
+Everything the build does to the VM goes through the IAP tunnel to a machine
+that has just booted, and that path comes up raggedly — sshd, the guest agent
+propagating keys, and the tunnel backend each become ready at their own pace.
+A step can fail once and work fifteen seconds later.
+
+`build_image.sh` handles this now: it waits for **three consecutive** successful
+SSH connections before proceeding (one success right after boot proves nothing),
+gives up with the real error after five minutes rather than hanging, and retries
+the file copy. If you see it anyway, `--reuse` on the leftover builder skips the
+whole boot race.
+
+The install step is deliberately **not** retried: if `install.sh` itself failed,
+re-running it is wrong, because it isn't idempotent once the `annotator` account
+exists.
+
+---
+
 ## Iterating on the image without waiting
 
 Booting a VM and installing several hundred packages is most of a build's wall

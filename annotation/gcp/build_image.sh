@@ -18,6 +18,28 @@ CONFIG="$(cd "$(dirname "$0")/.." && pwd)/config.sh"
 # shellcheck source=../config.sh
 [[ -f "$CONFIG" ]] && source "$CONFIG"
 
+# Retry a command a few times. Everything here goes through the IAP tunnel to a
+# VM that has just booted, and that path comes up raggedly: sshd, the guest
+# agent propagating keys, and the tunnel backend each become ready at their own
+# pace, so a step can fail once and work ten seconds later. Retrying the
+# transport is the difference between a build that works and a build you run
+# four times.
+retry() {
+  local tries="$1"; shift
+  local n=1
+  while true; do
+    if "$@"; then return 0; fi
+    if (( n >= tries )); then
+      echo "    gave up after $n attempts" >&2
+      return 1
+    fi
+    echo "    attempt $n failed; retrying in 15s" >&2
+    sleep 15
+    (( n++ ))
+  done
+}
+
+
 VERSION="${1:?usage: build_image.sh <version> [--reuse]   e.g. v1}"
 REUSE=no
 [[ "${2:-}" == "--reuse" ]] && REUSE=yes
@@ -56,6 +78,17 @@ if [[ "$REUSE" == "yes" ]]; then
     exit 1
   fi
   echo "==> reusing the existing builder (packages already installed)"
+  if ! gcloud compute instances describe "$BUILDER" --zone "$ZONE" \
+        --format='value(status)' | grep -q RUNNING; then
+    echo "    it is not running; starting it"
+    gcloud compute instances start "$BUILDER" --zone "$ZONE"
+  fi
+  echo "    waiting for SSH"
+  retry 20 gcloud compute ssh "$BUILDER" --zone "$ZONE" --tunnel-through-iap \
+    --command true >/dev/null 2>&1 || {
+      echo "cannot reach $BUILDER over SSH." >&2
+      exit 1
+    }
 elif gcloud compute instances describe "$BUILDER" --zone "$ZONE" >/dev/null 2>&1; then
   # A failed run leaves the builder behind. Clear it out rather than making a
   # retry the thing that has to notice.
@@ -136,9 +169,30 @@ if [[ "$REUSE" == "no" ]]; then
     --image-family debian-12 --image-project debian-cloud \
     --boot-disk-size 50GB --boot-disk-type pd-balanced
 
-  echo "==> waiting for SSH"
-  until gcloud compute ssh "$BUILDER" --zone "$ZONE" --tunnel-through-iap \
-          --command true 2>/dev/null; do sleep 10; done
+  # Wait for SSH to be *stable*, not merely to have worked once. One success
+  # right after boot proves nothing -- the previous version of this check
+  # passed and then the very next step failed on port 22. Require three
+  # consecutive successes, and give up rather than hanging forever.
+  echo "==> waiting for SSH to settle"
+  OK=0
+  DEADLINE=$(( $(date +%s) + 300 ))
+  while (( OK < 3 )); do
+    if (( $(date +%s) > DEADLINE )); then
+      echo "SSH to $BUILDER never settled within 5 minutes." >&2
+      echo "Last attempt, with its error:" >&2
+      gcloud compute ssh "$BUILDER" --zone "$ZONE" --tunnel-through-iap \
+        --command true >&2 || true
+      exit 1
+    fi
+    if gcloud compute ssh "$BUILDER" --zone "$ZONE" --tunnel-through-iap \
+         --command true >/dev/null 2>&1; then
+      (( OK++ ))
+    else
+      OK=0
+      sleep 10
+    fi
+  done
+  echo "    ready"
 fi
 
 echo "==> staging the image tree (with the guide docs alongside)"
@@ -150,7 +204,7 @@ cp "$REPO/docs/annotator_guide.md" "$REPO/docs/transcription_standards.md" \
    "$STAGE/image/docs/"
 
 echo "==> copying it over"
-gcloud compute scp --recurse "$STAGE/image" "$STAGE/submit_checks.py" \
+retry 3 gcloud compute scp --recurse "$STAGE/image" "$STAGE/submit_checks.py" \
   "$BUILDER":/tmp/ --zone "$ZONE" --tunnel-through-iap
 
 if [[ "$REUSE" == "yes" ]] && gcloud compute ssh "$BUILDER" --zone "$ZONE" \
@@ -173,6 +227,11 @@ echo "==> installing (this takes a while)"
 # fresh shell on the builder, so nothing from this shell's environment arrives,
 # and `sudo` resets the environment again on top of that. `sudo VAR=... cmd` is
 # what gets a value through both.
+# Deliberately NOT wrapped in retry: if install.sh itself failed, re-running it
+# is wrong -- it is not idempotent once the annotator account exists, and a
+# second run would either refuse or build a machine with an empty home
+# directory. A dropped connection before install.sh starts is a different thing,
+# and the readiness check above is what covers that.
 gcloud compute ssh "$BUILDER" --zone "$ZONE" --tunnel-through-iap \
   --command "sudo \
     ELAN_VERSION='$ELAN_VERSION' \
