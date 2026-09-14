@@ -49,10 +49,19 @@ design §2 for why.
 **Once**, build the machine image:
 
 ```bash
-export ELAN_DEB_URL=https://www.mpi.nl/tools/elan/ELAN_7-1_linux.deb          # from the ELAN download page
-export ELAN_DEB_SHA256=01c52cb5cde3090b2e9a46a299936b7a358363e7231507f7fc8a01fba7394073       # the published checksum
+# from the ELAN download page
+export ELAN_DEB_URL=https://www.mpi.nl/tools/elan/ELAN_7-1_linux.deb
+export ELAN_DEB_SHA256=01c52cb5cde3090b2e9a46a299936b7a358363e7231507f7fc8a01fba7394073
+
 annotation/gcp/build_image.sh v1
 ```
+
+`build_image.sh` hands those to `install.sh` by naming them in the remote
+command. Exporting them in your own shell is necessary but not sufficient:
+`gcloud compute ssh` starts a fresh shell on the builder, and `sudo` resets the
+environment again on top of that, so nothing travels on its own. If you run
+`install.sh` by hand, put them on the command line —
+`sudo ELAN_DEB_URL=... bash install.sh`.
 
 **Once per annotator:**
 
@@ -140,9 +149,12 @@ and 27 unit tests in `tests/test_make_kit.py` and `tests/test_submit_checks.py`.
 They're written and syntax-checked, and no project existed to run them against.
 Two things in particular are unverified and will need a real attempt:
 
-- **`ELAN_DEB_URL` and its checksum are unset**, because inventing a download
-  URL that 404s is worse than a variable that fails loudly. Fill them from the
-  ELAN download page.
+- **`ELAN_DEB_URL` has no default in the scripts**, because inventing a
+  download URL that 404s is worse than a variable that fails loudly.
+  `build_image.sh` checks it locally before booting anything.
+  `ELAN_DEB_SHA256` is optional: verified when given, and printed when not, so
+  a first build hands you the value to pin for the next one. The working values
+  for ELAN 7.1 are in the command above.
 - **`image/elan_prefs/` is empty.** ELAN's preferences file format wasn't
   confirmed, so rather than ship an XML file ELAN might silently ignore, the
   directory is empty and `install.sh` warns. `image/elan_prefs/NOTES.md` has
