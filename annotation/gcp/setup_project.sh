@@ -9,8 +9,9 @@
 #
 # What this sets up, and why each one exists:
 #
-#   1. A firewall rule letting Google's tunnel service reach the machines.
-#      Without it, `connect.sh` and `gcloud compute ssh` cannot get in at all.
+#   1. A firewall rule letting Google's tunnel service reach port 22. Without
+#      it, `connect.sh` and `gcloud compute ssh` cannot get in at all. Port
+#      5901 is deliberately NOT opened -- see the rule below.
 #   2. Private Google Access on the subnet. This is what lets an annotator
 #      machine with NO public IP still reach Cloud Storage -- so it can fetch
 #      its kit and upload its work while being unreachable from the internet.
@@ -36,8 +37,11 @@ echo
 
 # --- 1. let the tunnel in -----------------------------------------------------
 # 35.235.240.0/20 is the fixed range Identity-Aware Proxy forwards from. This
-# rule is what makes a machine with no public IP reachable, and only from there:
-# port 22 for admin SSH, 5901 for the annotator's desktop.
+# rule is what makes a machine with no public IP reachable, and only from there.
+#
+# Port 22 only. The desktop is NOT exposed: it listens on the machine's own
+# loopback address, and connect.sh reaches it by forwarding a local port over
+# this SSH connection. So there is no VNC port open anywhere, to anyone.
 if gcloud compute firewall-rules describe allow-iap-tunnel >/dev/null 2>&1; then
   echo "==> firewall rule allow-iap-tunnel already exists"
 else
@@ -46,9 +50,9 @@ else
     --network default \
     --direction INGRESS \
     --action allow \
-    --rules tcp:22,tcp:5901 \
+    --rules tcp:22 \
     --source-ranges 35.235.240.0/20 \
-    --description "IAP tunnel only: admin SSH and the annotation desktop"
+    --description "IAP tunnel only: SSH, which also carries the desktop"
 fi
 
 # --- 2. reach Cloud Storage without a public IP -------------------------------

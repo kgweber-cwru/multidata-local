@@ -226,6 +226,91 @@ add it to.
 
 ---
 
+## How the desktop is reached, and why not the obvious way
+
+The desktop listens on **`127.0.0.1:5901` on the remote machine**, and that is
+not a choice: TigerVNC refuses to expose a server with `-SecurityTypes None` to
+the network, and binds loopback whatever flags you pass it. No password means
+loopback, full stop — the two settings are coupled.
+
+So `connect.sh` tunnels IAP to **port 22**, the path every other script here
+already uses, and lets SSH forward a local port to that remote loopback
+address. Pointing IAP straight at 5901 cannot work: IAP connects to the VM on
+its *internal interface*, and nothing is listening there.
+
+This is the better arrangement regardless:
+
+- **No VNC password** to create, distribute, or rotate. The desktop is
+  unreachable except from inside an authenticated SSH session.
+- **No VNC port open anywhere.** The firewall only needs `tcp:22` from IAP's
+  range — `setup_project.sh` opens nothing else.
+- **One authentication**, by Google IAM, against a named person.
+
+Annotators therefore need SSH access to their own machine, which `new_vm.sh`
+prints the grants for. That gives them a shell as well as a desktop; fine under
+the decision that annotators are trusted (image design §7.4).
+
+### If it still won't connect
+
+```bash
+# on the machine
+sudo ss -lntp | grep 5901            # want 127.0.0.1:5901
+systemctl status vncserver@1 --no-pager -l
+sudo cat /home/annotator/.vnc/*.log  # usually the most specific error
+
+# clearest signal of all -- run it by hand, in the foreground
+sudo -u annotator HOME=/home/annotator \
+  vncserver :2 -localhost yes -SecurityTypes None -geometry 1280x800 -fg
+```
+
+`cat /etc/elan-version /etc/elan-launcher` first — no `elan-launcher` means the
+machine came from a `v1` image, built before several of these fixes.
+
+---
+
+## Iterating on the image without waiting
+
+Booting a VM and installing several hundred packages is most of a build's wall
+clock. When you're fixing `install.sh` a line at a time, reuse the builder the
+failed run left behind:
+
+```bash
+annotation/gcp/build_image.sh v2 --reuse
+```
+
+It skips the boot and the package install and just re-runs the install script.
+Two limits, both enforced rather than left to memory: it needs an existing
+builder, and it refuses if that builder already got as far as creating the
+`annotator` account — past that point `/etc/skel` has already been copied and a
+re-run can't produce a correct machine.
+
+**Do the final build without `--reuse`,** so the image annotators get comes off
+a clean machine. A `--reuse` build says so in its closing message.
+
+---
+
+## If the build's self-check fails
+
+`install.sh` ends with ten checks and refuses to let you snapshot a machine
+that fails any of them. That is the point — "builds cleanly, produces a machine
+that does nothing" is only otherwise discovered by a person trying to work.
+
+A failing check leaves the builder VM up so you can look at it:
+
+```bash
+gcloud compute ssh annotator-image-builder --zone us-east5-a --tunnel-through-iap
+```
+
+`elan runs from PATH` is the one that has actually failed. ELAN's `.deb` puts no
+`elan` on PATH — it installs its own tree with a capitalised launcher inside.
+`install.sh` asks `dpkg -L` where the package put its executables and wraps the
+launcher as `/usr/local/bin/elan`, rather than hard-coding a path that would
+change between ELAN releases. If a future release renames the launcher, the
+build prints every executable the package installed and tells you which line to
+add it to.
+
+---
+
 ## If the desktop doesn't answer
 
 **The cause, three times running, was `-localhost yes` on the VNC server.**

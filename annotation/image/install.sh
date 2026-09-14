@@ -291,18 +291,17 @@ sleep 8
 systemctl is-active --quiet vncserver@1.service \
   || desktop_failed "5901 opened but the session died -- xstartup failed."
 
-# And check it is NOT bound to loopback only. IAP connects to this VM on its
-# internal interface, so a loopback-only listener is unreachable through the
-# tunnel even though it looks perfectly healthy from inside the machine. This
-# exact mistake cost three rounds of debugging; it is worth one grep.
-if ! ss -lnt 2>/dev/null | grep -E '(0\.0\.0\.0|\*):5901' >/dev/null; then
-  echo "  !! 5901 is listening, but only on loopback:" >&2
+# Require loopback, the opposite of what an earlier version checked. The
+# desktop is reached by SSH forwarding to this address (see
+# annotation/gcp/connect.sh and the unit file), so a listener that somehow came
+# up on 0.0.0.0 would mean a no-password desktop exposed to the VPC.
+if ! ss -lnt 2>/dev/null | grep -E '127\.0\.0\.1:5901' >/dev/null; then
+  echo "  !! 5901 is not on loopback:" >&2
   ss -lnt | grep 5901 >&2
-  echo "  !! IAP connects on the internal interface, so the tunnel cannot" >&2
-  echo "  !! reach this. Remove -localhost from vncserver@.service." >&2
+  echo "  !! A no-password desktop must not listen beyond 127.0.0.1." >&2
   exit 1
 fi
-echo "    listening on 5901, on all interfaces, and still up after 8s"
+echo "    listening on 127.0.0.1:5901, and still up after 8s"
 
 # Stop it and clear what the test left behind, so the image ships with the
 # service enabled-but-not-running and carries no log or pid file naming the

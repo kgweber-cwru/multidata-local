@@ -6,19 +6,39 @@
 # One-time setup on the annotator's own computer:
 #   1. Install the Google Cloud CLI:  https://cloud.google.com/sdk/install
 #   2. Install a VNC viewer (TigerVNC, RealVNC, or macOS's built-in Screen
-#      Sharing).
-#   3. Run: gcloud auth login      (use your CWRU account)
+#      Sharing, which needs nothing installed).
+#   3. Run:  gcloud auth login              (use your CWRU account)
+#            gcloud config set project <the name the project lead gives you>
 #
-# After that, this script is the whole routine. Nothing on your own computer
+# After that this script is the whole routine. Nothing on your own computer
 # ever holds the recordings or your ELAN file -- they stay on the machine at
-# the other end of the tunnel.
+# the other end.
+#
+# ---------------------------------------------------------------------------
+# How this connects, because the obvious way does not work.
+#
+# The desktop listens on 127.0.0.1:5901 on the remote machine, and it is not
+# our choice: TigerVNC will not expose a no-password server to the network, so
+# it binds loopback regardless of what you pass it. Tunnelling IAP straight to
+# port 5901 therefore cannot work -- IAP connects to the VM on its internal
+# interface, and nothing is listening there.
+#
+# So we go the way that does work: IAP to port 22, which is how every other
+# script here reaches these machines, and then SSH forwards a local port to the
+# remote loopback. That is also the better arrangement:
+#
+#   * No VNC password to create, distribute, or rotate. The desktop is
+#     unreachable except from inside an authenticated SSH session.
+#   * The firewall only ever needs port 22 open to IAP's range.
+#   * One authentication, by Google IAM, against a named person.
+# ---------------------------------------------------------------------------
 set -euo pipefail
 
-# Defaults are baked in rather than read from a config file: you are handed this
-# one script on its own, not the whole project.
 ANNOTATOR="${ANNOTATOR:-${USER}}"
 ZONE="${ZONE:-us-east5-a}"
 PROJECT="${PROJECT:-$(gcloud config get-value project 2>/dev/null)}"
+VM="annotate-${ANNOTATOR}"
+PORT="${PORT:-5901}"
 
 if [[ -z "$PROJECT" || "$PROJECT" == "(unset)" ]]; then
   cat >&2 <<'EOF'
@@ -31,48 +51,73 @@ Then run this script again.
 EOF
   exit 1
 fi
-VM="annotate-${ANNOTATOR}"
-PORT="${PORT:-5901}"
+
+# Check the local port is free first. A leftover tunnel from an earlier attempt
+# would make the readiness check below succeed against the wrong thing, and then
+# the viewer would connect to nothing useful.
+if nc -z localhost "$PORT" 2>/dev/null; then
+  cat >&2 <<EOF
+Something is already using port $PORT on this computer -- most likely a
+connect.sh from earlier that is still running.
+
+Close that window, or use a different port for this one:
+
+  PORT=5902 ./connect.sh
+
+EOF
+  exit 1
+fi
 
 echo "Starting your annotation desktop..."
-gcloud compute start-iap-tunnel "$VM" 5901 \
-  --local-host-port="localhost:${PORT}" \
-  --zone "$ZONE" --project "$PROJECT" &
+
+gcloud compute ssh "$VM" \
+  --zone "$ZONE" --project "$PROJECT" --tunnel-through-iap \
+  -- -N -L "${PORT}:localhost:5901" &
 TUNNEL=$!
 trap 'kill $TUNNEL 2>/dev/null || true' EXIT
 
-# Give the tunnel a moment, then check it actually came up before telling
-# anyone it is ready. gcloud prints its own failure and keeps the process
-# alive, so without this the script says "Ready" over the top of an error.
-sleep 6
-if ! kill -0 "$TUNNEL" 2>/dev/null; then
-  cat >&2 <<EOF
+# Wait for the forward to be usable rather than guessing at a sleep. The SSH
+# connection and IAP both take a few seconds, and saying "Ready" over the top
+# of a failure is how this used to waste people's time.
+for _ in $(seq 1 20); do
+  if ! kill -0 "$TUNNEL" 2>/dev/null; then
+    cat >&2 <<EOF
 
-The tunnel could not start. The message above says why; the usual causes are:
+The connection could not be opened. The message above says why; the usual
+causes are:
 
   * Your machine ($VM) is stopped. Ask the project lead to start it.
   * You do not have access to it yet. Ask the project lead.
 
 EOF
-  exit 1
-fi
+    exit 1
+  fi
+  if nc -z localhost "$PORT" 2>/dev/null; then
+    READY=yes
+    break
+  fi
+  sleep 1
+done
 
-if ! nc -z localhost "$PORT" 2>/dev/null; then
+if [[ "${READY:-no}" != "yes" ]]; then
   cat >&2 <<EOF
 
-The tunnel is up, but the desktop on the other end is not answering.
+Connected to the machine, but the desktop on it is not answering.
 
 That is a problem on the machine, not on your computer, so there is nothing
-for you to fix -- send the project lead this message and the lines above.
+for you to fix -- send the project lead this message.
 
 EOF
   exit 1
 fi
 
-echo
-echo "Ready. Connect your VNC viewer to:  localhost:${PORT}"
-echo "On a Mac you can just run:          open vnc://localhost:${PORT}"
-echo
-echo "Leave this window open while you work. Close it when you're done"
-echo "for the day -- your session and your file stay where they are."
+cat <<EOF
+
+Ready. Connect your VNC viewer to:  localhost:${PORT}
+On a Mac you can just run:          open vnc://localhost:${PORT}
+
+Leave this window open while you work. Close it when you're done for the day --
+your session and your file stay where they are.
+EOF
+
 wait $TUNNEL
