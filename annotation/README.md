@@ -164,6 +164,28 @@ and `setup_project.sh` prints the Cloud NAT alternative.
 
 ---
 
+## If the build's self-check fails
+
+`install.sh` ends with ten checks and refuses to let you snapshot a machine
+that fails any of them. That is the point — "builds cleanly, produces a machine
+that does nothing" is only otherwise discovered by a person trying to work.
+
+A failing check leaves the builder VM up so you can look at it:
+
+```bash
+gcloud compute ssh annotator-image-builder --zone us-east5-a --tunnel-through-iap
+```
+
+`elan runs from PATH` is the one that has actually failed. ELAN's `.deb` puts no
+`elan` on PATH — it installs its own tree with a capitalised launcher inside.
+`install.sh` asks `dpkg -L` where the package put its executables and wraps the
+launcher as `/usr/local/bin/elan`, rather than hard-coding a path that would
+change between ELAN releases. If a future release renames the launcher, the
+build prints every executable the package installed and tells you which line to
+add it to.
+
+---
+
 ## If the desktop doesn't answer
 
 `connect.sh` failing with `failed to connect to backend ... port 5901` means

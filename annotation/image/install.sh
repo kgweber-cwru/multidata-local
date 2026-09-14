@@ -78,9 +78,46 @@ fi
 
 # apt refuses a file that isn't a real .deb, which catches a URL that quietly
 # served something else.
+ELAN_PKG="$(dpkg-deb -f /tmp/elan.deb Package)"
 apt-get install -y -qq /tmp/elan.deb
 rm /tmp/elan.deb
 echo "$ELAN_VERSION" > /etc/elan-version
+
+# The ELAN .deb does not put anything called `elan` on PATH -- it installs its
+# own tree with a launcher inside it, and the launcher is capitalised. Rather
+# than guess at the install path (which would change between ELAN releases and
+# break silently), ask dpkg what the package actually laid down and link the
+# launcher to a stable name. `start-annotating` calls plain `elan`.
+echo "    finding the launcher in package $ELAN_PKG"
+ELAN_BIN=""
+while read -r f; do
+  [[ -f "$f" && -x "$f" ]] || continue
+  case "$(basename "$f")" in
+    ELAN|elan|ELAN.sh|elan.sh) ELAN_BIN="$f"; break ;;
+  esac
+done < <(dpkg -L "$ELAN_PKG")
+
+if [[ -z "$ELAN_BIN" ]]; then
+  echo "  !! Could not find ELAN's launcher in package $ELAN_PKG." >&2
+  echo "  !! Executables the package installed:" >&2
+  dpkg -L "$ELAN_PKG" \
+    | while read -r f; do [[ -f "$f" && -x "$f" ]] && echo "  !!   $f" >&2; done
+  echo "  !! Pick the launcher from that list and add its basename to the" >&2
+  echo "  !! case statement just above this message in install.sh." >&2
+  exit 1
+fi
+
+echo "    launcher: $ELAN_BIN"
+# A wrapper rather than a symlink, deliberately. Java launcher scripts commonly
+# locate their jars with `dirname $0`, and through a symlink $0 is the symlink's
+# own path -- so the launcher would look for ELAN's files in /usr/local/bin and
+# not find them. `exec` with the absolute path makes $0 the real launcher.
+cat > /usr/local/bin/elan <<WRAPPER
+#!/bin/sh
+exec "$ELAN_BIN" "\$@"
+WRAPPER
+chmod 755 /usr/local/bin/elan
+echo "$ELAN_BIN" > /etc/elan-launcher
 
 echo "==> ELAN preferences (autosave only -- see elan_prefs/NOTES.md)"
 # elan_prefs/ holds the CONTENTS of ~/.elan_data. A directory or file of that
@@ -203,7 +240,9 @@ check() {
   fi
 }
 
-check "elan is installed"            "command -v elan >/dev/null"
+check "elan runs from PATH"          "command -v elan >/dev/null"
+check "the launcher it points at exists" \
+      "[[ -x \"\$(cat /etc/elan-launcher)\" ]]"
 check "the annotator account exists"  "id annotator >/dev/null 2>&1"
 # These four prove /etc/skel was populated BEFORE the account was created.
 # Getting that order wrong is invisible until someone tries to connect.
