@@ -41,7 +41,34 @@ gcloud compute start-iap-tunnel "$VM" 5901 \
 TUNNEL=$!
 trap 'kill $TUNNEL 2>/dev/null || true' EXIT
 
-sleep 5
+# Give the tunnel a moment, then check it actually came up before telling
+# anyone it is ready. gcloud prints its own failure and keeps the process
+# alive, so without this the script says "Ready" over the top of an error.
+sleep 6
+if ! kill -0 "$TUNNEL" 2>/dev/null; then
+  cat >&2 <<EOF
+
+The tunnel could not start. The message above says why; the usual causes are:
+
+  * Your machine ($VM) is stopped. Ask the project lead to start it.
+  * You do not have access to it yet. Ask the project lead.
+
+EOF
+  exit 1
+fi
+
+if ! nc -z localhost "$PORT" 2>/dev/null; then
+  cat >&2 <<EOF
+
+The tunnel is up, but the desktop on the other end is not answering.
+
+That is a problem on the machine, not on your computer, so there is nothing
+for you to fix -- send the project lead this message and the lines above.
+
+EOF
+  exit 1
+fi
+
 echo
 echo "Ready. Connect your VNC viewer to:  localhost:${PORT}"
 echo "On a Mac you can just run:          open vnc://localhost:${PORT}"

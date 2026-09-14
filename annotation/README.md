@@ -164,6 +164,26 @@ and `setup_project.sh` prints the Cloud NAT alternative.
 
 ---
 
+## If the desktop doesn't answer
+
+`connect.sh` failing with `failed to connect to backend ... port 5901` means
+the tunnel reached the machine but nothing is listening. Look at the machine:
+
+```bash
+gcloud compute ssh annotate-<annotator> --zone us-east5-a --tunnel-through-iap --command '
+  systemctl status vncserver@1 --no-pager -l | head -20
+  sudo ss -lntp | grep 5901 || echo "nothing listening on 5901"
+  sudo ls -la /home/annotator/ /home/annotator/.vnc/ 2>&1 | head -20
+  sudo tail -30 /home/annotator/.vnc/*.log
+'
+```
+
+An empty `/home/annotator` means the image was built with the account created
+before `/etc/skel` was populated — `install.sh`'s self-check catches that now,
+but an image built before that check existed will show it. Rebuild.
+
+---
+
 ## The one thing not to break
 
 Every kit's `.eaf` records its media twice, absolute and relative, and **both

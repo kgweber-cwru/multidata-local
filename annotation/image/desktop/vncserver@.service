@@ -6,12 +6,25 @@ After=network.target
 Type=simple
 User=annotator
 WorkingDirectory=/home/annotator
-# -localhost: the desktop accepts connections only from this machine. The only
-# way in is the IAP tunnel (annotation/gcp/connect.sh), which terminates here.
-ExecStart=/usr/bin/vncserver :%i -localhost yes -geometry 1600x1000 \
-          -depth 24 -xstartup /home/annotator/.vnc-xstartup -fg
+Environment=HOME=/home/annotator
+
+# -localhost yes   listen only on the loopback interface, so the only way in is
+#                  the IAP tunnel that terminates on this machine.
+# -SecurityTypes None
+#                  no VNC password. Deliberate, not an oversight: the tunnel is
+#                  already authenticated by Google IAM against a named person
+#                  (annotation/gcp/connect.sh), and nothing can reach this port
+#                  without getting through that first. A second shared password
+#                  would add a credential to distribute and rotate without
+#                  adding a boundary. TigerVNC will not start without one of
+#                  these two being set, so it has to be said explicitly.
+# Runs ~/.vnc/xstartup, which install.sh writes -- TigerVNC's own default path.
+ExecStart=/usr/bin/vncserver :%i -fg \
+          -localhost yes -SecurityTypes None \
+          -geometry 1600x1000 -depth 24
 ExecStop=/usr/bin/vncserver -kill :%i
 Restart=on-failure
+RestartSec=5
 
 [Install]
 WantedBy=multi-user.target

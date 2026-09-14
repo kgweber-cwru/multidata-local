@@ -55,14 +55,6 @@ fi
 # lockdown was cut on review (annotator_image_design.md §7.4). If that decision
 # is ever reversed, this line and the guide viewer both change together.
 
-echo "==> the annotator account"
-# One account, named the same on every machine, so the launchers and the VNC
-# service don't have to know who is using it. Which person it belongs to is
-# decided by who is granted IAP/OS Login access to the machine, not by a
-# username here.
-id annotator >/dev/null 2>&1 || adduser --disabled-password --gecos "" annotator
-adduser annotator video    # so VLC/ELAN can reach the display hardware paths
-
 echo "==> ELAN $ELAN_VERSION"
 echo "    from $ELAN_DEB_URL"
 # -f so an HTTP error is a failure rather than a saved error page, -L to follow
@@ -146,13 +138,40 @@ for doc in annotator_guide transcription_standards; do
   fi
 done
 
-echo "==> VNC on :1 (port 5901)"
-cat > "$ANNOTATOR_HOME/.vnc-xstartup" <<'EOF'
+echo "==> the desktop session"
+# TigerVNC's own convention: ~/.vnc/xstartup, executable. Using the default
+# path rather than passing -xstartup means one less flag that can be wrong.
+install -d -m 755 "$ANNOTATOR_HOME/.vnc"
+cat > "$ANNOTATOR_HOME/.vnc/xstartup" <<'EOF'
 #!/bin/sh
 unset SESSION_MANAGER DBUS_SESSION_BUS_ADDRESS
 exec startxfce4
 EOF
-chmod +x "$ANNOTATOR_HOME/.vnc-xstartup"
+chmod +x "$ANNOTATOR_HOME/.vnc/xstartup"
+
+echo "==> the annotator account"
+# CREATED LAST, ON PURPOSE. adduser copies /etc/skel as it stands at that
+# moment, so the account has to come after everything above has been written
+# into it -- the ELAN preferences, the desktop launchers, and ~/.vnc/xstartup.
+# Creating it earlier produces a machine that builds cleanly and boots to
+# nothing, because the home directory is empty and the VNC session has no
+# xstartup to run.
+#
+# One account, named the same on every machine, so the launchers and the
+# session service don't have to know who is using it. Which person it belongs
+# to is decided by who is granted IAP access to the machine, not by a username.
+if id annotator >/dev/null 2>&1; then
+  echo "  !! the annotator account already exists, so /etc/skel was NOT copied" >&2
+  echo "  !! into it. This script is meant to run once on a fresh VM." >&2
+  exit 1
+fi
+adduser --disabled-password --gecos "" annotator
+adduser annotator video    # so VLC/ELAN can reach the display hardware paths
+
+echo "==> VNC on :1 (port 5901)"
+# Debian's tigervnc-standalone-server ships its own vncserver@.service in
+# /usr/lib/systemd/system, driven by /etc/tigervnc/vncserver.users. Ours lands
+# in /etc/systemd/system, which systemd prefers, so ours is the one that runs.
 install -m 644 "$IMAGE_DIR/desktop/vncserver@.service" \
   /etc/systemd/system/vncserver@.service
 systemctl enable vncserver@1.service
@@ -166,6 +185,46 @@ cat > /etc/cron.d/annotation-backup <<'EOF'
 # save recoverable.
 */5 * * * * root /usr/local/bin/backup-work >/dev/null 2>&1
 EOF
+
+# ---------------------------------------------------------------------------
+# Self-check. Every one of these has been, or could be, a build that finishes
+# cleanly and produces a machine that does nothing -- which is the worst
+# outcome, because it is only discovered by a person trying to work. Cheap to
+# check here, expensive to find later.
+# ---------------------------------------------------------------------------
+echo "==> checking the build"
+FAILED=0
+check() {
+  if eval "$2"; then
+    echo "    ok    $1"
+  else
+    echo "    FAIL  $1" >&2
+    FAILED=1
+  fi
+}
+
+check "elan is installed"            "command -v elan >/dev/null"
+check "the annotator account exists"  "id annotator >/dev/null 2>&1"
+# These four prove /etc/skel was populated BEFORE the account was created.
+# Getting that order wrong is invisible until someone tries to connect.
+check "~/.vnc/xstartup is there"      "[[ -x /home/annotator/.vnc/xstartup ]]"
+check "the three launchers are there" \
+      "[[ \$(ls /home/annotator/Desktop/*.desktop 2>/dev/null | wc -l) -eq 3 ]]"
+check "~/.elan_data exists"           "[[ -d /home/annotator/.elan_data ]]"
+check "the desktop service is enabled" \
+      "systemctl is-enabled vncserver@1.service >/dev/null 2>&1"
+check "the staging directory exists"  "[[ -d /srv/multidata/case ]]"
+check "the guide rendered"            \
+      "[[ -f /usr/local/share/annotation-guide/annotator_guide.html ]]"
+check "stage-case is installed"       "[[ -x /usr/local/bin/stage-case ]]"
+check "the submit checks run"         \
+      "python3 /usr/local/bin/submit_checks.py --help >/dev/null 2>&1"
+
+if [[ $FAILED -ne 0 ]]; then
+  echo >&2
+  echo "The build finished but the machine is not usable. Do not snapshot it." >&2
+  exit 1
+fi
 
 echo
 echo "Done. Record the ELAN version ($ELAN_VERSION) with the image."
