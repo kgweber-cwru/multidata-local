@@ -91,9 +91,9 @@ environment again on top of that, so nothing travels on its own. If you run
 ```bash
 annotation/gcp/new_vm.sh --annotator jamie
 # grant them access (new_vm.sh prints the two commands), then send them
-# annotation/gcp/connect.sh and the VNC password, and walk them through it
-# once -- 15 minutes. On a Mac they install only the Google Cloud CLI;
-# Screen Sharing is already there.
+# annotation/gcp/connect.sh, the VNC password, and the ready-made
+# `--annotator` line it prints. Walk them through it once -- 15 minutes. On a
+# Mac they install only the Google Cloud CLI; Screen Sharing is already there.
 ```
 
 **Per case, three commands:**
@@ -256,6 +256,19 @@ viewer installed at all. Keep it out of the repo; pass it back as
 Annotators therefore need SSH access to their own machine, which `new_vm.sh`
 prints the grants for. That gives them a shell as well as a desktop; fine under
 the decision that annotators are trusted (image design §7.4).
+
+### Connecting from a machine that isn't set up for this project
+
+`connect.sh` guesses the annotator name from your local username and the project
+from your current `gcloud` config. Both are often wrong on a second computer, so
+both can be overridden:
+
+```bash
+./connect.sh --annotator kxw680 --project cwru-sim-center-data
+```
+
+A name with no machine behind it now says so, and lists the machines that do
+exist, rather than failing with "failed to connect to backend".
 
 ### If it still won't connect
 

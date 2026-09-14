@@ -56,5 +56,11 @@ Grant $ANNOTATOR access to it (once):
   gcloud projects add-iam-policy-binding \$(gcloud config get-value project) \\
     --member "user:${ANNOTATOR}@case.edu" --role roles/iap.tunnelResourceAccessor
 
-Then send them annotation/gcp/connect.sh and walk them through it once.
+Then send them annotation/gcp/connect.sh, the VNC password, and this exact
+line to run -- their laptop username is probably not "$ANNOTATOR", so the
+--annotator flag matters:
+
+  ./connect.sh --annotator $ANNOTATOR --project $(gcloud config get-value project 2>/dev/null)
+
+Walk them through it once; it takes about fifteen minutes.
 EOF
