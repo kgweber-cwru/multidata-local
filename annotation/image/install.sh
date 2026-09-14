@@ -91,6 +91,15 @@ rm /tmp/elan.deb
 echo "$ELAN_VERSION" > /etc/elan-version
 
 echo "==> ELAN preferences (autosave only -- see elan_prefs/NOTES.md)"
+# elan_prefs/ holds the CONTENTS of ~/.elan_data. A directory or file of that
+# name nested inside would land at ~/.elan_data/.elan_data and be ignored by
+# ELAN -- which looks done without being done, so stop instead.
+if [[ -e "$IMAGE_DIR/elan_prefs/.elan_data" ]]; then
+  echo "  !! elan_prefs/.elan_data exists. This directory holds the *contents*" >&2
+  echo "  !! of ~/.elan_data, not a copy of the directory itself -- nested like" >&2
+  echo "  !! this, ELAN would never read it. See elan_prefs/NOTES.md." >&2
+  exit 1
+fi
 install -d -m 755 "$ANNOTATOR_HOME/.elan_data"
 cp -r "$IMAGE_DIR/elan_prefs/." "$ANNOTATOR_HOME/.elan_data/"
 rm -f "$ANNOTATOR_HOME/.elan_data/NOTES.md"

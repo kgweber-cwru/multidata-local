@@ -83,6 +83,21 @@ Autosave earns its place because it deletes a human dependency rather than addin
 a preference: [G§1] currently has to nag "save often," and the work spans days
 ([E§R6]), so occasional loss is otherwise a matter of time.
 
+**The format is confirmed** (it was an open question in an earlier draft): ELAN
+keeps its settings in `~/.elan_data` as a flat XML `<preferences>` document of
+`<pref key="...">` entries, and autosave is the pair `AutomaticBackupOn`
+(Boolean) and `BackUpDelay` (Int, milliseconds, chosen from a fixed set of
+intervals). The image ships the contents of that directory in `/etc/skel`, so
+every new session starts from it.
+
+**Capture those settings from a clean machine built from this image, never from
+a working Mac.** Wrong paths are the obvious reason; the real one is
+`FrameManager.RecentFiles`, a list of recently-opened `.eaf` files. Baked into
+the image, it would show **every annotator the case IDs of other people's work**
+the moment they open ELAN's File menu — which cuts against the blind-pass
+isolation the whole environment exists to keep (§5). A clean machine has no such
+list. `annotation/image/elan_prefs/NOTES.md` has the capture procedure.
+
 Nothing else does. An earlier draft also set segmentation keystrokes, tier
 colours, fonts, waveform zoom, and default directories. Those are either already
 the default, or they're taste — and taste imposed on someone who will spend 60+
@@ -110,8 +125,9 @@ An annotator in one remote desktop session has neither, so the image ships the
 guide and the standards as local HTML with a launcher, in a window they can keep
 beside ELAN.
 
-Local copies, not links — there's no browser, and a guide that needs the network
-is unavailable exactly when someone is stuck. Version them with the image: a
+Local copies, not links — a guide that needs the network is unavailable exactly
+when someone is stuck, and rendering local HTML is the one job the browser in
+§2.1 is there to do. Version them with the image: a
 guide newer than the machine is a way to follow rules the standards no longer
 have.
 
@@ -293,4 +309,10 @@ rather than wonder what was forgotten.
 1. **Does ELAN 7.1's Linux build play the proxy cleanly?** (§2.2, §5) The only
    question that could force a change to the kit format.
 2. **Does delayed mode need setting at all?** (§2.3, §5) A measurement, not a
-   debate.
+   debate — and there's a reference point now. On a local Mac, with no network
+   in the path at all, the settled values were `SegmentationMode.DelayMode=true`
+   and `DelayDuration=250` ms — above the ~200 ms [G§3] suggests trying. So 250
+   ms is one person's plain reaction time. If the right offset on the VM lands
+   near there, latency isn't contributing anything meaningful and delayed mode
+   can stay a personal preference rather than an image setting. The measurement
+   slot is in `annotation/image/elan_prefs/NOTES.md`.
