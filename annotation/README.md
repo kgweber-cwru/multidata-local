@@ -387,28 +387,38 @@ canonical.
 
 ---
 
-## Status
+## Status — 2026-09-14
 
-**Tested for real:** `make_kit.py` (a 57 MB kit built from case 261473 — 18 s,
-including the 480p transcode), `submit_checks.py` (against real annotated gold,
-where it correctly found two empty segments), `pull_submission.py` (local path),
-and 27 unit tests in `tests/test_make_kit.py` and `tests/test_submit_checks.py`.
+**Run for real, end to end.** A machine was built, connected to, and a kit
+staged onto it.
 
-**Not yet run:** everything touching GCP — `gcp/*.sh` and `image/install.sh`.
-They're written and syntax-checked, and no project existed to run them against.
-Two things in particular are unverified and will need a real attempt:
+| | |
+|---|---|
+| `make_kit.py` | 57 MB kit from case 261473 in 18 s, including the 480p transcode. Media URLs verified canonical. |
+| `submit_checks.py` | Run against real annotated gold, where it correctly found two empty segments. 27 unit tests. |
+| `pull_submission.py` | Local path only — not yet against a real submission in the bucket. |
+| `setup_project.sh` | Run. Firewall, Private Google Access, bucket, service account. |
+| `build_image.sh` | Run, several times. `annotator-v1` and `v2` built. |
+| `image/install.sh` | Run. Its self-check caught a real bug (`elan` not on PATH) before that image was used. |
+| `gcp/new_vm.sh`, `push_kit.sh` | Run. |
+| `gcp/connect.sh` | **Working** — desktop reached from a Mac over the SSH-forwarded tunnel. |
+| `gcp/delete_vm.sh` | Not yet run. |
 
-- **`ELAN_DEB_URL` has no default in the scripts**, because inventing a
-  download URL that 404s is worse than a variable that fails loudly.
-  `build_image.sh` checks it locally before booting anything.
-  `ELAN_DEB_SHA256` is optional: verified when given, and printed when not, so
-  a first build hands you the value to pin for the next one. The working values
-  for ELAN 7.1 are in the command above.
-- ~~`image/elan_prefs/` is empty.~~ **Done 2026-09-14.** `elan.pfsx` ships
-  autosave on at five minutes, plus a window size that fits the desktop.
-  Captured from a real machine and trimmed from nine settings to four — notably
-  dropping a recent-files entry that would have shown every annotator someone
-  else's case id. See `image/elan_prefs/NOTES.md`.
+**What it cost, and what it bought.** Getting from "written" to "working" took
+several rounds, and every one of them is now a check rather than a lesson: the
+package list, the ELAN launcher path, the `/etc/skel` ordering, the `vncserver`
+path, SSH readiness, whether the desktop *starts* rather than merely being
+enabled, and whether it's bound where the tunnel can reach it. `install.sh`
+refuses to snapshot a machine that fails any of them. That's the reason a v3
+build should be uneventful.
+
+**The one thing still unknown, and the reason all of this exists:** whether
+ELAN plays the kit's proxy video and wav together, and whether looping a
+segment holds up over the connection. Nothing so far has tested that — it
+needs a person, a real kit, and an hour.
+
+**Also still open:** the latency measurement that settles whether delayed mode
+needs setting (image design §5), and `delete_vm.sh`.
 
 Then work the acceptance checklist in the image design §6 — playback first,
 with a real kit, before anyone is onboarded.
