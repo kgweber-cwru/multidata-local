@@ -19,10 +19,10 @@ Environment=HOME=/home/annotator
 #                  adding a boundary. TigerVNC will not start without one of
 #                  these two being set, so it has to be said explicitly.
 # Runs ~/.vnc/xstartup, which install.sh writes -- TigerVNC's own default path.
-ExecStart=/usr/bin/vncserver :%i -fg \
+ExecStart=@VNCSERVER@ :%i -fg \
           -localhost yes -SecurityTypes None \
           -geometry 1600x1000 -depth 24
-ExecStop=/usr/bin/vncserver -kill :%i
+ExecStop=@VNCSERVER@ -kill :%i
 Restart=on-failure
 RestartSec=5
 

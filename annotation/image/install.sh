@@ -55,6 +55,25 @@ fi
 # lockdown was cut on review (annotator_image_design.md §7.4). If that decision
 # is ever reversed, this line and the guide viewer both change together.
 
+echo "==> checking the packages gave us what we need"
+# Early, on purpose. Every one of these is assumed later in this script, and a
+# wrong package name should cost seconds here rather than surfacing at the end
+# of the build -- or worse, when an annotator clicks something.
+MISSING=""
+for cmd in vncserver startxfce4 pandoc zenity firefox-esr python3 gcloud; do
+  command -v "$cmd" >/dev/null || MISSING="$MISSING $cmd"
+done
+if [[ -n "$MISSING" ]]; then
+  echo "  !! not on PATH after installing packages:$MISSING" >&2
+  echo "  !! the package names in this script need fixing for this Debian" >&2
+  exit 1
+fi
+# Record where vncserver actually is rather than hard-coding /usr/bin/vncserver
+# in the service file: some TigerVNC versions ship it as tigervncserver with
+# vncserver as an alternative, and the unit would then point at nothing.
+VNCSERVER="$(command -v vncserver)"
+echo "    vncserver: $VNCSERVER"
+
 echo "==> ELAN $ELAN_VERSION"
 echo "    from $ELAN_DEB_URL"
 # -f so an HTTP error is a failure rather than a saved error page, -L to follow
@@ -89,11 +108,17 @@ echo "$ELAN_VERSION" > /etc/elan-version
 # break silently), ask dpkg what the package actually laid down and link the
 # launcher to a stable name. `start-annotating` calls plain `elan`.
 echo "    finding the launcher in package $ELAN_PKG"
+# Match by pattern, not by a list of names. ELAN 7.1's launcher is
+# /opt/elan-7.1/bin/ELAN_7.1 -- the version is in the basename, so any list of
+# exact names is wrong again at 7.2. Rule: an executable whose name starts with
+# "elan" (any case), skipping the bundled JRE under lib/ (java, keytool, jexec,
+# jspawnhelper).
 ELAN_BIN=""
 while read -r f; do
   [[ -f "$f" && -x "$f" ]] || continue
-  case "$(basename "$f")" in
-    ELAN|elan|ELAN.sh|elan.sh) ELAN_BIN="$f"; break ;;
+  case "$f" in */lib/*) continue ;; esac
+  case "$(basename "$f" | tr '[:upper:]' '[:lower:]')" in
+    elan*) ELAN_BIN="$f"; break ;;
   esac
 done < <(dpkg -L "$ELAN_PKG")
 
@@ -102,8 +127,8 @@ if [[ -z "$ELAN_BIN" ]]; then
   echo "  !! Executables the package installed:" >&2
   dpkg -L "$ELAN_PKG" \
     | while read -r f; do [[ -f "$f" && -x "$f" ]] && echo "  !!   $f" >&2; done
-  echo "  !! Pick the launcher from that list and add its basename to the" >&2
-  echo "  !! case statement just above this message in install.sh." >&2
+  echo "  !! Pick the launcher from that list and widen the pattern in the" >&2
+  echo "  !! loop just above this message in install.sh." >&2
   exit 1
 fi
 
@@ -209,8 +234,9 @@ echo "==> VNC on :1 (port 5901)"
 # Debian's tigervnc-standalone-server ships its own vncserver@.service in
 # /usr/lib/systemd/system, driven by /etc/tigervnc/vncserver.users. Ours lands
 # in /etc/systemd/system, which systemd prefers, so ours is the one that runs.
-install -m 644 "$IMAGE_DIR/desktop/vncserver@.service" \
-  /etc/systemd/system/vncserver@.service
+sed "s|@VNCSERVER@|$VNCSERVER|g" "$IMAGE_DIR/desktop/vncserver@.service" \
+  > /etc/systemd/system/vncserver@.service
+chmod 644 /etc/systemd/system/vncserver@.service
 systemctl enable vncserver@1.service
 
 echo "==> five-minute backup of work in progress"

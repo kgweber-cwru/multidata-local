@@ -18,7 +18,9 @@ CONFIG="$(cd "$(dirname "$0")/.." && pwd)/config.sh"
 # shellcheck source=../config.sh
 [[ -f "$CONFIG" ]] && source "$CONFIG"
 
-VERSION="${1:?usage: build_image.sh <version>, e.g. v1}"
+VERSION="${1:?usage: build_image.sh <version> [--reuse]   e.g. v1}"
+REUSE=no
+[[ "${2:-}" == "--reuse" ]] && REUSE=yes
 # Check the ELAN settings HERE, before booting a VM. install.sh needs them, but
 # it runs on the builder -- and a missing value should cost a second locally,
 # not a VM boot and a package install first.
@@ -42,10 +44,21 @@ IMAGE="annotator-${VERSION}"
 HERE="$(cd "$(dirname "$0")/.." && pwd)"      # annotation/
 REPO="$(cd "$HERE/.." && pwd)"
 
-# The builder is disposable -- it exists only for the length of one build, and a
-# failed run leaves it behind. Clear it out rather than making a retry the thing
-# that has to notice.
-if gcloud compute instances describe "$BUILDER" --zone "$ZONE" >/dev/null 2>&1; then
+# --reuse keeps the builder from a failed run and just re-runs the install on
+# it. Booting a VM and installing several hundred packages is most of the wall
+# clock here, and when you are fixing install.sh a line at a time you do not
+# want to pay for that each round. Use it while iterating; do the final build
+# without it, so the image you ship comes from a clean machine.
+if [[ "$REUSE" == "yes" ]]; then
+  if ! gcloud compute instances describe "$BUILDER" --zone "$ZONE" >/dev/null 2>&1; then
+    echo "--reuse needs an existing $BUILDER, and there isn't one." >&2
+    echo "Run without --reuse to boot a fresh builder." >&2
+    exit 1
+  fi
+  echo "==> reusing the existing builder (packages already installed)"
+elif gcloud compute instances describe "$BUILDER" --zone "$ZONE" >/dev/null 2>&1; then
+  # A failed run leaves the builder behind. Clear it out rather than making a
+  # retry the thing that has to notice.
   echo "==> removing a leftover builder from a previous run"
   gcloud compute instances delete "$BUILDER" --zone "$ZONE" --quiet
 fi
@@ -100,31 +113,33 @@ EOF
 }
 trap cleanup EXIT
 
-echo "==> booting builder VM in $ZONE"
-# The builder is the ONE machine here that gets a public IP, and it needs one:
-# it installs Debian packages and downloads ELAN, so it needs the open internet,
-# and a VM with no external address and no NAT has no outbound route at all.
-#
-# Annotator machines are the opposite and keep --no-address (see new_vm.sh).
-# They never install anything -- it's all baked into the image -- and the only
-# thing they talk to is Google Cloud Storage, which Private Google Access
-# reaches without an external IP. So the machines that hold the recordings can
-# reach Storage and nothing else, while the throwaway builder is the only thing
-# that ever touches the open internet. That's a better split than giving
-# everything NAT.
-#
-# The address is ephemeral and lives only for this build. If your organisation
-# forbids external IPs on VMs, creation fails with a policy error -- see
-# setup_project.sh for the Cloud NAT alternative.
-gcloud compute instances create "$BUILDER" \
-  --zone "$ZONE" \
-  --machine-type e2-standard-4 \
-  --image-family debian-12 --image-project debian-cloud \
-  --boot-disk-size 50GB --boot-disk-type pd-balanced
+if [[ "$REUSE" == "no" ]]; then
+  echo "==> booting builder VM in $ZONE"
+  # The builder is the ONE machine here that gets a public IP, and it needs one:
+  # it installs Debian packages and downloads ELAN, so it needs the open internet,
+  # and a VM with no external address and no NAT has no outbound route at all.
+  #
+  # Annotator machines are the opposite and keep --no-address (see new_vm.sh).
+  # They never install anything -- it's all baked into the image -- and the only
+  # thing they talk to is Google Cloud Storage, which Private Google Access
+  # reaches without an external IP. So the machines that hold the recordings can
+  # reach Storage and nothing else, while the throwaway builder is the only thing
+  # that ever touches the open internet. That's a better split than giving
+  # everything NAT.
+  #
+  # The address is ephemeral and lives only for this build. If your organisation
+  # forbids external IPs on VMs, creation fails with a policy error -- see
+  # setup_project.sh for the Cloud NAT alternative.
+  gcloud compute instances create "$BUILDER" \
+    --zone "$ZONE" \
+    --machine-type e2-standard-4 \
+    --image-family debian-12 --image-project debian-cloud \
+    --boot-disk-size 50GB --boot-disk-type pd-balanced
 
-echo "==> waiting for SSH"
-until gcloud compute ssh "$BUILDER" --zone "$ZONE" --tunnel-through-iap \
-        --command true 2>/dev/null; do sleep 10; done
+  echo "==> waiting for SSH"
+  until gcloud compute ssh "$BUILDER" --zone "$ZONE" --tunnel-through-iap \
+          --command true 2>/dev/null; do sleep 10; done
+fi
 
 echo "==> staging the image tree (with the guide docs alongside)"
 STAGE="$(mktemp -d)"
@@ -137,6 +152,21 @@ cp "$REPO/docs/annotator_guide.md" "$REPO/docs/transcription_standards.md" \
 echo "==> copying it over"
 gcloud compute scp --recurse "$STAGE/image" "$STAGE/submit_checks.py" \
   "$BUILDER":/tmp/ --zone "$ZONE" --tunnel-through-iap
+
+if [[ "$REUSE" == "yes" ]] && gcloud compute ssh "$BUILDER" --zone "$ZONE" \
+     --tunnel-through-iap --command "id annotator" >/dev/null 2>&1; then
+  cat >&2 <<EOF
+This builder already has the annotator account, so --reuse cannot work: the
+account copies /etc/skel when it is created, and install.sh populates skel
+before creating it. Re-running would either refuse or produce a machine with
+an empty home directory.
+
+Build on a fresh VM:
+
+  annotation/gcp/build_image.sh $VERSION
+EOF
+  exit 1
+fi
 
 echo "==> installing (this takes a while)"
 # The vars have to be named explicitly twice over: `gcloud compute ssh` starts a
@@ -161,7 +191,7 @@ gcloud compute instances delete "$BUILDER" --zone "$ZONE" --quiet
 
 cat <<EOF
 
-Image $IMAGE is ready.
+Image $IMAGE is ready.$( [[ "$REUSE" == "yes" ]] && printf '\n\n  NOTE: built with --reuse, on a VM that had already had a failed run.\n  Fine for testing. Rebuild without --reuse before annotators use it.' )
 
 Record alongside it: the ELAN version installed, today's date, and anything
 you changed in image/elan_prefs. Then make an annotator machine:

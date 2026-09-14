@@ -164,6 +164,27 @@ and `setup_project.sh` prints the Cloud NAT alternative.
 
 ---
 
+## Iterating on the image without waiting
+
+Booting a VM and installing several hundred packages is most of a build's wall
+clock. When you're fixing `install.sh` a line at a time, reuse the builder the
+failed run left behind:
+
+```bash
+annotation/gcp/build_image.sh v2 --reuse
+```
+
+It skips the boot and the package install and just re-runs the install script.
+Two limits, both enforced rather than left to memory: it needs an existing
+builder, and it refuses if that builder already got as far as creating the
+`annotator` account — past that point `/etc/skel` has already been copied and a
+re-run can't produce a correct machine.
+
+**Do the final build without `--reuse`,** so the image annotators get comes off
+a clean machine. A `--reuse` build says so in its closing message.
+
+---
+
 ## If the build's self-check fails
 
 `install.sh` ends with ten checks and refuses to let you snapshot a machine
