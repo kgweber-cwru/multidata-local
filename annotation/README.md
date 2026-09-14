@@ -404,11 +404,11 @@ Two things in particular are unverified and will need a real attempt:
   `ELAN_DEB_SHA256` is optional: verified when given, and printed when not, so
   a first build hands you the value to pin for the next one. The working values
   for ELAN 7.1 are in the command above.
-- **`image/elan_prefs/` is empty.** ELAN's preferences file format wasn't
-  confirmed, so rather than ship an XML file ELAN might silently ignore, the
-  directory is empty and `install.sh` warns. `image/elan_prefs/NOTES.md` has
-  the one-time step: set autosave by hand in ELAN once, copy the file out,
-  commit it.
+- ~~`image/elan_prefs/` is empty.~~ **Done 2026-09-14.** `elan.pfsx` ships
+  autosave on at five minutes, plus a window size that fits the desktop.
+  Captured from a real machine and trimmed from nine settings to four — notably
+  dropping a recent-files entry that would have shown every annotator someone
+  else's case id. See `image/elan_prefs/NOTES.md`.
 
 Then work the acceptance checklist in the image design §6 — playback first,
 with a real kit, before anyone is onboarded.

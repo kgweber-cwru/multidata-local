@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<preferences version="1.1"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.mpi.nl/tools/elan/Prefs_v1.1.xsd">
+    <!--
+      ELAN's global preferences, shipped in the image. Captured from a machine
+      built from annotator-v2, then trimmed to the four settings below.
+
+      What was removed, and why, is in NOTES.md alongside this file. The short
+      version: a FrameManager.RecentFiles entry would have shown every
+      annotator a case id that wasn't theirs.
+    -->
+
+    <!-- The reason this file exists. Deletes the annotator guide's "save
+         often" as a human dependency: the work spans days, so relying on
+         someone to remember is a guaranteed occasional loss. 300000 ms is five
+         minutes, the shortest interval ELAN's dropdown offers. -->
+    <pref key="AutomaticBackupOn">
+        <Boolean>true</Boolean>
+    </pref>
+    <pref key="BackUpDelay">
+        <Int>300000</Int>
+    </pref>
+
+    <!-- Opens ELAN at a usable size on the 1600x1000 desktop the image
+         creates. Not taste: what was captured here was 800x600, which is
+         genuinely cramped for ELAN's multi-pane layout and would have every
+         annotator resizing the window before they could start.
+
+         COUPLED to -geometry in desktop/vncserver@.service. Change one and
+         check the other. -->
+    <pref key="FrameSize">
+        <Object class="java.awt.Dimension">1560,940</Object>
+    </pref>
+    <pref key="FrameLocation">
+        <Object class="java.awt.Point">20,20</Object>
+    </pref>
+</preferences>

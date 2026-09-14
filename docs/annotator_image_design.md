@@ -84,12 +84,19 @@ Autosave earns its place because it deletes a human dependency rather than addin
 a preference: [G§1] currently has to nag "save often," and the work spans days
 ([E§R6]), so occasional loss is otherwise a matter of time.
 
-**The format is confirmed** (it was an open question in an earlier draft): ELAN
-keeps its settings in `~/.elan_data` as a flat XML `<preferences>` document of
-`<pref key="...">` entries, and autosave is the pair `AutomaticBackupOn`
-(Boolean) and `BackUpDelay` (Int, milliseconds, chosen from a fixed set of
-intervals). The image ships the contents of that directory in `/etc/skel`, so
-every new session starts from it.
+**Confirmed and shipped as of 2026-09-14.** ELAN keeps its global settings at
+`~/.elan_data/elan.pfsx` on Linux, as a flat XML `<preferences>` document of
+`<pref key="...">` entries. Autosave is the pair `AutomaticBackupOn` (Boolean)
+and `BackUpDelay` (Int, milliseconds, from a fixed set of intervals), shipped as
+`true` and `300000` — five minutes, the shortest ELAN's dropdown offers. The
+image copies that file into `/etc/skel`, so every new session starts from it.
+
+Two window-geometry settings ship alongside, a small departure from "autosave
+only": the capture had ELAN opening at 800x600 on a 1600x1000 desktop, and
+leaving it would have every annotator resizing before they could start. That's
+function, not taste — and it's coupled to `-geometry` in the VNC unit, noted in
+both files. Everything else in the capture was stripped;
+`annotation/image/elan_prefs/NOTES.md` records what and why.
 
 **Capture those settings from a clean machine built from this image, never from
 a working Mac.** Wrong paths are the obvious reason; the real one is
@@ -293,9 +300,12 @@ Recorded because each one cut something, and a future reader should see the choi
 rather than wonder what was forgotten.
 
 1. **ELAN 7.1**, pinned (§2.2).
-2. **Stay close to defaults** on preferences — autosave only (§2.3). Cut: tier
-   colours, fonts, waveform zoom, segmentation keystrokes, default directories.
-   Delayed mode becomes a measurement, not a build step.
+2. **Stay close to defaults** on preferences (§2.3). Four settings ship:
+   autosave on, its interval, and a window size that fits the desktop — the
+   last because the captured 800x600 would have cost every annotator a resize
+   before starting. Cut: tier colours, fonts, waveform zoom, segmentation
+   keystrokes, default directories, and everything else that came along in the
+   capture. Delayed mode remains a measurement, not a build step.
 3. **Warn on excerpt violations, don't refuse** (§2.5). Submit checks cut from
    five to two.
 4. **Annotators are trusted.** The desktop is kept uncluttered for usability, not

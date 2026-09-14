@@ -4,9 +4,8 @@
 not a directory or file called `.elan_data`. `install.sh` copies what's here
 into `~/.elan_data/` in `/etc/skel`, so every new session starts from it.
 
-Right now this directory holds nothing but these notes, so **autosave is not
-set** and `install.sh` says so loudly during the build. The image works without
-it; the annotator guide's "save often" just stays the annotator's problem.
+`install.sh` warns loudly if this directory is empty — which, as of
+2026-09-14, it no longer is. See "What is shipped" below.
 
 ---
 
@@ -48,15 +47,42 @@ Then **read what you copied** and delete anything that isn't in the table. If a
 
 ---
 
-## What to set
+## What is shipped, and what was stripped
 
-Key names confirmed from a real ELAN preferences file (ELAN's format is a flat
-XML `<preferences>` document of `<pref key="...">` entries).
+`elan.pfsx` is here. **Confirmed**: ELAN keeps its global preferences at
+`~/.elan_data/elan.pfsx` on Linux, as a flat XML `<preferences>` document of
+`<pref key="...">` entries. The exact path and filename were an open question
+when this file was first written; they aren't now.
 
-| Setting in ELAN's UI | Key | Value | Why |
+Captured from a machine built from `annotator-v2`, then trimmed from nine
+settings to four.
+
+**Kept:**
+
+| Key | Value | Why |
+|---|---|---|
+| `AutomaticBackupOn` | `true` | The reason this file exists. Removes a human dependency instead of adding a preference: the guide has to nag "save often", and the work spans days. |
+| `BackUpDelay` | `300000` | Five minutes — the shortest interval ELAN's dropdown offers. A working Mac had `600000`; shorter is better here, since a lost session is a lost afternoon. |
+
+**Changed, not kept:**
+
+| Key | Captured | Shipped | Why |
 |---|---|---|---|
-| Automatic backup, on | `AutomaticBackupOn` | `true` | The only setting this image really needs. Removes a human dependency instead of adding a preference: the guide has to nag "save often", and the work spans days. |
-| Automatic backup, interval | `BackUpDelay` | the shortest the dropdown offers | ELAN offers a fixed set of intervals rather than free text. A working Mac had `600000` (10 minutes); shorter is better here, since a lost session is a lost afternoon. |
+| `FrameSize` | `800,600` | `1560,940` | 800x600 is cramped for ELAN's multi-pane layout and would have every annotator resizing the window before they could start. **Coupled to `-geometry` in `desktop/vncserver@.service`** — change one, check the other. |
+| `FrameLocation` | `400,186` | `20,20` | Same reason; opens near the top-left of the 1600x1000 desktop. |
+
+**Removed:**
+
+| Key | Why |
+|---|---|
+| `FrameManager.RecentFiles` | Held `/srv/multidata/case/255050/255050.pass1.eaf`. This is the one that matters: shipped in the image it would show **every annotator a case id that wasn't theirs** the moment they opened ELAN's File menu. |
+| `EditPreferencesDialog.Bounds` | Where a dialog happened to sit on the capture machine. Noise. |
+| `Recognizer.ReduceFilePrompts` | Nothing here uses ELAN's recognizers. |
+| `Locale` | Captured as `en,` with an empty country — ELAN's default, said oddly. |
+
+The rule for anything added later: if you can't say what it does and why this
+project wants it, take it out. Four settings someone can read beats nine that
+came along for the ride.
 
 **Nothing else.** Tier colours, fonts, waveform zoom, segmentation keystrokes,
 and default directories were all cut on review — see
@@ -101,4 +127,4 @@ accident of whoever's machine it came off.
 
 | Date | ELAN | What changed |
 |---|---|---|
-| — | — | nothing shipped yet |
+| 2026-09-14 | 7.1 | First prefs shipped. Autosave on at 5 minutes; window sized for the 1600x1000 desktop. Captured from `annotator-v2`, trimmed nine settings to four. |
