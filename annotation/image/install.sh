@@ -8,14 +8,20 @@
 set -euo pipefail
 
 # ---------------------------------------------------------------------------
-# ELAN. Set these before building -- take both from the ELAN download page.
+# ELAN. These arrive from build_image.sh, which passes them through both the
+# SSH hop and sudo -- neither of which carries an environment on its own. If
+# you are running this script by hand, set them on the command line:
+#
+#   sudo ELAN_DEB_URL=... ELAN_DEB_SHA256=... bash install.sh
+#
 # The version is pinned on purpose: an unpinned upgrade partway through a
 # corpus is a change-control event nobody notices (standards §12), and every
 # kit records which version it was made with.
 # ---------------------------------------------------------------------------
 ELAN_VERSION="${ELAN_VERSION:-7.1}"
-ELAN_DEB_URL="${ELAN_DEB_URL:?set ELAN_DEB_URL to the ELAN ${ELAN_VERSION} .deb download URL}"
-ELAN_DEB_SHA256="${ELAN_DEB_SHA256:?set ELAN_DEB_SHA256 to the published checksum}"
+ELAN_DEB_URL="${ELAN_DEB_URL:?set ELAN_DEB_URL to the ELAN ${ELAN_VERSION} .deb download URL (see the comment above -- if you set it in your own shell, it does not reach this script)}"
+# Optional. Verified when given; printed when not, so you can pin it next time.
+ELAN_DEB_SHA256="${ELAN_DEB_SHA256:-}"
 
 ANNOTATOR_HOME=/etc/skel
 IMAGE_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -58,8 +64,28 @@ id annotator >/dev/null 2>&1 || adduser --disabled-password --gecos "" annotator
 adduser annotator video    # so VLC/ELAN can reach the display hardware paths
 
 echo "==> ELAN $ELAN_VERSION"
+echo "    from $ELAN_DEB_URL"
+# -f so an HTTP error is a failure rather than a saved error page, -L to follow
+# the redirect the MPI download links use.
 curl -fsSL "$ELAN_DEB_URL" -o /tmp/elan.deb
-echo "$ELAN_DEB_SHA256  /tmp/elan.deb" | sha256sum -c -
+
+GOT_SHA256="$(sha256sum /tmp/elan.deb | cut -d' ' -f1)"
+if [[ -n "$ELAN_DEB_SHA256" ]]; then
+  if [[ "$GOT_SHA256" != "$ELAN_DEB_SHA256" ]]; then
+    echo "  !! checksum mismatch" >&2
+    echo "  !!   expected $ELAN_DEB_SHA256" >&2
+    echo "  !!   got      $GOT_SHA256" >&2
+    exit 1
+  fi
+  echo "    checksum ok"
+else
+  echo "    checksum not pinned. Downloaded:"
+  echo "      export ELAN_DEB_SHA256=$GOT_SHA256"
+  echo "    Set that before the next rebuild so it installs the same ELAN."
+fi
+
+# apt refuses a file that isn't a real .deb, which catches a URL that quietly
+# served something else.
 apt-get install -y -qq /tmp/elan.deb
 rm /tmp/elan.deb
 echo "$ELAN_VERSION" > /etc/elan-version

@@ -49,15 +49,15 @@ design §2 for why.
 **Once**, build the machine image:
 
 ```bash
-export ELAN_DEB_URL=...          # from the ELAN download page
-export ELAN_DEB_SHA256=...       # the published checksum
+export ELAN_DEB_URL=https://www.mpi.nl/tools/elan/ELAN_7-1_linux.deb          # from the ELAN download page
+export ELAN_DEB_SHA256=01c52cb5cde3090b2e9a46a299936b7a358363e7231507f7fc8a01fba7394073       # the published checksum
 annotation/gcp/build_image.sh v1
 ```
 
 **Once per annotator:**
 
 ```bash
-export ANNOTATION_BUCKET=gs://your-bucket
+export ANNOTATION_BUCKET=gs://som-anno-data-bucket
 annotation/gcp/new_vm.sh --annotator jamie
 # grant them access (new_vm.sh prints the two commands), then send them
 # annotation/gcp/connect.sh and walk them through it once -- 15 minutes
