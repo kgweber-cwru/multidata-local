@@ -199,6 +199,20 @@ echo "==> staging the image tree (with the guide docs alongside)"
 STAGE="$(mktemp -d)"
 cp -R "$HERE/image" "$STAGE/image"
 cp "$HERE/submit_checks.py" "$STAGE/"
+
+# The settings install.sh needs, as a file that travels with the tree. This
+# replaces passing values through `gcloud compute ssh` and then `sudo`, neither
+# of which carries an environment -- the cause of several failed builds, and of
+# install.sh being impossible to run by hand.
+{
+  echo "# Written by build_image.sh $(date -u +%Y-%m-%dT%H:%M:%SZ). Not tracked."
+  echo "ELAN_VERSION=\"$ELAN_VERSION\""
+  echo "ELAN_DEB_URL=\"$ELAN_DEB_URL\""
+  echo "ELAN_DEB_SHA256=\"${ELAN_DEB_SHA256:-}\""
+  if [[ -n "${DESKTOP_PASSWORD:-${VNC_PASSWORD:-}}" ]]; then
+    echo "DESKTOP_PASSWORD=\"${DESKTOP_PASSWORD:-${VNC_PASSWORD}}\""
+  fi
+} > "$STAGE/image/build.env"
 mkdir -p "$STAGE/image/docs"
 cp "$REPO/docs/annotator_guide.md" "$REPO/docs/transcription_standards.md" \
    "$STAGE/image/docs/"
@@ -207,37 +221,13 @@ echo "==> copying it over"
 retry 3 gcloud compute scp --recurse "$STAGE/image" "$STAGE/submit_checks.py" \
   "$BUILDER":/tmp/ --zone "$ZONE" --tunnel-through-iap
 
-if [[ "$REUSE" == "yes" ]] && gcloud compute ssh "$BUILDER" --zone "$ZONE" \
-     --tunnel-through-iap --command "id annotator" >/dev/null 2>&1; then
-  cat >&2 <<EOF
-This builder already has the annotator account, so --reuse cannot work: the
-account copies /etc/skel when it is created, and install.sh populates skel
-before creating it. Re-running would either refuse or produce a machine with
-an empty home directory.
-
-Build on a fresh VM:
-
-  annotation/gcp/build_image.sh $VERSION
-EOF
-  exit 1
-fi
-
 echo "==> installing (this takes a while)"
-# The vars have to be named explicitly twice over: `gcloud compute ssh` starts a
-# fresh shell on the builder, so nothing from this shell's environment arrives,
-# and `sudo` resets the environment again on top of that. `sudo VAR=... cmd` is
-# what gets a value through both.
-# Deliberately NOT wrapped in retry: if install.sh itself failed, re-running it
-# is wrong -- it is not idempotent once the annotator account exists, and a
-# second run would either refuse or build a machine with an empty home
-# directory. A dropped connection before install.sh starts is a different thing,
-# and the readiness check above is what covers that.
+# Nothing to pass: install.sh reads /tmp/image/build.env, staged above.
+#
+# Not wrapped in retry, though install.sh is now safe to re-run: a failing
+# install should stop and be looked at, not be attempted three times.
 gcloud compute ssh "$BUILDER" --zone "$ZONE" --tunnel-through-iap \
-  --command "sudo \
-    ELAN_VERSION='$ELAN_VERSION' \
-    ELAN_DEB_URL='$ELAN_DEB_URL' \
-    ELAN_DEB_SHA256='${ELAN_DEB_SHA256:-}' \
-    bash /tmp/image/install.sh"
+  --command "sudo bash /tmp/image/install.sh"
 
 echo "==> stopping and snapshotting"
 gcloud compute instances stop "$BUILDER" --zone "$ZONE"

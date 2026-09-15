@@ -8,23 +8,39 @@
 set -euo pipefail
 
 # ---------------------------------------------------------------------------
-# ELAN. These arrive from build_image.sh, which passes them through both the
-# SSH hop and sudo -- neither of which carries an environment on its own. If
-# you are running this script by hand, set them on the command line:
+# Settings arrive in a FILE, not the environment.
 #
-#   sudo ELAN_DEB_URL=... ELAN_DEB_SHA256=... bash install.sh
+# build_image.sh writes image/build.env next to this script before sending the
+# tree over. That replaces passing values through `gcloud compute ssh` and then
+# `sudo`, neither of which carries an environment -- a design that cost several
+# builds and made this script impossible to run by hand without exporting
+# things that sudo then discarded.
 #
-# The version is pinned on purpose: an unpinned upgrade partway through a
+# Consequence worth knowing: `sudo bash /tmp/image/install.sh` now just works,
+# because the values travel with the files, and the script is safe to re-run.
+#
+# ELAN's version is pinned on purpose: an unpinned upgrade partway through a
 # corpus is a change-control event nobody notices (standards §12), and every
 # kit records which version it was made with.
 # ---------------------------------------------------------------------------
+IMAGE_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=/dev/null
+[[ -f "$IMAGE_DIR/build.env" ]] && source "$IMAGE_DIR/build.env"
+
 ELAN_VERSION="${ELAN_VERSION:-7.1}"
-ELAN_DEB_URL="${ELAN_DEB_URL:?set ELAN_DEB_URL to the ELAN ${ELAN_VERSION} .deb download URL (see the comment above -- if you set it in your own shell, it does not reach this script)}"
+if [[ -z "${ELAN_DEB_URL:-}" ]]; then
+  echo "ELAN_DEB_URL is not set, and there is no $IMAGE_DIR/build.env." >&2
+  echo "build_image.sh writes that file; if you are running this script by" >&2
+  echo "hand, create it beside install.sh with lines like:" >&2
+  echo >&2
+  echo "  ELAN_DEB_URL=https://www.mpi.nl/tools/elan/ELAN_7-1_linux.deb" >&2
+  echo "  ELAN_DEB_SHA256=..." >&2
+  exit 1
+fi
 # Optional. Verified when given; printed when not, so you can pin it next time.
 ELAN_DEB_SHA256="${ELAN_DEB_SHA256:-}"
 
 ANNOTATOR_HOME=/etc/skel
-IMAGE_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 echo "==> packages"
 export DEBIAN_FRONTEND=noninteractive
@@ -63,15 +79,22 @@ apt-get install -y -qq --no-install-recommends \
 # as a Debian 12 package at all, while pipewire-module-xrdp does -- in
 # backports, which sit at apt priority 100 and so need an explicit -t.
 #
-# Versions are PINNED. A backport moves under you, and "rebuild the image" has
-# to keep meaning "rebuild the same image" (standards §12, same reasoning as
-# ELAN). Bump these deliberately, and re-run the fidelity test in §4b when you
-# do -- this is the audio path for phonetic judgements, not background music.
+# NOT pinned with =version, deliberately, and this is a correction.
+#
+# An earlier version of this script pinned each package to an exact backport
+# version. It failed: `-t bookworm-backports` plus exact pins on a subset of a
+# 23-package dependency set gives apt an unsatisfiable problem, because the
+# transitive libraries (libspa, libpipewire-0.3-0, libpipewire-0.3-modules-xrdp
+# and the rest) were not pinned to match.
+#
+# The plain `-t bookworm-backports` form below is the one that was actually
+# validated with `apt-get install -s` before any of this was written. So it is
+# what runs, and the versions apt chose are RECORDED afterwards in
+# /etc/annotation-build-manifest rather than constrained beforehand. That keeps
+# the reproducibility information without letting an untested pin break the
+# build -- and if exact pinning is ever needed, the manifest is where the
+# numbers come from.
 # ---------------------------------------------------------------------------
-XRDP_VERSION="${XRDP_VERSION:-0.9.24-5~bpo12+1}"
-PIPEWIRE_VERSION="${PIPEWIRE_VERSION:-1.4.2-1~bpo12+1}"
-WIREPLUMBER_VERSION="${WIREPLUMBER_VERSION:-0.5.8-1~bpo12+1}"
-PW_XRDP_VERSION="${PW_XRDP_VERSION:-0.2-2~bpo12+1}"
 
 if ! grep -rq bookworm-backports /etc/apt/sources.list /etc/apt/sources.list.d/ \
      /etc/apt/mirrors/ 2>/dev/null; then
@@ -87,18 +110,22 @@ if dpkg -l pulseaudio 2>/dev/null | grep -q '^ii'; then
   echo "    replacing pulseaudio with pipewire-pulse"
 fi
 
-echo "==> RDP and audio (xrdp $XRDP_VERSION, pipewire $PIPEWIRE_VERSION)"
+echo "==> RDP and audio"
 apt-get install -y -qq -t bookworm-backports \
-  "xrdp=$XRDP_VERSION" \
-  xorgxrdp \
-  "pipewire=$PIPEWIRE_VERSION" \
-  "pipewire-pulse=$PIPEWIRE_VERSION" \
-  "pipewire-bin=$PIPEWIRE_VERSION" \
-  "wireplumber=$WIREPLUMBER_VERSION" \
-  "pipewire-module-xrdp=$PW_XRDP_VERSION"
+  xrdp xorgxrdp \
+  pipewire pipewire-pulse pipewire-bin wireplumber pipewire-module-xrdp
 
-# xrdp needs to read the snakeoil TLS certificate.
-adduser xrdp ssl-cert >/dev/null
+# Record what apt actually chose. This is the reproducibility record, and the
+# place to read version numbers from if exact pinning is ever wanted.
+dpkg-query -W -f='${Package} ${Version}\n' \
+  xrdp xorgxrdp pipewire pipewire-pulse wireplumber pipewire-module-xrdp \
+  > /etc/annotation-build-manifest 2>/dev/null || true
+echo "    installed:"
+sed 's/^/      /' /etc/annotation-build-manifest
+
+# xrdp needs to read the snakeoil TLS certificate. Already a member on a
+# re-run, which is not an error.
+adduser xrdp ssl-cert >/dev/null 2>&1 || true
 
 # Show the channel settings rather than editing keys blind. Audio needs the
 # rdpsnd channel; xrdp enables it by default when the module is present, and
@@ -287,25 +314,30 @@ EOF
 chmod +x "$ANNOTATOR_HOME/.xsession"
 
 echo "==> the annotator account"
-# CREATED LAST, ON PURPOSE. adduser copies /etc/skel as it stands at that
-# moment, so the account has to come after everything above has been written
-# into it -- the ELAN preferences, the desktop launchers, and ~/.xsession.
-# Creating it earlier produces a machine that builds cleanly and boots to
-# nothing, because the home directory is empty and the VNC session has no
-# xstartup to run.
+# Created AFTER everything above, because adduser copies /etc/skel as it stands
+# at that moment. Earlier, the account got an empty home directory and the
+# machine booted to nothing.
+#
+# And re-runnable: if the account already exists, copy /etc/skel in by hand
+# instead of refusing. An earlier version stopped here, which meant any failure
+# later in this script could only be fixed by building a whole fresh VM --
+# which is most of why getting this working took as long as it did.
 #
 # One account, named the same on every machine, so the launchers and the
 # session service don't have to know who is using it. Which person it belongs
-# to is decided by who is granted IAP access to the machine, not by a username.
+# to is decided by who is granted IAP access, not by a username here.
 if id annotator >/dev/null 2>&1; then
-  echo "  !! the annotator account already exists, so /etc/skel was NOT copied" >&2
-  echo "  !! into it. This script is meant to run once on a fresh VM." >&2
-  exit 1
+  echo "    account exists; refreshing its home from /etc/skel"
+  cp -a "$ANNOTATOR_HOME/." /home/annotator/
+else
+  adduser --disabled-password --gecos "" annotator
 fi
-adduser --disabled-password --gecos "" annotator
-adduser annotator video    # so VLC/ELAN can reach the display hardware paths
-adduser annotator audio    # and the audio devices PipeWire exposes
-printf '%s\n%s\n' "$DESKTOP_PASSWORD" "$DESKTOP_PASSWORD" | passwd annotator >/dev/null 2>&1
+
+adduser annotator video >/dev/null 2>&1 || true   # display hardware paths
+adduser annotator audio >/dev/null 2>&1 || true   # PipeWire's audio devices
+printf '%s\n%s\n' "$DESKTOP_PASSWORD" "$DESKTOP_PASSWORD" \
+  | passwd annotator >/dev/null 2>&1
+chown -R annotator:annotator /home/annotator
 
 echo "==> RDP on 3389"
 # xrdp ships its own systemd units; enable rather than write our own. The
