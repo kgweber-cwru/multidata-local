@@ -111,6 +111,32 @@ if [[ "$STATUS" != "RUNNING" ]]; then
   exit 1
 fi
 
+# Ask the machine whether the desktop is actually listening, BEFORE opening the
+# tunnel.
+#
+# This costs one SSH round trip and is worth it, because the obvious check is
+# worthless: SSH binds the local end of a -L forward immediately, whether or not
+# the remote side can be connected to. So a local "is the port open" test always
+# passes, the script says "Ready", and the real failure surfaces much later as
+# "channel N: open failed: connect failed: Connection refused" in the middle of
+# the session -- which reads like a network problem and isn't one.
+echo "Checking the desktop is running..."
+if ! gcloud compute ssh "$VM" --zone "$ZONE" --project "$PROJECT" \
+     --tunnel-through-iap --command "ss -lnt | grep -q ':3389'" >/dev/null 2>&1; then
+  cat >&2 <<EOF
+
+Reached $VM, but nothing is serving a desktop on it.
+
+That is a problem on the machine, not on your computer. Send the project lead
+this message; for them, the place to start is:
+
+  gcloud compute ssh $VM --zone $ZONE --project $PROJECT --tunnel-through-iap \
+    --command 'systemctl status xrdp --no-pager -l; sudo ss -lntp | grep 3389'
+
+EOF
+  exit 1
+fi
+
 # Check the local port is free first. A leftover tunnel from an earlier attempt
 # would make the readiness check below succeed against the wrong thing, and then
 # the viewer would connect to nothing useful.
@@ -151,6 +177,8 @@ causes are:
 EOF
     exit 1
   fi
+  # Only proves SSH has bound the local end -- which it does eagerly. Whether
+  # the far end answers was settled by the pre-flight check above.
   if nc -z localhost "$PORT" 2>/dev/null; then
     READY=yes
     break
@@ -161,10 +189,8 @@ done
 if [[ "${READY:-no}" != "yes" ]]; then
   cat >&2 <<EOF
 
-Connected to the machine, but the desktop on it is not answering.
-
-That is a problem on the machine, not on your computer, so there is nothing
-for you to fix -- send the project lead this message.
+The tunnel did not finish opening. Nothing is wrong with the machine -- the
+desktop was answering a moment ago -- so this is worth simply trying again.
 
 EOF
   exit 1
