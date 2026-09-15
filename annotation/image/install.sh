@@ -123,6 +123,19 @@ dpkg-query -W -f='${Package} ${Version}\n' \
 echo "    installed:"
 sed 's/^/      /' /etc/annotation-build-manifest
 
+# Where the audio module actually landed. Recorded for debugging, and printed
+# so nobody has to guess at it the way this script once did.
+dpkg -L pipewire-module-xrdp libpipewire-0.3-modules-xrdp 2>/dev/null \
+  | grep -E 'xrdp.*\.so$' > /etc/annotation-audio-module || true
+if [[ -s /etc/annotation-audio-module ]]; then
+  echo "    audio module:"
+  sed 's/^/      /' /etc/annotation-audio-module
+else
+  echo "    audio module: installed, but no .so found in the package file list"
+  echo "    (not fatal -- pipewire may load it from a path dpkg reports"
+  echo "     differently; whether audio works is tested by a person, §4b)"
+fi
+
 # xrdp needs to read the snakeoil TLS certificate. Already a member on a
 # re-run, which is not an error.
 adduser xrdp ssl-cert >/dev/null 2>&1 || true
@@ -418,8 +431,12 @@ check "the three launchers are there" \
 check "~/.elan_data exists"           "[[ -d /home/annotator/.elan_data ]]"
 check "the desktop service is enabled" \
       "systemctl is-enabled xrdp.service >/dev/null 2>&1"
+# Ask dpkg whether the package is installed. An earlier version of this check
+# tested for a guessed path under /usr/lib/pipewire-0.3, which failed on a
+# machine where the module was installed perfectly well -- the same
+# guess-instead-of-ask mistake as the ELAN launcher.
 check "the xrdp audio module is installed" \
-      "ls /usr/lib/pipewire-0.3/libpipewire-module-xrdp* >/dev/null 2>&1"
+      "dpkg -l pipewire-module-xrdp 2>/dev/null | grep -q '^ii'"
 check "pipewire-pulse is present"     "command -v pipewire-pulse >/dev/null"
 check "the staging directory exists"  "[[ -d /srv/multidata/case ]]"
 check "the guide rendered"            \
