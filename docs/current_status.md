@@ -7,8 +7,10 @@ stay current. Update it whenever a session ends with real state changed;
 delete stale sections rather than letting them rot.
 
 **Last updated:** 2026-09-23 — **the cloud annotation environment was torn
-down after it failed to work reliably; read "Annotation environment
-abandoned" below before touching `annotation/` or restarting that effort.**
+down: audio was not robust on frequent, repeated replays, which is
+disqualifying for a task that's entirely about listening. Read "Annotation
+environment abandoned" below before touching `annotation/` or restarting
+that effort.**
 Pose is still parked — see [pose_parked.md](pose_parked.md) before touching
 anything pose-related. Earlier: 2026-09-14 pose parked in favor of
 transcription validation; 2026-09-10 IRB cleared third-party vendor inference
@@ -134,15 +136,16 @@ rather than the actual annotation problem:
   hand on the last working machine (never ported into `make_kit.py` — if this
   effort restarts, that fix has to happen in the kit generator, not by an
   annotator hand-editing a settings file).
-- After that: audio worked, described as **"OK but not amazing."** The
-  decision to abandon was made in the same conversation, without a
-  structured fidelity test (loop a known hard passage, check `uh-huh` vs.
-  `uh-uh` survives) ever being run to characterize *how* not-amazing. So:
-  **the actual audio-fidelity question was never answered one way or the
-  other.** What's recorded here is that the environment accumulated enough
-  fragility across enough layers (VNC → RDP, IAP-tunnel quirks, xrdp/PipeWire
-  packaging, ELAN's own per-medium volume state) that continuing to debug it
-  stopped being worth it, not that fidelity was measured and found wanting.
+- After the volume bug was fixed, audio was tested for real — the actual
+  criterion, looping a segment repeatedly the way an annotator works — and
+  **failed it: not robust on frequent, repeated replays.** So this is a
+  measured negative result, not an accumulated-fragility judgment call. It's
+  the reason this got torn out rather than patched further: the whole point
+  of the environment is that annotators loop hard passages many times, and
+  an audio path that degrades under exactly that usage pattern is
+  disqualifying, whatever the cause turns out to be (PipeWire/xrdp buffering,
+  the IAP tunnel, RDP's audio compression — not isolated, and not worth
+  isolating for a mechanism that's being abandoned anyway).
 - Underneath the audio saga, a long list of infrastructure bugs got fixed
   along the way (env vars not surviving `sudo`/`ssh`, `/etc/skel` populated
   in the wrong order, guessed paths instead of asked-for ones, non-idempotent
@@ -153,16 +156,36 @@ rather than the actual annotation problem:
 
 ### What to actually decide, if this comes back
 
-**A dedicated annotator laptop was raised as the live alternative** and not
-ruled out — it satisfies the original requirement (no encounter media on a
-*personal* machine; a project-owned laptop is not a personal machine) and
-sidesteps every problem above, since ELAN would run natively with real local
-audio and zero network-latency keystroke timing. The tradeoff is physical
-logistics (procurement, encryption, shipping/handoff, physical loss/theft
-exposure) instead of cloud logistics. **This was not decided** — it was
-floated as an option in the same conversation that ended in tearing the cloud
-approach down, and deserves a real decision rather than being the default by
-exhaustion.
+Two candidate mechanisms are on the table, **not yet decided between**
+(2026-09-23):
+
+1. **A dedicated annotator laptop.** Project-owned, so it satisfies the
+   original requirement (no encounter media on a *personal* machine — a
+   project-owned laptop isn't one) and sidesteps every problem above: ELAN
+   runs natively, audio is real local audio, keystroke timing has no network
+   latency to fight. The tradeoff is physical logistics — procurement,
+   encryption, shipping/handoff, physical loss/theft exposure — in place of
+   cloud logistics.
+2. **CWRU-managed machines annotators already have, with kits distributed
+   through Box** (or another CWRU-approved secure storage) instead of a
+   purpose-built delivery pipeline. Media and the `.eaf` get uploaded to a
+   Box folder per assignment; the annotator downloads and opens locally. This
+   also sidesteps the audio problem (native playback again) without owning
+   physical hardware, but reopens the piece of the original brief this whole
+   effort was built to avoid — "don't want to configure ELAN for everyone."
+   With N different annotator machines instead of one image, that becomes N
+   individual installs/configurations rather than one done once. Also
+   unconfirmed: whether Box is on CWRU's BAA-covered-services list the same
+   way enterprise Google is — check before relying on it, same governance
+   question that mattered for the cloud approach (see below).
+
+Whichever is picked, the ELAN-configuration knowledge from the deleted image
+build isn't lost, just not in the working tree: `~/.elan_data/elan.pfsx`'s
+confirmed format and keys (`AutomaticBackupOn`, `BackUpDelay`) are in
+`git show b3aafcb` on this branch. The per-medium volume bug above is the one
+piece of that knowledge that matters regardless of mechanism — any kit
+generator for any delivery path needs to set volume on *every* linked medium,
+not just the one an annotator happens to notice.
 
 Whichever mechanism is chosen, most of the kit-building work carries over
 unchanged (see the table in `annotation/README.md`) — the only design
