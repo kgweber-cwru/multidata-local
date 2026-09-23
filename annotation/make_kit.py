@@ -12,16 +12,24 @@ needs and nothing else:
     kit.json           what this kit is, for the record
     README.txt         two paragraphs for the annotator
 
-Runs on the private side (needs the manifest and the raw media). Nothing here
-touches GCP -- pushing the kit out is `push_kit.sh`, deliberately a separate
-step, because the network boundary is crossed by hand (annotation design §2).
+Runs on the private side (needs the manifest and the raw media).
+
+STATUS (2026-09-23): the cloud remote-desktop delivery mechanism this was
+built for has been torn out -- see docs/current_status.md's "Annotation
+environment abandoned" section. This module is kept because the problem it
+solves (ELAN opens with no "locate media" dialog, no matter which machine the
+annotator ends up working on) is independent of *how* the kit gets to that
+machine. Nothing here assumes a VM specifically. It does assume some machine
+mounts every case at the same fixed path -- see CANONICAL_ROOT below -- which
+was true of the VM design and will need a real decision again once the next
+delivery mechanism (most likely a dedicated laptop) is chosen.
 
 The one thing to understand before changing this file: the .eaf records its
 media twice, in MEDIA_URL (absolute) and RELATIVE_MEDIA_URL. Both are written
-against CANONICAL_ROOT, the path every annotator VM mounts the case at. That is
-what stops ELAN showing a "locate media" dialog on a machine that isn't the one
-the file was made on (annotation design §4.2). Change CANONICAL_ROOT and you
-must change where the VM stages kits, or every kit breaks.
+against CANONICAL_ROOT, the path every annotator machine is assumed to mount
+the case at. That is what stops ELAN showing a "locate media" dialog on a
+machine that isn't the one the file was made on. Change CANONICAL_ROOT and you
+must change where kits actually get staged, or every kit breaks.
 """
 import argparse
 import hashlib
@@ -39,13 +47,15 @@ from multidata import manifest  # noqa: E402
 TEMPLATE = ROOT / "elan" / "template.etf"
 KITS_DIR = ROOT / "annotation" / "kits"
 
-# Where an annotator VM mounts a case. Baked into every kit's .eaf, so it is
-# the same string on every machine, forever. See the module docstring.
+# Where an annotator's machine is assumed to mount a case. Baked into every
+# kit's .eaf, so it is the same string on every machine, forever -- but this
+# was chosen for the abandoned VM design and hasn't been revisited since. See
+# the module docstring before assuming it's still the right path.
 CANONICAL_ROOT = "/srv/multidata/case"
 
 # 480p H.264. Video's job is answering "who is speaking" -- it does not need to
-# be broadcast quality, and a smaller file decodes faster over a remote desktop
-# (annotation design §4.3).
+# be broadcast quality, and a smaller file decodes faster over whatever remote
+# connection ends up carrying it.
 PROXY_FFMPEG = [
     "-vf", "scale=-2:480", "-c:v", "libx264", "-preset", "veryfast",
     "-crf", "28", "-an",
@@ -220,8 +230,8 @@ def main():
 
     size_mb = sum(f.stat().st_size for f in kit.rglob("*") if f.is_file()) / 1e6
     print(f"\nkit ready: {kit}  ({size_mb:.0f} MB)")
-    print(f"  push it with: annotation/gcp/push_kit.sh "
-          f"--case {args.case} --annotator {args.annotator}")
+    print("  no delivery mechanism is wired up right now -- see "
+          "docs/current_status.md")
 
 
 if __name__ == "__main__":

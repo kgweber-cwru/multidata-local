@@ -3,14 +3,16 @@
 `python -m pytest` from the repo root (any env with `pytest` — currently only
 `md-speech`, see `env/speech.yml`).
 
-`test_submit_checks.py` and `test_make_kit.py` cover the annotation package
-(`annotation/`, see its README). The first is stdlib-only by design, because
-`annotation/submit_checks.py` runs on an annotator VM with nothing installed and
-the test builds `.eaf` XML by hand to hold that line. The second
-`importorskip`s `pympi`, and its job is one property above all: that a kit's
-`.eaf` points at the canonical `/srv/multidata/case/...` path rather than the
-machine that built it. If those fail, annotators are back to hand-locating media
-in ELAN.
+`test_submit_checks.py` and `test_make_kit.py` cover what's left of the
+annotation package (`annotation/`, see its README — the cloud delivery
+mechanism they were built for was torn out 2026-09-23; the kit-building tools
+survived and these tests are for those). The first is stdlib-only by design,
+because `annotation/submit_checks.py` is meant to run wherever the annotator
+actually is, with nothing installed, and the test builds `.eaf` XML by hand to
+hold that line. The second `importorskip`s `pympi`, and its job is one property
+above all: that a kit's `.eaf` points at the canonical `/srv/multidata/case/...`
+path rather than the machine that built it. If those fail, annotators are back
+to hand-locating media in ELAN.
 
 **Every test here is stdlib/pyyaml/torch-only, and none touches a real model
 weight, GPU, network, or the manifest database.** `torch` shows up only in

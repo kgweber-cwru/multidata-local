@@ -6,13 +6,16 @@ commit and now badly stale), this is meant to travel with a `git clone` and
 stay current. Update it whenever a session ends with real state changed;
 delete stale sections rather than letting them rot.
 
-**Last updated:** 2026-09-14 — **pose parked, annotation environment is the
-active work.** See the priorities section immediately below, and
-[pose_parked.md](pose_parked.md) before touching anything pose-related. Earlier:
-2026-09-10 IRB cleared third-party vendor inference (unblocking Phase 4);
-2026-09-04 folded in Kate's second gold case (261473) on top of the Phase 1/2
-merge (`b70a592`). All 178 tests pass
-(`conda activate md-speech && python -m pytest -q`).
+**Last updated:** 2026-09-23 — **the cloud annotation environment was torn
+down after it failed to work reliably; read "Annotation environment
+abandoned" below before touching `annotation/` or restarting that effort.**
+Pose is still parked — see [pose_parked.md](pose_parked.md) before touching
+anything pose-related. Earlier: 2026-09-14 pose parked in favor of
+transcription validation; 2026-09-10 IRB cleared third-party vendor inference
+(unblocking Phase 4); 2026-09-04 folded in Kate's second gold case (261473) on
+top of the Phase 1/2 merge (`b70a592`). All 205 tests pass
+(`conda activate md-speech && python -m pytest -q`) — up from 178, from the
+annotation package's surviving unit tests.
 
 ---
 
@@ -23,24 +26,12 @@ Everything below either serves that or is explicitly parked.
 
 **Active:**
 
-1. **The annotation environment** — a cloud desktop that hands an annotator a
-   ready-to-work ELAN session, so gold references can actually be produced at
-   more than one-per-Kate.
-   [annotation_environment_design.md](annotation_environment_design.md) is the
-   environment; [annotator_image_design.md](annotator_image_design.md) is the
-   machine image. **The package is built** (`annotation/`, 2026-09-14) —
-   [../annotation/README.md](../annotation/README.md) is the operating guide and
-   says plainly what has been run for real and what hasn't.
-   - **Verified against real data:** kit generation (57 MB kit from case 261473
-     in 18 s, media URLs canonical), the submit checks (which found two empty
-     segments in the existing 261473 gold — harmless, since `eaf_to_gold.py`
-     already skips empties, but exactly the class of thing they exist for), and
-     27 new unit tests. 205 tests pass.
-   - **Never run:** anything touching GCP. `ELAN_DEB_URL` is unset on purpose,
-     and `annotation/image/elan_prefs/` is empty on purpose — both fail loudly
-     rather than pretending. See that README's Status section.
-   - **Next:** one image, one machine, one annotator, one real excerpt. Playback
-     first (image design §5).
+1. **Getting a second annotator producing gold, somehow.** The cloud
+   remote-desktop attempt at this is dead — see "Annotation environment
+   abandoned" below, which is also where to start if you're picking this back
+   up. `annotation/make_kit.py`, `submit_checks.py`, and `pull_submission.py`
+   survived and are still useful regardless of what replaces the delivery
+   mechanism. **No delivery mechanism is currently chosen.**
 2. **More gold references.** The first campaign is 5–10 hours of video, to be
    selected by the people who need the gold. Two references exist today.
 3. **The first cloud ASR adapter**, now that IRB has cleared vendor inference —
@@ -83,10 +74,109 @@ Everything below either serves that or is explicitly parked.
   hours of video (~4 GB), that deadline is not close.
 - **The network shape.** The mini and tofino sit on a private network that can
   reach out but cannot be reached in, and annotators at home or on campus cannot
-  see it either way. That is *why* annotators work in the cloud, and why the
-  boundary is one-directional and manual. Annotators never need the manifest, so
-  this costs nothing — see
-  [annotation_environment_design.md](annotation_environment_design.md) §2.
+  see it either way. Still true, still relevant to whatever comes next — it's
+  what made a cloud-hosted delivery mechanism the obvious choice in the first
+  place, even though the cloud desktop implementation of that idea didn't work
+  out. Annotators never need the manifest, whatever the mechanism turns out to
+  be — a kit carries everything they need as flat files.
+
+---
+
+## Annotation environment abandoned (2026-09-23)
+
+**Status: torn down, not paused.** All the code and design docs for a
+cloud-hosted remote desktop are deleted. If you're reading this cold, this
+section is the whole story — you shouldn't need to dig through commit
+history to reconstruct it, though the history (29 commits on the `labeling`
+branch, `2da900a..760578d`) is there if you want the blow-by-blow of any
+individual bug.
+
+### What the idea was
+
+Give each annotator a cloud VM with ELAN pre-installed and a case pre-linked,
+reached over a remote desktop protocol, so gold transcription could happen on
+more than one person's machine without encounter media ever landing on
+anyone's laptop. Design docs were `annotation_environment_design.md` (the
+environment) and `annotator_image_design.md` (the machine image) — both
+deleted along with the code; their substance, where it's still true, is
+folded into this note and into "The blocking question" section below.
+
+### What got built, and what of it survives
+
+`annotation/make_kit.py`, `annotation/submit_checks.py`, and
+`annotation/pull_submission.py` are **still here and still work** — see
+[../annotation/README.md](../annotation/README.md). They were tested against
+real data (a 57 MB kit built from case 261473 in 18 s with canonical,
+pre-linked media URLs; `submit_checks.py` correctly caught two empty segments
+in real gold) and don't depend on anything cloud-specific except an optional
+GCS path in `pull_submission.py` that still works if you have a bucket and is
+ignored if you don't (`--from-dir` instead). **Nothing else survived** —
+`annotation/gcp/` (all the provisioning and connection scripts) and
+`annotation/image/` (the VM image build) are gone, along with
+`annotation/config.sh`.
+
+### What actually happened, briefly, so it isn't repeated
+
+Roughly two weeks of iteration, most of it fighting the delivery mechanism
+rather than the actual annotation problem:
+
+- **VNC first.** Got a machine building and connecting, then discovered VNC's
+  protocol carries no audio at all — a blocking problem for a task that is
+  entirely about listening (`uh-huh` vs `uh-uh` is a glottal catch vs. an
+  audible /h/, and the whole point of the exercise is not guessing at that).
+- **Switched to RDP** (`xrdp` + PipeWire, since `pulseaudio-module-xrdp`
+  doesn't exist as a Debian package at all — only the PipeWire audio module
+  does, and only in `bookworm-backports`). Audio started working.
+- **Then a real, specific bug**: ELAN keeps a *per-medium* volume, and the
+  `.pfsx` files this project had been generating left the `.wav` at volume 0
+  while the `.mp4` was at 100 — so ELAN's video played and its audio didn't,
+  which looked exactly like a channel/driver problem and wasn't one. Fixed by
+  hand on the last working machine (never ported into `make_kit.py` — if this
+  effort restarts, that fix has to happen in the kit generator, not by an
+  annotator hand-editing a settings file).
+- After that: audio worked, described as **"OK but not amazing."** The
+  decision to abandon was made in the same conversation, without a
+  structured fidelity test (loop a known hard passage, check `uh-huh` vs.
+  `uh-uh` survives) ever being run to characterize *how* not-amazing. So:
+  **the actual audio-fidelity question was never answered one way or the
+  other.** What's recorded here is that the environment accumulated enough
+  fragility across enough layers (VNC → RDP, IAP-tunnel quirks, xrdp/PipeWire
+  packaging, ELAN's own per-medium volume state) that continuing to debug it
+  stopped being worth it, not that fidelity was measured and found wanting.
+- Underneath the audio saga, a long list of infrastructure bugs got fixed
+  along the way (env vars not surviving `sudo`/`ssh`, `/etc/skel` populated
+  in the wrong order, guessed paths instead of asked-for ones, non-idempotent
+  install scripts, IAP not terminating where a comment confidently claimed it
+  did). None of that is wasted knowledge in an abstract sense, but none of it
+  is *recoverable* either — the code it lived in is deleted. If a cloud VM
+  approach is tried again, expect to rediscover most of it.
+
+### What to actually decide, if this comes back
+
+**A dedicated annotator laptop was raised as the live alternative** and not
+ruled out — it satisfies the original requirement (no encounter media on a
+*personal* machine; a project-owned laptop is not a personal machine) and
+sidesteps every problem above, since ELAN would run natively with real local
+audio and zero network-latency keystroke timing. The tradeoff is physical
+logistics (procurement, encryption, shipping/handoff, physical loss/theft
+exposure) instead of cloud logistics. **This was not decided** — it was
+floated as an option in the same conversation that ended in tearing the cloud
+approach down, and deserves a real decision rather than being the default by
+exhaustion.
+
+Whichever mechanism is chosen, most of the kit-building work carries over
+unchanged (see the table in `annotation/README.md`) — the only design
+decision baked into the surviving code that's specific to the old approach is
+`CANONICAL_ROOT` in `make_kit.py` (`/srv/multidata/case`), the fixed path
+every kit assumes the annotator's machine mounts a case at. That pattern —
+same fixed path on every machine, so ELAN never shows a "locate media"
+dialog — is sound for a laptop too; the specific path just needs deciding
+again.
+
+The governance facts (IRB clearance for vendor inference, BAA-covered
+enterprise Google for data at rest) are untouched by any of this — see "The
+blocking question" section below. They don't depend on which delivery
+mechanism wins.
 
 ---
 
@@ -193,10 +283,13 @@ What it does *not* cover, and don't let the good news blur these:
 - **Storing the corpus in a third-party cloud** is a different question from
   running inference against a vendor API. That one is *also* now settled, but
   separately: the corpus lives in the institution's **enterprise Google
-  instance under BAA**
-  ([annotation_environment_design.md](annotation_environment_design.md) §0).
-  Note a BAA covers a named service list, not "Google" — see that doc's §4.5
-  for the one component that trips on this.
+  instance under BAA**. This is a governance fact, independent of the failed
+  remote-desktop *implementation* below — it stays true whatever delivery
+  mechanism gets picked next. One thing worth remembering from the now-deleted
+  design doc: **a BAA covers a named service list, not "Google" generically** —
+  Compute Engine, Cloud Storage, and IAM were confirmed covered; Chrome Remote
+  Desktop was flagged as probably not, which is part of why the design used
+  RDP/VNC-on-a-VM instead of CRD in the first place.
 - **Per-request no-train / zero-retention flags are still requirements**, not
   preferences (`asr_provider_spec.md` §9). Vendor defaults frequently permit
   retention, so IRB approval plus a default-configured request is still a
@@ -262,6 +355,12 @@ whenever someone wants to (`asr-provider-config`,
 `benchmark-bookkeeping`, `annotation-standards-and-asr-providers`) — left
 alone here rather than deleted unprompted. `speaker-sex-detection` predates
 this work; unknown state, not touched.
+
+**`labeling`** is the current branch, 29 commits ahead of `main`
+(`main..labeling`) and not merged. It holds this file, the surviving
+`annotation/` tooling, IRB/BAA governance updates, and — in earlier commits —
+the full history of the abandoned cloud environment before it was torn back
+out. Not merged yet; nothing here says it's ready to be.
 
 Kate's own in-progress edits get left uncommitted when a session ends mid-
 file — check `git status` before assuming the working tree is clean, and

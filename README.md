@@ -18,17 +18,12 @@ is carried over.
    conventions every gold reference obeys (policy; versioned).
 3. **[docs/annotator_guide.md](docs/annotator_guide.md)** — step-by-step ELAN
    walkthrough for producing one gold transcript.
-4. **[docs/annotation_environment_design.md](docs/annotation_environment_design.md)**
-   — design (not built) for a GCP-hosted virtual desktop that hands annotators a
-   pre-linked ELAN session, keeping encounter media off personal machines, plus
-   **[docs/annotator_image_design.md](docs/annotator_image_design.md)** — the
-   machine image it runs on (also design only, under review).
-5. **[docs/asr_provider_spec.md](docs/asr_provider_spec.md)** — how local and
+4. **[docs/asr_provider_spec.md](docs/asr_provider_spec.md)** — how local and
    cloud ASR providers plug in, and how the selection bake-off is scored.
-6. **[docs/asr_provider_implementation_plan.md](docs/asr_provider_implementation_plan.md)**
+5. **[docs/asr_provider_implementation_plan.md](docs/asr_provider_implementation_plan.md)**
    — the build checklist for the spec above: what's done, what's deliberately
    deferred, and why.
-7. **[docs/running_job_notes.md](docs/running_job_notes.md)** — PIDs, log
+6. **[docs/running_job_notes.md](docs/running_job_notes.md)** — PIDs, log
    paths, and check-in commands for launching/checking a pose batch. Nothing is
    running right now: **pose is parked**, and
    **[docs/pose_parked.md](docs/pose_parked.md)** is the resumption note — where
@@ -52,9 +47,10 @@ benchmarks/     ASR benchmarking wing
                 references/ tracked gold references (<case_id>.gold.txt/.rttm)
                 results/    tracked runs.csv (append-only provenance ledger)
                 runs/, cache/  GITIGNORED — per-run detail + response cache (see spec §7/§9)
-annotation/     the annotation package — build a kit, put it on a machine an
-                annotator can reach, get the finished .eaf back, export gold.
-                See annotation/README.md; design in docs/
+annotation/     kit-building tools (make_kit.py, submit_checks.py,
+                pull_submission.py) that survived the abandoned cloud
+                remote-desktop attempt -- see annotation/README.md and
+                docs/current_status.md's "Annotation environment abandoned"
 elan/           template.etf — the versioned annotation template
 docs/           guides
 tests/          pytest — see tests/README.md for what is/isn't covered

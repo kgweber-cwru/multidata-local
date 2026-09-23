@@ -1,13 +1,18 @@
 #!/usr/bin/env python
 """Bring a finished pass back to the private side and export it as gold.
 
-    python annotation/pull_submission.py --case 261473 --annotator jamie
+    python annotation/pull_submission.py --case 261473 --annotator jamie --from-dir <wherever the .eaf came back to>
+    python annotation/pull_submission.py --case 261473 --annotator jamie --bucket gs://...
 
 Does three things, in order, and stops at the first that fails:
 
-  1. Downloads the submitted .eaf from the bucket to data/gold/<case>/.
-  2. Re-runs the submit checks locally -- the VM already ran them, but this is
-     the copy that becomes gold, so it gets checked where it lands.
+  1. Gets the submitted .eaf into data/gold/<case>/ -- from a local directory
+     (--from-dir, e.g. a laptop mounted as a volume or copied over) or from a
+     GCS bucket (--bucket, a holdover from the abandoned VM design's transfer
+     path, kept because it still works and costs nothing to leave).
+  2. Re-runs the submit checks locally -- whatever produced the submission may
+     have already run them, but this is the copy that becomes gold, so it gets
+     checked again where it lands.
   3. Runs scripts/eaf_to_gold.py, which redacts names from the manifest, writes
      benchmarks/references/<case>.gold.{txt,rttm}, and records the gold row.
 
@@ -17,11 +22,14 @@ it: get the file here, confirm it's the file we think it is, hand it over.
 Layer 1 rule (transcription_standards.md §8): the .eaf lands under data/gold/,
 which is gitignored, and carries real names. Only step 3's output is
 publishable.
+
+STATUS (2026-09-23): written for a cloud VM delivery mechanism that has been
+torn out -- see docs/current_status.md. --from-dir was always the
+mechanism-agnostic path and is the one to use until a replacement is decided.
 """
 import argparse
 import json
 import os
-import re
 import shutil
 import subprocess
 import sys
@@ -30,24 +38,16 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 HERE = Path(__file__).resolve().parent
 
-# annotation/config.sh holds the project settings for the shell scripts. Read
-# the same file rather than keeping a second copy of the bucket name here: two
-# places defining one value is how they drift apart.
-# Allows a trailing comment after the value, which config.sh uses.
-_CONFIG_LINE = re.compile(r'^:\s*"\$\{(\w+):=(.*?)\}"\s*(?:#.*)?$')
-
 
 def config(key, default=None):
-    """A value from the environment, else annotation/config.sh, else default."""
-    if os.environ.get(key):
-        return os.environ[key]
-    path = HERE / "config.sh"
-    if path.exists():
-        for line in path.read_text().splitlines():
-            match = _CONFIG_LINE.match(line.strip())
-            if match and match.group(1) == key:
-                return match.group(2)
-    return default
+    """A value from the environment, else a default.
+
+    Used to be backed by annotation/config.sh (deleted along with the rest of
+    the VM machinery it configured -- see docs/current_status.md). Left as a
+    plain env-var lookup rather than removed, since --bucket/ANNOTATION_BUCKET
+    still work exactly as before.
+    """
+    return os.environ.get(key) or default
 
 
 def run(cmd, **kw):
@@ -60,7 +60,7 @@ def main():
     ap.add_argument("--case", required=True)
     ap.add_argument("--annotator", required=True)
     ap.add_argument("--bucket", default=None,
-                    help="gs://... (default: from annotation/config.sh)")
+                    help="gs://... (default: $ANNOTATION_BUCKET)")
     ap.add_argument("--from-dir", default=None,
                     help="skip the download; take the submission from here")
     ap.add_argument("--skip-export", action="store_true",
@@ -80,8 +80,8 @@ def main():
         bucket = args.bucket or config("ANNOTATION_BUCKET")
         if not bucket:
             raise SystemExit(
-                "no bucket: pass --bucket gs://..., or set ANNOTATION_BUCKET in "
-                "annotation/config.sh")
+                "no bucket: pass --bucket gs://..., set $ANNOTATION_BUCKET, or "
+                "use --from-dir instead")
         run(["gcloud", "storage", "rsync",
              f"{bucket}/work/{args.case}/{args.annotator}", str(dest)])
 

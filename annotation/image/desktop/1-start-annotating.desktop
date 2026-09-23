@@ -1,7 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=① Start annotating
-Comment=Open your assigned case in ELAN
-Exec=/usr/local/bin/start-annotating
-Icon=accessories-text-editor
-Terminal=false

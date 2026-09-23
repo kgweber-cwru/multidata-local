@@ -29,7 +29,3 @@ Manifest.session.sql
 manifest.sqlite*
 # Annotation kits -- real-name media, built per assignment
 annotation/kits/
-annotation/image/docs/*.md
-
-# Written by build_image.sh; carries the desktop password
-annotation/image/build.env
