@@ -165,7 +165,7 @@ if [[ "$REUSE" == "no" ]]; then
   # setup_project.sh for the Cloud NAT alternative.
   gcloud compute instances create "$BUILDER" \
     --zone "$ZONE" \
-    --machine-type e2-standard-4 \
+    --machine-type e2-custom-2-5632 \
     --image-family debian-12 --image-project debian-cloud \
     --boot-disk-size 50GB --boot-disk-type pd-balanced
 

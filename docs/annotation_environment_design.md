@@ -545,7 +545,7 @@ three annotators, a few weeks.** 10 hours of material at 6–10x realtime is
 
 | Item | Whole campaign |
 |---|---|
-| `e2-standard-4` (4 vCPU / 16 GB) × ~80 annotator-hours | ~$11 |
+| `e2-custom-2-5632` (4 vCPU / 16 GB) × ~80 annotator-hours | ~$11 |
 | 50 GB disk × 2–3 machines × ~6 weeks (billed while stopped too) | ~$15 |
 | Egress from desktop streaming (~2 Mbps while connected) | ~$9 |
 | GCS for ~4 GB of kits and submissions | pennies |

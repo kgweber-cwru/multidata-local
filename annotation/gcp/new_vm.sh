@@ -37,7 +37,7 @@ SA="${ANNOTATOR_SA:-annotator@$(gcloud config get-value project 2>/dev/null).iam
 
 gcloud compute instances create "$VM" \
   --zone "$ZONE" \
-  --machine-type e2-standard-4 \
+  --machine-type e2-custom-2-5632 \
   --image "$IMAGE" \
   --boot-disk-size 50GB --boot-disk-type pd-balanced \
   --no-address \
