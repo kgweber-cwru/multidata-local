@@ -16,3 +16,4 @@ dependencies:
       - pandas
       - onnx
       - coremltools           # on macOS, for CoreML EP
+      - pytest                # tests/ -- see pyproject.toml [tool.pytest.ini_options]
