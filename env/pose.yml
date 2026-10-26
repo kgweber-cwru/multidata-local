@@ -8,7 +8,7 @@ dependencies:
       - onnxruntime           # CoreML EP (Apple Silicon GPU/Neural Engine) by
                               # default — pose.extract(device="mps"); rtmlib
                               # falls back to CPU on its own if unavailable
-      - mmengine              # for the (M,T,V,C) .pkl dump format
+      - mmengine              # pose.load() of pre-.npz float32 .pkl outputs
       - opencv-python
       - numpy
       - tqdm
