@@ -8,8 +8,10 @@
 No re-run of the pose network: the existing keypoints are re-saved through
 `pose.save()`, the same writer the pose stage now uses. Each `.npz` is read
 back and checked against its `.pkl` (same metadata and shapes, coordinates
-within 0.5 px -- float16's worst case on a 1280-wide frame -- and scores
-within 0.001) before the `.pkl` is deleted, and only with --delete-pkl.
+within float16's rounding bound -- 0.5 px for anything under 2048 px, i.e.
+anywhere inside a 1920-wide frame, and proportionally more for off-frame
+extrapolations beyond that -- and scores within 0.001) before the `.pkl` is
+deleted, and only with --delete-pkl.
 Already-converted cameras (an `.npz` exists) are skipped, so it is safe to
 re-run after an interruption.
 """
@@ -30,18 +32,25 @@ log = logging.getLogger("convert_pose")
 
 MAX_COORD_ERR = 0.5
 MAX_SCORE_ERR = 1e-3
+F16_REL_ERR = 2.0 ** -11  # half of float16's spacing, relative to magnitude
 
 
 def _check(old, new):
     for key in ("frame_dir", "total_frames", "img_shape", "label"):
         if old[key] != new[key]:
             raise ValueError(f"{key}: {old[key]!r} != {new[key]!r}")
-    for key, tol in (("keypoint", MAX_COORD_ERR), ("keypoint_score", MAX_SCORE_ERR)):
+    for key in ("keypoint", "keypoint_score"):
         if old[key].shape != new[key].shape:
             raise ValueError(f"{key} shape {old[key].shape} != {new[key].shape}")
-        err = float(np.abs(old[key] - new[key]).max())
-        if err > tol:
-            raise ValueError(f"{key} max error {err:.4f} > {tol}")
+    # Coordinates past 2048 px (low-confidence extrapolations off a 1920-wide
+    # frame) round to the nearest 2 px, so the bound grows with magnitude.
+    k_err = np.abs(old["keypoint"] - new["keypoint"])
+    k_tol = np.maximum(MAX_COORD_ERR, np.abs(old["keypoint"]) * F16_REL_ERR)
+    if (k_err > k_tol).any():
+        raise ValueError(f"keypoint error {k_err.max():.4f} exceeds float16 rounding")
+    s_err = float(np.abs(old["keypoint_score"] - new["keypoint_score"]).max())
+    if s_err > MAX_SCORE_ERR:
+        raise ValueError(f"keypoint_score max error {s_err:.4f} > {MAX_SCORE_ERR}")
 
 
 def main():
