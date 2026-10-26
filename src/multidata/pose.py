@@ -199,8 +199,9 @@ def save(entry, out_path):
 
     ~14x smaller than the float32 pickle: half from float16, the rest from
     compressing the zero-filled empty slots. float16 spacing is 1.0 between
-    1024 and 2048, so x coordinates on 1280-wide frames lose up to 0.5 px;
-    scores (0-1) lose far less.
+    1024 and 2048, so coordinates anywhere inside a 1920-wide frame lose up
+    to 0.5 px (off-frame extrapolations past 2048 px, up to 1 px); scores
+    (0-1) lose far less.
     """
     np.savez_compressed(
         str(out_path),
