@@ -135,16 +135,15 @@ def make_proxy(src_mp4, dest_mp4):
 
 README = """Case {case_id} -- blind pass 1
 
-Open the desktop's "Start annotating" button. ELAN will open
-{case_id}.pass1.eaf with six empty tiers and both media files already loaded.
+Open {case_id}.pass1.eaf with six empty tiers and both media files already loaded.
 You do not need to create a file, pick a template, or locate any media.
 {window}
 Follow the annotator guide, on the desktop under "Guide & cheat sheet".
 Work blind: no machine transcript, no other annotator's file. If someone
 offers you one, decline.
 
-When you are done, click "Submit finished pass". It checks your file and
-uploads it. After that, pass 1 is frozen -- report any later concern rather
+When you are done, send Kate a note that you are done.
+After that, pass 1 is frozen -- report any later concern rather
 than reopening it.
 """
 
