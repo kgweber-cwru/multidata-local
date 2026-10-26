@@ -86,6 +86,12 @@ def _out(kind, row, suffix):
     return p
 
 
+def _abs(path_str):
+    """Manifest paths are repo-relative (so the same manifest works on every
+    machine); resolve against ROOT, not the cwd. Absolute paths pass through."""
+    return ROOT / path_str
+
+
 def _parse_shard(value):
     """"i/n" -> (i, n), validated. For running multiple concurrent workers
     against the same manifest without them racing on the same rows: `pending()`
@@ -146,8 +152,8 @@ def stage_audio(row, args):
         return skip
 
     log.info("extracting audio: %s/%s", row["case_id"], row["camera"])
-    audio.extract(row["filepath"], _out("audio", row, ".wav"), loudnorm=args.loudnorm)
-    return {"audio_path": str(_out("audio", row, ".wav"))}
+    audio.extract(_abs(row["filepath"]), _out("audio", row, ".wav"), loudnorm=args.loudnorm)
+    return {"audio_path": str(_out("audio", row, ".wav").relative_to(ROOT))}
 
 
 def stage_asr(row, args):
@@ -157,7 +163,7 @@ def stage_asr(row, args):
     if skip is not None:
         return skip
 
-    wav = row["audio_path"] or _out("audio", row, ".wav")
+    wav = _abs(row["audio_path"]) if row["audio_path"] else _out("audio", row, ".wav")
     out = _out("transcripts", row, f"_{args.engine}_{args.model}.json")
 
     # `suite` has no model-size selection (fixed remote server); the rest
@@ -195,7 +201,7 @@ def stage_diarize(row, args):
     if skip is not None:
         return skip
 
-    wav = row["audio_path"] or _out("audio", row, ".wav")
+    wav = _abs(row["audio_path"]) if row["audio_path"] else _out("audio", row, ".wav")
     log.info("diarizing: %s/%s", row["case_id"], row["camera"])
     diarize.diarize(wav, _out("diarization", row, ".rttm"),
                     max_speakers=args.max_speakers, device=args.accel_device)
@@ -212,13 +218,10 @@ def stage_elan(row, args):
     transcript = _out("transcripts", row, f"_{args.engine}_{args.model}.json")
     if not transcript.exists():
         raise FileNotFoundError(f"{transcript} — run the asr stage first")
-    wav = Path(row["audio_path"]) if row["audio_path"] else _out("audio", row, ".wav")
-    # row["filepath"] (video) is already stored relative to ROOT (ingest.py);
-    # audio_path isn't (other stages need it directly openable regardless of
-    # cwd) -- convert just for the .eaf link so both media links use the same
-    # repo-relative convention and survive being mounted at a different
-    # absolute path (e.g. this same tree mounted on another machine).
-    wav_rel = wav.relative_to(ROOT) if wav.is_absolute() else wav
+    wav = _abs(row["audio_path"]) if row["audio_path"] else _out("audio", row, ".wav")
+    # Both media links in the .eaf are repo-relative, like the manifest, so
+    # they survive the tree being mounted at a different absolute path.
+    wav_rel = wav.relative_to(ROOT)
     log.info("building ELAN file: %s/%s", row["case_id"], row["camera"])
     elan.build_eaf(transcript, row["filepath"], _out("elan", row, ".eaf"), wav_path=wav_rel)
     return {}
@@ -228,7 +231,7 @@ def stage_pose(row, args):
     from multidata import pose
 
     log.info("extracting pose: %s/%s/%s seconds", row["case_id"], row["camera"], row["duration_s"])
-    pose.extract(row["filepath"], _out("pose", row, ".pkl"),
+    pose.extract(_abs(row["filepath"]), _out("pose", row, ".npz"),
                 device=args.accel_device, profile=args.profile,
                 detect_every=args.detect_every)
     return {}

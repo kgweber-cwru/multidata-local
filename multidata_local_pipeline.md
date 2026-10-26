@@ -757,7 +757,17 @@ now*, see **[`docs/running_job_notes.md`](docs/running_job_notes.md)** — this
 guide describes the architecture, that file describes the current instance of
 it, and only the latter is meant to be kept perfectly current day to day.
 
-> Tracker is still off, deliberately: slot `s` is just the s-th detection in
+> **Pose is parked as of 2026-09-14** (priority is audio transcription
+> validation). Nothing here is broken; it's just not what's being worked on.
+> Before picking pose back up, read
+> **[`docs/pose_parked.md`](docs/pose_parked.md)** — it records what state the
+> work is in, the one gap that blocks everything downstream (pose output has no
+> stable person identity, so no movement can be attributed to a role), and the
+> ordered list of what to do first. This section stays the architecture
+> reference; that file is the resumption note.
+
+> Tracker is still off, deliberately — **and this is the thing that blocks pose
+> being usable, not a footnote**; see `docs/pose_parked.md`. Slot `s` is just the s-th detection in
 > that frame, not the same person across frames. Stable person identity /
 > cross-camera correspondence is still deferred work, not a pipeline blocker.
 
@@ -896,10 +906,31 @@ tofino GPU-meltdown/merge risk, is in §9.
   easier to monitor, checkpoint, and parallelize per stage.
 
 ### Data volume & governance
-- 300–400 multi-camera videos is **terabytes** of raw. The Mac mini is almost
-  certainly not enough, and a loaned device is the wrong long-term home for PHI.
-  Plan storage (encrypted external / institutional secure storage) and a
-  **backup** strategy early. Raw is irreplaceable; derived is regenerable.
+- **Measured 2026-09-14, and the old estimate here was wrong in an instructive
+  direction.** Against 61 ingested videos (32.9 h, mean 32.3 min, ~2 cameras per
+  case): raw video is **~143 MB per video**, audio ~88 MB per case, and pose
+  output **~383 MB per video**. So:
+  - Raw is **not** the big class. It's the smallest of the three. This section
+    used to say "300–400 multi-camera videos is terabytes of raw" — at the
+    measured rate that's ~57 GB, and even the manifest's full 1,307 cases
+    (~2,600 videos) is ~372 GB of raw.
+  - **Pose output is the big class** — bigger than the video it comes from, and
+    about two-thirds of projected total storage (~1 TB at full corpus). It is
+    also the most compressible: float32 arrays in raw pickle, 53% zero-padding,
+    measured **5x smaller losslessly** with `savez_compressed`. Fixing the writer
+    is the cheapest storage decision available, and it's item 1 in
+    [docs/pose_parked.md](docs/pose_parked.md).
+  - Full corpus projects to **~1.5 TB as things stand, ~0.7 TB with the pose
+    format fixed.**
+  - The planning figure of 300–400 videos is itself about 7x under what the
+    manifest holds (1,307 cases). Size for the corpus, not the sample.
+- The Mac mini has **313 GB free** against those numbers, and a loaned device is
+  the wrong long-term home for PHI regardless. Plan storage and a **backup**
+  strategy early — raw is irreplaceable, derived is regenerable, and right now
+  the irreplaceable copy is single. With pose parked and the near-term job at
+  5–10 hours of video (~4 GB), this is not urgent, but it is arithmetic rather
+  than preference: the mini runs out somewhere around 500–900 videos depending on
+  the pose format.
 - **IRB / consent tracking is a pipeline field, not paperwork off to the side.**
   Put `consent_ref` in the manifest and *refuse to process* rows without it.
 - Consider a **de-identification** stage (face blurring for shareable clips; PHI

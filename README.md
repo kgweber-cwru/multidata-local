@@ -11,7 +11,7 @@ is carried over.
 
 0. **[docs/current_status.md](docs/current_status.md)** — picking this up
    cold (new session, new contributor)? Read this one first: what's real vs.
-   built-but-unproven, active threads, the one open blocking question.
+   built-but-unproven, active threads, and what IRB clearance did and didn't unblock.
 1. **[multidata_local_pipeline.md](multidata_local_pipeline.md)** — the full
    build & run guide (machine prep, envs, every stage, scaling to 300–400 videos).
 2. **[docs/transcription_standards.md](docs/transcription_standards.md)** — the
@@ -24,8 +24,10 @@ is carried over.
    — the build checklist for the spec above: what's done, what's deliberately
    deferred, and why.
 6. **[docs/running_job_notes.md](docs/running_job_notes.md)** — PIDs, log
-   paths, and check-in commands for whatever batch job is actually running
-   right now (currently: pose, split across this Mac and a Linux CUDA box).
+   paths, and check-in commands for launching/checking a pose batch. Nothing is
+   running right now: **pose is parked**, and
+   **[docs/pose_parked.md](docs/pose_parked.md)** is the resumption note — where
+   the work got to, what blocks it, and what to do first when it comes back.
 
 ## Layout
 
@@ -45,6 +47,10 @@ benchmarks/     ASR benchmarking wing
                 references/ tracked gold references (<case_id>.gold.txt/.rttm)
                 results/    tracked runs.csv (append-only provenance ledger)
                 runs/, cache/  GITIGNORED — per-run detail + response cache (see spec §7/§9)
+annotation/     kit-building tools (make_kit.py, submit_checks.py,
+                pull_submission.py) that survived the abandoned cloud
+                remote-desktop attempt -- see annotation/README.md and
+                docs/current_status.md's "Annotation environment abandoned"
 elan/           template.etf — the versioned annotation template
 docs/           guides
 tests/          pytest — see tests/README.md for what is/isn't covered
@@ -122,6 +128,8 @@ delete it from `asr.py` if you'd rather it not be there.
 > simulated-patient encounters — the "patient" is an actor, so there is no
 > patient PHI — but the learner and preceptor are real people, and they
 > self-identify verbally, so transcripts carry real names. Nothing leaves this
-> machine for a third-party ASR provider without `cases.cloud_release`. See
+> machine for a third-party ASR provider without `cases.cloud_release` — a
+> column that exists but is **not yet enforced in code** (see
+> [current_status.md](docs/current_status.md)). See
 > pipeline doc §11, [transcription_standards.md](docs/transcription_standards.md) §8,
 > and [asr_provider_spec.md](docs/asr_provider_spec.md) §9.

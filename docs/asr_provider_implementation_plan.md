@@ -58,9 +58,19 @@ vendor, a key, or a gold file.
 - [ ] **0.4 Verify the capability matrix** against live vendor docs; record the
       check date per row. *Gates Phase 4 only.*
       *Done when:* spec §2's ⚠️ can be removed.
-- [ ] **0.5 IRB position** on third-party processing of learner/preceptor voice.
+- [x] **0.5 IRB position** on third-party processing of learner/preceptor voice
+      — **cleared 2026-09-10**: inference with online vendors is approved.
+      Does not cover *storing* the corpus with a third party, which is settled
+      separately (`current_status.md`'s "blocking question" section — the
+      corpus lives in the institution's enterprise Google instance under BAA),
+      and does not remove the per-request no-train/zero-retention requirement
+      (0.6).
 - [ ] **0.6 Accounts + keys**; confirm no-train flags and BAA availability.
-      Vendor defaults often permit retention.
+      Vendor defaults often permit retention. **Google is already inside the
+      institution's enterprise BAA** (`current_status.md`'s "blocking question"
+      section), so this item is only outstanding for AssemblyAI / Deepgram /
+      ElevenLabs — which is an argument about ordering, not about merit
+      (`current_status.md`).
 - [ ] **0.7 Set `cloud_release`** on the dev subset, with basis recorded.
 
 > **0.3 is the experiment that motivated this ordering.** Whisper's cleaning

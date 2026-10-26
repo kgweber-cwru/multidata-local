@@ -6,8 +6,8 @@ stability, `--detect-every` artifacts) before deciding on any smoothing pass.
     python scripts/sample_pose_overlays.py            # md-pose env
 
 Candidates are video rows whose `pose_status` is `done` *and* whose
-`.pkl` is actually on disk (manifest status can drift from disk state --
-a row re-marked pending, a pkl deleted by hand). Candidates are sorted by
+pose file is actually on disk (manifest status can drift from disk state --
+a row re-marked pending, a file deleted by hand). Candidates are sorted by
 `duration_s` and split into three equal-ish terciles (short/medium/long,
 not fixed-duration cutoffs -- the real duration distribution isn't known up
 front); one video is picked at random from each. `pose.render_overlay()`
@@ -37,15 +37,17 @@ BUCKETS = ("short", "medium", "long")
 
 
 def _candidates(manifest_path):
-    """(Video, pkl_path) pairs for rows with a done pose_status and a real
-    pose pkl on disk."""
+    """(Video, pose_path) pairs for rows with a done pose_status and a real
+    pose file on disk (.npz, or a not-yet-converted .pkl)."""
     candidates = []
     for v in manifest.all_videos(manifest_path):
         if v.pose_status != "done" or not v.duration_s:
             continue
-        pkl = DATA_DIR / "pose" / v.case_id / f"{v.camera}.pkl"
-        if pkl.exists():
-            candidates.append((v, pkl))
+        for suffix in (".npz", ".pkl"):
+            path = DATA_DIR / "pose" / v.case_id / f"{v.camera}{suffix}"
+            if path.exists():
+                candidates.append((v, path))
+                break
     return candidates
 
 
@@ -84,7 +86,7 @@ def main():
 
     candidates = _candidates(args.manifest)
     if not candidates:
-        log.error("no videos with pose_status=done and an on-disk .pkl found")
+        log.error("no videos with pose_status=done and an on-disk pose file found")
         return 1
 
     picks = _bucket(candidates)
@@ -93,20 +95,18 @@ def main():
         log.warning("only %d candidate video(s) total -- no pick for: %s",
                    len(candidates), ", ".join(missing))
 
-    import mmengine  # md-pose env only; deferred so --help works without the env active
-
-    from multidata import pose
+    from multidata import pose  # md-pose env only; deferred so --help works without the env active
 
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     render_kwargs = {"kpt_thr": args.kpt_thr} if args.kpt_thr is not None else {}
 
-    for bucket, (video, pkl) in picks.items():
+    for bucket, (video, pose_path) in picks.items():
         video_path = ROOT / video.filepath
         out_path = out_dir / f"{bucket}_{video.case_id}_{video.camera}.mp4"
         log.info("%-6s %5.0fs  %s/%s  ->  %s",
                  bucket, video.duration_s, video.case_id, video.camera, out_path)
-        entry = mmengine.load(str(pkl))
+        entry = pose.load(pose_path)
         pose.render_overlay(video_path, entry, out_path, **render_kwargs)
 
     return 0

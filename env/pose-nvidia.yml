@@ -32,9 +32,10 @@ dependencies:
                               # fails to load at session-creation time.
                               # See the force-reinstall note at the top of
                               # this file -- this line alone is not sufficient.
-      - mmengine              # for the (M,T,V,C) .pkl dump format
+      - mmengine              # pose.load() of pre-.npz float32 .pkl outputs
       - opencv-python
       - numpy
       - tqdm
       - jupyter
       - pandas
+      - pytest                # tests/ -- see pyproject.toml [tool.pytest.ini_options]
