@@ -7,7 +7,7 @@ Stage modules (see multidata_local_pipeline.md):
   asr        -> transcription + word timing, per --engine (§6)
   diarize    -> pyannote speaker diarization -> RTTM (§6)
   elan       -> build .eaf from transcripts (§7)
-  pose       -> rtmlib RTMPose extraction -> (M, T, V, C) .pkl (§9)
+  pose       -> rtmlib RTMPose extraction -> (M, T, V, C) float16 .npz (§9)
 
 Analysis helpers (not manifest stages):
   kinematics -> rule-based pose features: torso angle, hand velocity

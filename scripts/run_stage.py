@@ -231,7 +231,7 @@ def stage_pose(row, args):
     from multidata import pose
 
     log.info("extracting pose: %s/%s/%s seconds", row["case_id"], row["camera"], row["duration_s"])
-    pose.extract(_abs(row["filepath"]), _out("pose", row, ".pkl"),
+    pose.extract(_abs(row["filepath"]), _out("pose", row, ".npz"),
                 device=args.accel_device, profile=args.profile,
                 detect_every=args.detect_every)
     return {}

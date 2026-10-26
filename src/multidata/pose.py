@@ -7,8 +7,10 @@ Tracker is OFF, deliberately: slot `s` is just the s-th detection in that frame
 and is NOT the same person across frames. Stable identity is deferred work, not
 a pipeline blocker (doc §9).
 
-Output per camera: `data/pose/<case_id>/<camera>.pkl` holding one entry dict
-with `keypoint` (M, T, V, C) and `keypoint_score` (M, T, V), both float32.
+Output per camera: `data/pose/<case_id>/<camera>.npz` holding one entry dict
+with `keypoint` (M, T, V, C) and `keypoint_score` (M, T, V), stored float16 and
+compressed (`save()`), read back as float32 (`load()`). Older outputs are
+float32 `.pkl`; `load()` reads both, `scripts/convert_pose.py` converts.
 `V` (133) is COCO-WholeBody: indices 0-16 are the same 17 body joints, in the
 same order, as plain COCO body (nose=0, ...) -- 17-22 add feet, 23-90 face,
 91-132 the two hands. Anything hardwired to `V == 17` needs updating; nothing
@@ -16,6 +18,7 @@ about the first 17 changed.
 """
 import logging
 import time
+from pathlib import Path
 
 import cv2
 import mmengine
@@ -186,9 +189,45 @@ def extract(video_path, out_path=None, max_persons=MAX_PERSONS,
     }
 
     if out_path is not None:
-        mmengine.dump(entry, str(out_path))
+        save(entry, out_path)
         log.info("wrote %s  (M=%d, T=%d, V=%d, C=%d)", out_path, M, T, num_keypoints, num_coords)
     return entry
+
+
+def save(entry, out_path):
+    """Write an entry as compressed `.npz`, arrays cast to float16.
+
+    ~14x smaller than the float32 pickle: half from float16, the rest from
+    compressing the zero-filled empty slots. float16 spacing is 1.0 between
+    1024 and 2048, so x coordinates on 1280-wide frames lose up to 0.5 px;
+    scores (0-1) lose far less.
+    """
+    np.savez_compressed(
+        str(out_path),
+        keypoint=entry["keypoint"].astype(np.float16),
+        keypoint_score=entry["keypoint_score"].astype(np.float16),
+        frame_dir=np.array(entry["frame_dir"]),
+        total_frames=np.array(entry["total_frames"]),
+        img_shape=np.array(entry["img_shape"]),
+        label=np.array(entry["label"]),
+    )
+
+
+def load(path):
+    """Read an entry from `.npz` (current) or `.pkl` (pre-float16 outputs).
+    Arrays come back float32 either way, so callers never do float16 math."""
+    path = Path(path)
+    if path.suffix == ".pkl":
+        return mmengine.load(str(path))
+    with np.load(path) as z:
+        return {
+            "frame_dir": str(z["frame_dir"]),
+            "total_frames": int(z["total_frames"]),
+            "img_shape": tuple(int(x) for x in z["img_shape"]),
+            "label": int(z["label"]),
+            "keypoint": z["keypoint"].astype(np.float32),
+            "keypoint_score": z["keypoint_score"].astype(np.float32),
+        }
 
 
 def presence(entry):
