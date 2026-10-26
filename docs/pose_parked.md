@@ -21,12 +21,12 @@ and what to do next.**
 
 | | |
 |---|---|
-| Videos processed | **60 done, 1 failed** of 61 — nothing pending |
-| Total material | 32.9 h, mean 32.3 min per video, ~2 cameras per case |
+| Videos processed | **60 done, 1 failed** of the original 61; 8 more (Room 6, 2026-02-16) ingested and running 2026-10-26 |
+| Total material | 32.9 h, mean 32.3 min per video, ~2 cameras per case (original 61) |
 | Model | `rtmlib.Wholebody`, 133 keypoints (COCO-WholeBody) |
-| Runs on | Mac (`mps`) and `tofino` (RTX 5080, `cuda`) — both exercised |
+| Runs on | `tofino` (RTX 5080, `cuda`). The Mac (`mps`) path still works in the code, but the Mac mini is being retired |
 | Throughput | **1.67x realtime** aggregate on the 5080, at `--detect-every 1` |
-| Output | `data/pose/<case_id>/<camera>.pkl` — 23 GB for 60 videos, ~383 MB each |
+| Output | `data/pose/<case_id>/<camera>.npz`, float16 compressed — 1.6 GB for the 60 (~27 MB each; was 23 GB as float32 `.pkl`) |
 
 The RTX 5080 is tofino's permanent card (the original 3070 failed in 2026-07 and
 is gone). That baseline is settled — **don't re-benchmark it.** The CUDA detector
@@ -36,6 +36,17 @@ merged into `main` and confirmed against a full 18-video batch.
 Also settled, don't redo: the `Body` → `Wholebody` switch, and the
 `onnxruntime-gpu` force-reinstall gotcha for fresh `md-pose` envs on Linux
 (documented at the top of `env/pose-nvidia.yml` and in the README quick start).
+
+**Where the current 60 files came from (2026-10-26).** When the machines were
+consolidated, only 18 of tofino's 60 `.pkl` files were Wholebody (the Sep 4
+CUDA batch); the other 42 were left over from the earlier `Body` run, 17
+keypoints. The Mac mini's 60 (Jul 31/Aug 1, `mps`) were all Wholebody, so
+those are the set that was converted to `.npz` and now lives on tofino;
+tofino's old 60 are archived in `~/multidata-archive/2026-10-26_pre-merge/pose/`.
+So the existing 60 are a Mac run and anything new is a CUDA run. On the one
+clip compared (260656/23), the two agree to a median of 1.0 px (95th
+percentile 4.1 px) on confident keypoints — backend numerics, not a model
+difference.
 
 ---
 
@@ -79,25 +90,20 @@ cameras.** Leave it alone until single-camera identity works.
 
 ## What to do when you come back, in order
 
-1. **Change the output format before running any new batch.** Measured on
-   `data/pose/252850/4.pkl` (139.4 MB):
-
-   | | Size | |
-   |---|---|---|
-   | pickle, float32 (current) | 139.4 MB | |
-   | float32 + `np.savez_compressed` | **28.0 MB** | **5.0x, lossless** |
-   | float16 + `np.savez_compressed` | 14.7 MB | 9.5x, but 0.5 px coordinate error |
-
-   The arrays are float32 and 53% zero-padding (unused detection slots), which
-   is where the compression comes from. Writer is
-   [pose.py:190](../src/multidata/pose.py#L190). Take the lossless 5x; float16's
-   extra 2x costs 0.5 px, which is probably fine for kinematics but is a real
-   decision rather than free.
-
-   Do it **first** so a new batch doesn't generate the waste twice — and note it
-   touches readers too (`kinematics.py`, `scripts/sample_pose_overlays.py`), and
-   the 60 existing `.pkl` files need either a conversion pass or a reader that
-   accepts both.
+1. ~~Change the output format before running any new batch.~~ **Done
+   2026-10-26, as float16** (Kate's call: 0.5 px is fine for this data).
+   `pose.save()` writes `<camera>.npz` via `np.savez_compressed` with float16
+   arrays; `pose.load()` reads that or a legacy `.pkl` and always returns
+   float32, so nothing downstream does float16 math.
+   `scripts/sample_pose_overlays.py` reads through `pose.load()`;
+   `kinematics.py` takes an already-loaded entry and needed no change. The 60
+   existing files were converted, not re-run, with `scripts/convert_pose.py`
+   (22.9 GB -> 1.6 GB, 14x), which checks each `.npz` against its `.pkl`
+   before anything is deleted. The bound is 0.5 px for coordinates under
+   2048 px, i.e. anywhere inside a 1920-wide frame; camera 37 records
+   1920x1080 and has a few off-frame, low-confidence extrapolations past
+   2048 px, where float16 rounds to the nearest 2 px, so the check scales
+   with magnitude there.
 
 2. **Solve person identity** — the section above. Prototype against the existing
    60 videos; no re-run needed.
@@ -119,29 +125,25 @@ cameras.** Leave it alone until single-camera identity works.
 
 ---
 
-## Infrastructure that comes back with pose
+## Infrastructure that was going to come back with pose
 
-Both were deliberately deferred *with* pose, because pose is what makes them
-necessary. Neither is needed for transcription validation.
+Both were deferred *with* pose, because pose was what made them necessary.
+**Both are now settled the simple way** (2026-10-26): tofino is the only
+machine that processes, so there is nothing to keep in sync.
 
-- **One copy of the files.** The mini and tofino each keep their own `data/`
-  today, which is the "two boxes out of sync" problem. The answer is the 1 TB
-  shared disk on the private network, mounted at the same path on both machines,
-  so there is one copy rather than two that drift. Pose is the workload that
-  makes this matter — it is both the biggest consumer of raw video and the
-  biggest producer of output.
-- **One copy of the state.** `manifest.sqlite` forks whenever both boxes write
-  `pose_status`, and the `sqlite3 ".backup"` snapshot is a one-way copy, not a
-  sync. The answer is Postgres in a container on tofino, with both boxes pointed
-  at it. That also removes the `--shard i/n` requirement: workers could claim
-  rows atomically instead of pre-slicing the list. See
-  [current_status.md](current_status.md) for why this is deferred and what makes
-  it cheap to do later.
+- **One copy of the files.** The Mac mini and tofino used to keep their own
+  `data/`, and they drifted. Instead of a shared network disk, everything was
+  merged onto tofino, and tofino backs itself up nightly to its `/wddata`
+  array — see [current_status.md](current_status.md), "Machines, data and
+  backups".
+- **One copy of the state.** `manifest.sqlite` forked whenever both boxes
+  wrote `pose_status`. With one writer it can't. Postgres is only needed again
+  if a second machine has to write — and `--shard i/n` stays the way to run
+  several workers on tofino itself.
 
-Sizing, for whenever the corpus grows: pose output as it stands is ~383 MB per
-video against ~143 MB of source video — **pose is bigger than the raw it comes
-from, and would be about two-thirds of total storage at full corpus scale.** Item
-1 above is the cheapest fix available to that.
+Sizing, for whenever the corpus grows: as float16 `.npz`, pose output is
+~27 MB per video against ~143 MB of source video, down from ~383 MB as
+float32 `.pkl`. It is no longer the big storage class — raw video is.
 
 ---
 
@@ -153,7 +155,10 @@ from, and would be about two-thirds of total storage at full corpus scale.** Ite
   works; it doesn't.
 - **`data/pose_overlays/` is 5.7 GB of sample renders**, produced by
   `scripts/sample_pose_overlays.py` for eyeballing. Not an output anything
-  depends on — safe to delete and regenerate.
+  depends on — safe to delete and regenerate. They were never copied to tofino.
+- **Case 261573 (both cameras) is a long recording of an empty room.** Its pose
+  files have someone detected in 0.1–0.3% of frames, and compress to almost
+  nothing. That's the video, not a bug.
 - **The detector is CPU-pinned on `mps` only**, because CoreML crashes at
   inference on YOLOX's dynamic NMS output shape. On CUDA it runs on the GPU.
   That asymmetry is intentional and already correct in the code.
