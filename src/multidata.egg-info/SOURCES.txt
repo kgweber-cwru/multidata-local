@@ -4,6 +4,7 @@ src/multidata/__init__.py
 src/multidata/acoustics.py
 src/multidata/asr.py
 src/multidata/audio.py
+src/multidata/bench_runs.py
 src/multidata/casematch.py
 src/multidata/device.py
 src/multidata/diarize.py
@@ -25,3 +26,17 @@ src/multidata.egg-info/PKG-INFO
 src/multidata.egg-info/SOURCES.txt
 src/multidata.egg-info/dependency_links.txt
 src/multidata.egg-info/top_level.txt
+tests/test_asr_dispatch.py
+tests/test_bench_runs.py
+tests/test_bench_status.py
+tests/test_device.py
+tests/test_elan_export_gold.py
+tests/test_glossary.py
+tests/test_make_kit.py
+tests/test_manifest_gold.py
+tests/test_normalize.py
+tests/test_providers.py
+tests/test_records.py
+tests/test_redact.py
+tests/test_run_benchmark.py
+tests/test_submit_checks.py
