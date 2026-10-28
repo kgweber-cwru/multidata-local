@@ -77,14 +77,16 @@ Everything below either serves that or is explicitly parked.
 
 **Active:**
 
-1. **Getting a second annotator producing gold, somehow.** The cloud
-   remote-desktop attempt at this is dead — see "Annotation environment
-   abandoned" below, which is also where to start if you're picking this back
-   up. `annotation/make_kit.py`, `submit_checks.py`, and `pull_submission.py`
-   survived and are still useful regardless of what replaces the delivery
-   mechanism. **No delivery mechanism is currently chosen.**
+1. **Annotation is running, through Box** (since 2026-10). Kits are built
+   on tofino and shared through per-annotator Box folders; finished passes
+   come back to tofino. The workflow is in
+   [../annotation/README.md](../annotation/README.md), and
+   `annotation/assignments.csv` says who has which pass. Four annotators
+   (Kate, Kelli, Shruti, Xiaomei). The cloud remote desktop tried before
+   that is dead -- "Annotation environment abandoned" below.
 2. **More gold references.** The first campaign is 5–10 hours of video, to be
-   selected by the people who need the gold. Two references exist today.
+   selected by the people who need the gold. None exist today: the first
+   pass 2s are in progress (see "What's actually built" below).
 3. **The first cloud ASR adapter**, now that IRB has cleared vendor inference —
    but build the `cloud_release` interlock first (see below).
 
@@ -260,9 +262,16 @@ tested, and merged to `main`. Read the implementation plan for the detailed
 phase-by-phase state — this section is the part that plan can't show: how
 much of it has touched real data.
 
-**Two real gold references exist**: cases `261456` and `261473`
-(`benchmarks/references/<case>.gold.{txt,rttm}`, both recorded in the
-manifest's `gold` table). Scores so far:
+**There is no gold right now (2026-10-28).** The three references that
+existed -- 252848, 261456 and 261473, all annotated by Kate -- went straight
+from pass 1 to export, with no pass 2. They were withdrawn: the files are
+out of `benchmarks/references/` (still in git history), their rows are out
+of the manifest's `gold` table, and the `.eaf`s are back in
+`annotation/kits/<case>/kate/` as returned pass 1s, to be adjudicated like
+any other ([../annotation/README.md](../annotation/README.md);
+`annotation/assignments.csv` tracks who has what). The scores below were
+measured against those pass-1 references and are kept for the record, but
+re-score once real gold exists:
 
 | Case | Engine | WER | CER |
 |---|---|---|---|
