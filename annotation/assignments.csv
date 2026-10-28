@@ -2,7 +2,7 @@ case_id,camera,duration_min,pass,annotator,status,assigned_on,returned_on,file,n
 252848,24,64.0,1,kate,returned,,2026-10-16,annotation/kits/252848/kate/252848.pass1.eaf,"Excerpt: 2880.955 s to the end (16 min, the feedback section). Made against a redacted copy of that excerpt; times shifted to the full recording. Was exported as gold without a pass 2; moved back to pass 1 2026-10-28."
 261456,16,20.1,1,kate,returned,,2026-08-25,annotation/kits/261456/kate/261456.pass1.eaf,"Was exported as gold without a pass 2; moved back to pass 1 2026-10-28."
 261473,23,20.2,1,kate,returned,,2026-08-31,annotation/kits/261473/kate/261473.pass1.eaf,"Was exported as gold without a pass 2; moved back to pass 1 2026-10-28."
-261456,16,20.1,1,shruti,assigned,2026-10-05,,annotation/kits/261456/shruti/261456.pass1.eaf,"Double annotation with kate's pass 1."
+261456,16,20.1,1,shruti,abandoned,2026-10-05,,annotation/kits/261456/shruti/261456.pass1.eaf,"Dropped 2026-10-28 before she started; removed from Box."
 261505,16,20.1,1,xiaomei,assigned,2026-10-05,,annotation/kits/261505/xiaomei/261505.pass1.eaf,
 261041,10,20.1,1,kate,returned,2026-10-05,2026-10-26,annotation/kits/261041/kate/261041.pass1.eaf,
 261041,10,20.1,2,kelli,assigned,2026-10-28,,annotation/kits/261041/kelli/261041.pass2.eaf,
