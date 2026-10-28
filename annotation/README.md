@@ -11,7 +11,7 @@ the logistics.
 |---|---|---|
 | **tofino** `annotation/kits/<case>/<annotator>/` | every kit as built, and every finished pass once it's back | the master copy, backed up nightly |
 | **tofino** `data/gold/<case>/` | `<case>.gold.eaf`, the adjudicated file `eaf_to_gold.py` exports | gold only |
-| **Box** `Audio and Labeling/<annotator folder>/<case>.pass<N>/` | kits that are out for work, including Kate's own | the courier, and where work in progress lives |
+| **Box** `Audio and Labeling/<annotator folder>/<case>/<annotator>/` | kits that are out for work, including Kate's own | the courier, and where work in progress lives |
 | **laptop** | Box Drive, ELAN, the git checkout | where Kate works; holds nothing that isn't also in Box or on tofino |
 | **git** `annotation/assignments.csv` | who has which pass, and where it is | the tracker -- edit it at every step |
 
@@ -30,27 +30,30 @@ goes into git.
    Add `--span-start/--span-end` for an excerpt.
 
 2. **Send it** (laptop):
-   `scp -r tofino:projects/multidata-local/annotation/kits/<C>/<A> "$BOX/<A's folder>/<C>.pass1"`
-   Keep the folder whole -- the `.eaf` finds its media through the `media/`
+   `mkdir -p "$BOX/<A's folder>/<C>" && scp -r tofino:projects/multidata-local/annotation/kits/<C>/<A> "$BOX/<A's folder>/<C>/"`
+   Box then mirrors tofino: `<folder>/<C>/<A>/` is `kits/<C>/<A>/`, and the
+   file name says which pass it is. Keep the folder whole -- the `.eaf` finds its media through the `media/`
    folder beside it. Add a row to `assignments.csv`: `assigned`.
 
 3. **Work.** The annotator saves in place, same file name, same folder, and
    tells Kate when they're done.
 
 4. **Bring pass 1 back** (laptop):
-   `scp "$BOX/<A's folder>/<C>.pass1/<C>.pass1.eaf" tofino:projects/multidata-local/annotation/kits/<C>/<A>/`
+   `scp "$BOX/<A's folder>/<C>/<A>/<C>.pass1.eaf" tofino:projects/multidata-local/annotation/kits/<C>/<A>/`
    then on tofino, `python annotation/submit_checks.py annotation/kits/<C>/<A>/<C>.pass1.eaf`.
    From now on that copy is frozen: nobody edits it. `returned`.
 
-5. **Make the pass-2 kit** (tofino) -- the same kit with the pass-1 file
-   renamed:
+5. **Make the pass-2 kit** (tofino) -- A's kit, same media, with the
+   returned pass-1 file renamed (`make_kit.py` only builds pass-1 kits):
    ```bash
    cd annotation/kits/<C>
    cp -r <A> <B> && rm -f <B>/*.pfsx <B>/*.eaf.0*
    mv <B>/<C>.pass1.eaf <B>/<C>.pass2.eaf
+   sed -i 's/"annotator": "<A>"/"annotator": "<B>"/; s/<C>.pass1.eaf/<C>.pass2.eaf/' <B>/kit.json
    ```
-   Send it as in step 2, to `"$BOX/<B's folder>/<C>.pass2"`. New row:
-   pass 2, `assigned`. If B is Kate, her Box folder is `kate`.
+   Then edit `<B>/README.txt` to say it's pass 2. Send it as in step 2, to
+   `"$BOX/<B's folder>/<C>/"`. New row: pass 2, `assigned`. If B is Kate,
+   her Box folder is `kate`.
 
 6. **Bring pass 2 back** as in step 4 (`<C>.pass2.eaf`, into
    `kits/<C>/<B>/`), check it, then make it gold (tofino):
