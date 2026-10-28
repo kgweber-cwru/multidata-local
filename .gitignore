@@ -13,6 +13,7 @@ benchmarks/cache/
 *.mp3
 *.wav
 *.pkl
+*.npz
 .env
 __pycache__/
 *.eaf.bak

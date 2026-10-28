@@ -6,18 +6,67 @@ commit and now badly stale), this is meant to travel with a `git clone` and
 stay current. Update it whenever a session ends with real state changed;
 delete stale sections rather than letting them rot.
 
-**Last updated:** 2026-09-23 — **the cloud annotation environment was torn
-down: audio was not robust on frequent, repeated replays, which is
-disqualifying for a task that's entirely about listening. Read "Annotation
-environment abandoned" below before touching `annotation/` or restarting
-that effort.**
-Pose is still parked — see [pose_parked.md](pose_parked.md) before touching
-anything pose-related. Earlier: 2026-09-14 pose parked in favor of
-transcription validation; 2026-09-10 IRB cleared third-party vendor inference
-(unblocking Phase 4); 2026-09-04 folded in Kate's second gold case (261473) on
-top of the Phase 1/2 merge (`b70a592`). All 205 tests pass
-(`conda activate md-speech && python -m pytest -q`) — up from 178, from the
-annotation package's surviving unit tests.
+**Last updated:** 2026-10-26 — **everything now lives and runs on `tofino`.**
+The three copies of this project (tofino, the Mac mini, Kate's MacBook Air)
+had drifted apart; they were merged into one, tofino became the only machine
+that processes or writes the manifest, and it backs itself up nightly to its
+`/wddata` array. Read "Machines, data and backups" below before running
+anything anywhere else. Same day: pose output switched to float16 `.npz`
+(23 GB -> 1.6 GB for the existing 60), and the four Room 6 cases from
+2026-02-16 (260706, 260730, 260754, 260778) were ingested — 260706 had been
+impossible to cross-reference to video because no copy had its file.
+
+Earlier: 2026-09-23 the cloud annotation environment was torn down (read
+"Annotation environment abandoned" below before touching `annotation/`);
+2026-09-14 pose parked in favor of transcription validation (see
+[pose_parked.md](pose_parked.md)); 2026-09-10 IRB cleared third-party vendor
+inference (unblocking Phase 4); 2026-09-04 folded in Kate's second gold case
+(261473) on top of the Phase 1/2 merge (`b70a592`). 205 tests pass in
+`md-speech` (`python -m pytest -q`); the 5 pose I/O tests run in `md-pose`.
+Every env has pytest now — see [../tests/README.md](../tests/README.md).
+
+---
+
+## Machines, data and backups (2026-10-26)
+
+| Machine | Role |
+|---|---|
+| **`tofino`** (Linux, RTX 5080), `~/projects/multidata-local` | **Everything.** All stages, ingest, `eaf_to_gold`, benchmarks. The only copy of `data/` that matters and **the only machine that writes `manifest.sqlite`.** |
+| Kate's MacBook Air | Development. Code moves through GitHub. Its `data/` and manifest are a leftover copy from the merge, not kept current. |
+| CWRU Mac mini (`cwru-fqqnwkvg67`, user `kxw680`) | Being retired. Everything unique on it was copied to tofino on 2026-10-26. |
+
+**The rule: one writer.** Only tofino writes the manifest. Never `rsync` or
+`cp` `manifest.sqlite` between machines — that is how the copies forked. If a
+copy is ever needed elsewhere, take it with `sqlite3 manifest.sqlite ".backup
+<path>"` and treat it as read-only.
+
+**What the merge found and did.** The three manifests agreed on cases and
+matches but had drifted on processing status (tofino was behind on ASR,
+diarization and ELAN), and their `gold` tables had colliding ids. They were
+merged with these rules: union by primary key; the most advanced status wins
+(`pending` < `failed` < `skipped` < `done`); gold rows matched by case and
+renumbered (252848, 261456, 261473). Files missing on tofino were copied
+over from both Macs. Everything that got replaced is archived in
+`~/multidata-archive/2026-10-26_pre-merge/` on tofino and on the MBA.
+
+**Paths in the manifest are repo-relative.** `filepath` always was;
+`audio_path` used to be absolute, which pointed tofino's copy at
+`/Users/kxw680/...`. `run_stage.py` now stores both relative to the repo root
+and resolves them against it, so stages don't depend on the working directory
+and a manifest is portable between checkouts.
+
+**Backups.** `scripts/backup_to_raid.sh` runs from tofino's crontab at 02:30
+and writes to `/wddata/multidata-backup/`: a mirror of the checkout (`.git`
+and raw video included) plus 60 days of dated manifest snapshots and of files
+the mirror deleted or overwrote. Layout, how to check it, how to restore, and
+why `chown` does nothing on that NTFS array are in
+[running_job_notes.md](running_job_notes.md). Raw video can be re-exported
+from the recording system on demand; the irreplaceable data is the manifest
+and the annotation/gold `.eaf` files.
+
+**Storage.** tofino's SSD has ~690 GB free and the array ~13 TB. With pose as
+float16, the full corpus (1,307 cases, ~2,500 videos) projects to roughly
+0.5 TB, mostly raw video — it fits.
 
 ---
 
@@ -28,14 +77,16 @@ Everything below either serves that or is explicitly parked.
 
 **Active:**
 
-1. **Getting a second annotator producing gold, somehow.** The cloud
-   remote-desktop attempt at this is dead — see "Annotation environment
-   abandoned" below, which is also where to start if you're picking this back
-   up. `annotation/make_kit.py`, `submit_checks.py`, and `pull_submission.py`
-   survived and are still useful regardless of what replaces the delivery
-   mechanism. **No delivery mechanism is currently chosen.**
+1. **Annotation is running, through Box** (since 2026-10). Kits are built
+   on tofino and shared through per-annotator Box folders; finished passes
+   come back to tofino. The workflow is in
+   [../annotation/README.md](../annotation/README.md), and
+   `annotation/assignments.csv` says who has which pass. Four annotators
+   (Kate, Kelli, Shruti, Xiaomei). The cloud remote desktop tried before
+   that is dead -- "Annotation environment abandoned" below.
 2. **More gold references.** The first campaign is 5–10 hours of video, to be
-   selected by the people who need the gold. Two references exist today.
+   selected by the people who need the gold. None exist today: the first
+   pass 2s are in progress (see "What's actually built" below).
 3. **The first cloud ASR adapter**, now that IRB has cleared vendor inference —
    but build the `cloud_release` interlock first (see below).
 
@@ -46,11 +97,11 @@ Everything below either serves that or is explicitly parked.
   the one gap that blocks everything downstream (pose output has no person
   identity), and what to do first on return. Read that rather than reconstructing
   it.
-- **Postgres for the manifest.** Agreed as the right destination, deliberately
-  *not* next. It solves the two-machine fork problem — `manifest.sqlite` forking
-  when both boxes write `pose_status` — and that problem is parked with pose.
-  Near-term transcription work is single-machine on the mini, where a file-based
-  database has nothing to reconcile. Meanwhile the cost is real: a driver in all
+- **Postgres for the manifest.** No longer needed for the reason it was
+  planned. It was the fix for the two-machine fork problem (`manifest.sqlite`
+  forking when both boxes wrote `pose_status`), and since 2026-10-26 there is
+  only one writer, tofino, so a file-based database has nothing to reconcile.
+  It comes back only if a second machine ever has to write. The cost is real: a driver in all
   three conda envs including the deliberately-minimal `md-pose`
   ([manifest.py:21](../src/multidata/manifest.py#L21) says "stdlib `sqlite3` on
   purpose"), a server that must be up before anything runs, and a test suite that
@@ -60,21 +111,21 @@ Everything below either serves that or is explicitly parked.
   `manifest.py`, and nothing else in the repo imports `sqlite3`. Keep it that way
   and the move stays a contained job. When it happens, it goes in a container on
   tofino, with nightly dumps to somewhere that isn't tofino.
-- **One shared copy of `data/`** on the private network's 1 TB disk. Same
-  reasoning: it's the fix for two machines drifting, and that's the parked
-  pipeline. Annotation doesn't need it — a case kit is ~230 MB.
-- **The production pipeline** that sends everything somewhere for long
-  processing (probably tofino). Aware of it, not designing it yet.
+- ~~One shared copy of `data/` on the private network's 1 TB disk.~~
+  Superseded 2026-10-26: `data/` lives on tofino alone, so nothing drifts.
+- **The production pipeline** for the full corpus. It will run on tofino;
+  what's not designed yet is the scripted ingest from the recording system
+  (pipeline doc §4b).
 
 **Settled, don't re-litigate:**
 
-- **Where the data lives.** Irreplaceable bytes (raw video, gold `.eaf`) belong
-  in one authoritative place with a backup; regenerable bytes (pose, wav,
-  transcripts) are caches and should not be synced between machines. The mini has
-  313 GB free and the full corpus projects to ~1.5 TB as things stand, so the mini
-  is not the long-term home — but with pose parked and the near-term job at 5–10
-  hours of video (~4 GB), that deadline is not close.
-- **The network shape.** The mini and tofino sit on a private network that can
+- **Where the data lives.** On tofino, in one authoritative place, with a
+  nightly backup to its `/wddata` array (see "Machines, data and backups"
+  above). Irreplaceable: the manifest and gold/annotation `.eaf` files. Raw
+  video can be re-exported from the recording system on demand. Everything
+  else (pose, wav, transcripts) can be regenerated, and none of it is synced
+  between machines.
+- **The network shape.** tofino (like the Mac mini before it) sits on a private network that can
   reach out but cannot be reached in, and annotators at home or on campus cannot
   see it either way. Still true, still relevant to whatever comes next — it's
   what made a cloud-hosted delivery mechanism the obvious choice in the first
@@ -211,9 +262,16 @@ tested, and merged to `main`. Read the implementation plan for the detailed
 phase-by-phase state — this section is the part that plan can't show: how
 much of it has touched real data.
 
-**Two real gold references exist**: cases `261456` and `261473`
-(`benchmarks/references/<case>.gold.{txt,rttm}`, both recorded in the
-manifest's `gold` table). Scores so far:
+**There is no gold right now (2026-10-28).** The three references that
+existed -- 252848, 261456 and 261473, all annotated by Kate -- went straight
+from pass 1 to export, with no pass 2. They were withdrawn: the files are
+out of `benchmarks/references/` (still in git history), their rows are out
+of the manifest's `gold` table, and the `.eaf`s are back in
+`annotation/kits/<case>/kate/` as returned pass 1s, to be adjudicated like
+any other ([../annotation/README.md](../annotation/README.md);
+`annotation/assignments.csv` tracks who has what). The scores below were
+measured against those pass-1 references and are kept for the record, but
+re-score once real gold exists:
 
 | Case | Engine | WER | CER |
 |---|---|---|---|

@@ -12,6 +12,14 @@ from 1 → a few → potentially 300–400 videos.
 > pose estimation (§9) also runs on a second, Linux/CUDA machine — everything
 > else in this guide is Mac-only.
 
+> **Since 2026-10-26 the whole pipeline runs on `tofino`** (Linux, RTX 5080),
+> the only machine that holds `data/` and writes `manifest.sqlite`; the Mac
+> mini is being retired. The stages, envs and conventions below are unchanged
+> (both `md-pose` variants still build), but read "Mac" as historical
+> context. Which machine does what, and the nightly backup, are in
+> [docs/current_status.md](docs/current_status.md) ("Machines, data and
+> backups").
+
 ---
 
 ## 0. Design principles (why the layout below looks the way it does)
@@ -125,6 +133,7 @@ logs/
 *.mp3
 *.wav
 *.pkl
+*.npz
 manifest.sqlite
 .env
 __pycache__/
@@ -188,7 +197,7 @@ filename. `ingest.summarize()` parses the filename and folds `camera`,
 ffprobe/hash facts; `casematch.resolve()` supplies the `case_id` separately —
 `manifest.add_video(case_id=casematch.resolve(path), **ingest.summarize(path))`
 registers a video in one call. Artifacts mirror the `(case_id, camera)` grain:
-`data/audio/<case_id>/41.wav`, `data/pose/<case_id>/41.pkl`, where `case_id`
+`data/audio/<case_id>/41.wav`, `data/pose/<case_id>/41.npz`, where `case_id`
 is a real case_id — an Excel sheet title, e.g. `252848` — never the
 filename's time field (`132704` in the example above), despite the
 coincidental resemblance that misled earlier versions of this doc.
@@ -269,7 +278,7 @@ dependencies:
   - pip:
       - rtmlib
       - onnxruntime                 # CPU; CoreML EP optional (see §9)
-      - mmengine                    # for the .pkl dump format you already use
+      - mmengine                    # reads legacy pose .pkl (output is .npz since 2026-10)
       - opencv-python numpy
 ```
 
@@ -676,8 +685,12 @@ benchmark you can't attribute to an exact config is noise.
 
 `src/multidata/pose.py` runs rtmlib's **`Wholebody`** (not `Body`) — 133
 COCO-WholeBody keypoints (body+feet+face+hands) rather than the plain 17-point
-COCO body layout. Per camera → `data/pose/<case_id>/<camera>.pkl`, `(M, T, V,
-C)` / `(M, T, V)`. Indices 0–16 of the 133 are the *same* 17 body joints, same
+COCO body layout. Per camera → `data/pose/<case_id>/<camera>.npz`, `(M, T, V,
+C)` / `(M, T, V)`, stored float16 and compressed by `pose.save()` (~27 MB per
+video; up to 0.5 px coordinate error inside a 1920-wide frame) and read back
+as float32 by `pose.load()`, which also reads the float32 `.pkl` files written
+before 2026-10-26 (`scripts/convert_pose.py` converts those; see
+`docs/pose_parked.md`). Indices 0–16 of the 133 are the *same* 17 body joints, same
 order, as plain `Body` output (nose=0, ...) — `kinematics.py` only reads that
 prefix, so it works unchanged against either.
 
@@ -727,9 +740,10 @@ prefix, so it works unchanged against either.
   (stale) bbox can lag a fast-moving person.
 
 **This answers what §11 originally left open ("does pose stay local, or move
-to GPU/cloud?"):** pose now runs split across **two machines** simultaneously,
-both driven by the same `run_stage.py pose` against `manifest.sqlite`:
-- The **Mac** (this machine, Apple Silicon / `mps`).
+to GPU/cloud?"):** through 2026-10, pose ran split across **two machines**,
+both driven by the same `run_stage.py pose` against their own copies of
+`manifest.sqlite`:
+- The **Mac mini** (Apple Silicon / `mps`), now being retired.
 - A Linux box, hostname **`tofino`** (CUDA, `--accel-device cuda`), now
   permanently on an RTX 5080. Its original RTX 3070 failed in 2026-07
   mid-batch; the CUDA-specific tweaking that was sitting uncommitted on that
@@ -738,11 +752,14 @@ both driven by the same `run_stage.py pose` against `manifest.sqlite`:
   a full production batch on the 5080 (2026-09) — see
   `docs/running_job_notes.md` for that batch's results.
 
-`manifest.sqlite` moves between the two via `sqlite3 manifest.sqlite ".backup
-<path>"` snapshots, **never** raw `cp`/`rsync` on the live file (risk of a
-torn read while a job has it open). This is a one-way snapshot, not a live
-sync — the two copies fork the moment both machines start writing
-`pose_status`, and need manual merging back later.
+That split is what forked the manifest: each machine wrote its own copy, and
+the copies drifted until a three-way merge on 2026-10-26 (tofino, the mini,
+and Kate's MacBook Air). **Since then pose, like every stage, runs on tofino
+alone, and tofino is the only machine that writes `manifest.sqlite`.** If a
+copy is needed anywhere else, take a `sqlite3 manifest.sqlite ".backup
+<path>"` snapshot — **never** raw `cp`/`rsync` on the live file (risk of a
+torn read while a job has it open) — and treat it as read-only. See
+[docs/current_status.md](docs/current_status.md).
 
 **Running more than one worker against the same manifest requires
 `--shard i/n`** (e.g. `--shard 0/2` / `--shard 1/2`): `manifest.pending()` has
@@ -821,6 +838,12 @@ filename; it's resolved by `casematch.resolve()` (§2/§4) by matching
 and persisted via `src/multidata/manifest.py`. `audio_status` was added so the
 §5 stage is resumable like the rest.)
 
+`filepath` and `audio_path` are stored **relative to the repo root**
+(`data/raw/...`, `data/audio/<case_id>/<camera>.wav`), and `run_stage.py`
+resolves them against the root, not the working directory. `audio_path` was
+absolute until 2026-10-26, which made a manifest copied between machines
+point at the other machine's files.
+
 `*_status` ∈ `{pending, done, failed, skipped}`. Every stage reads the manifest,
 processes only `pending` video rows, writes outputs, and updates status. That
 gives you **idempotent, resumable batch runs** — kill it overnight, restart, it
@@ -892,13 +915,12 @@ but a few things dominate whether this works:
 ### Compute is the real constraint, and **pose is the bottleneck** (decided; see §9)
 Original napkin math that drove this: ~10 min to process ~60 s of Body pose on
 a laptop — ~10x slower than real time. At 400 videos x 20 min x 10x realtime,
-that's **1,300+ hours** on one machine — not feasible. This is now resolved,
-not hypothetical: pose runs split across **two machines** at once (this Mac +
-the Linux `tofino` box), each running its own `--shard` of `run_stage.py
-pose`, with `--detect-every` cutting the CPU-bound detector's share of the
-work (confirmed via `--profile` to be ~85-93% of wall-clock, not the pose
-network). Full detail, including the current device/model choices and the
-tofino GPU-meltdown/merge risk, is in §9.
+that's **1,300+ hours** on one machine — not feasible on a laptop-class CPU.
+This is now resolved, not hypothetical: on tofino's RTX 5080 pose runs at
+**1.67x realtime** with detector and pose network both on CUDA, so the whole
+corpus is weeks of unattended GPU time, not months. (Pose ran split across
+the Mac and tofino through 2026-10 — that's what forked the manifest; it is
+tofino-only now.) Full detail, including the device/model choices, is in §9.
 - ASR (`faster_whisper`) and diarization are far cheaper (faster-than-realtime
   on Apple Silicon); they finished on the Mac alone with no need to split.
 - Design for **overnight, unattended, resumable** batch runs (that's what §10
@@ -914,23 +936,21 @@ tofino GPU-meltdown/merge risk, is in §9.
     used to say "300–400 multi-camera videos is terabytes of raw" — at the
     measured rate that's ~57 GB, and even the manifest's full 1,307 cases
     (~2,600 videos) is ~372 GB of raw.
-  - **Pose output is the big class** — bigger than the video it comes from, and
-    about two-thirds of projected total storage (~1 TB at full corpus). It is
-    also the most compressible: float32 arrays in raw pickle, 53% zero-padding,
-    measured **5x smaller losslessly** with `savez_compressed`. Fixing the writer
-    is the cheapest storage decision available, and it's item 1 in
-    [docs/pose_parked.md](docs/pose_parked.md).
-  - Full corpus projects to **~1.5 TB as things stand, ~0.7 TB with the pose
-    format fixed.**
+  - **Pose output was the big class** — as float32 pickle, bigger than the
+    video it came from and about two-thirds of projected storage. **Fixed
+    2026-10-26:** the writer now saves float16 through `savez_compressed`
+    (the arrays are mostly zero-padding), ~27 MB per video, 14x smaller —
+    see §9 and [docs/pose_parked.md](docs/pose_parked.md).
+  - Full corpus now projects to **~0.5 TB**, mostly raw video (it was ~1.5 TB
+    with the old pose format).
   - The planning figure of 300–400 videos is itself about 7x under what the
     manifest holds (1,307 cases). Size for the corpus, not the sample.
-- The Mac mini has **313 GB free** against those numbers, and a loaned device is
-  the wrong long-term home for PHI regardless. Plan storage and a **backup**
-  strategy early — raw is irreplaceable, derived is regenerable, and right now
-  the irreplaceable copy is single. With pose parked and the near-term job at
-  5–10 hours of video (~4 GB), this is not urgent, but it is arithmetic rather
-  than preference: the mini runs out somewhere around 500–900 videos depending on
-  the pose format.
+- **Where it lives (settled 2026-10-26):** tofino, with ~690 GB free on its SSD
+  — enough for the full corpus — and a nightly backup to its 15 TB `/wddata`
+  array (`scripts/backup_to_raid.sh`; see
+  [docs/running_job_notes.md](docs/running_job_notes.md)). Raw video turned out
+  not to be irreplaceable: the recording system re-exports it on demand. The
+  irreplaceable data is the manifest and the gold/annotation `.eaf` files.
 - **IRB / consent tracking is a pipeline field, not paperwork off to the side.**
   Put `consent_ref` in the manifest and *refuse to process* rows without it.
 - Consider a **de-identification** stage (face blurring for shareable clips; PHI
@@ -965,8 +985,9 @@ tofino GPU-meltdown/merge risk, is in §9.
 2. **~5 videos**, batch-driven via the manifest + `run_stage.py`. Prove
    resumability and measure real per-stage timings on the mini.
 3. **Extrapolate compute/storage** from (2). *Then* decide: does pose stay local,
-   or move to GPU/cloud? Does raw storage stay on the mini? *(Decided — see §9:
-   pose splits across the Mac and a Linux CUDA box via `--shard`.)*
+   or move to GPU/cloud? Does raw storage stay on the mini? *(Decided: since
+   2026-10-26 everything — every stage and all storage — is on tofino, the
+   Linux CUDA box; see §9 and docs/current_status.md.)*
 4. **Scale up** only once (1)–(3) hold, adding the scripted ingest (§4b) and
    de-id stage as needed.
 
@@ -985,12 +1006,18 @@ ffmpeg -i in.mp4 -vn -ac 1 -ar 16000 -sample_fmt s16 out.wav
 # run a stage across all pending rows
 python scripts/run_stage.py audio
 python scripts/run_stage.py asr
-python scripts/run_stage.py pose --accel-device mps --detect-every 5
+python scripts/run_stage.py pose --accel-device cuda
 
-# pose split across 2+ concurrent workers against the same manifest (§9) --
+# 2+ concurrent workers against the same manifest, on the same machine (§9) --
 # every active worker needs the same total, e.g. both 0/2 and 1/2, not mixed
-python scripts/run_stage.py pose --accel-device mps --detect-every 5 --shard 0/2
-python scripts/run_stage.py pose --accel-device cuda --detect-every 5 --shard 1/2
+python scripts/run_stage.py pose --accel-device cuda --shard 0/2
+python scripts/run_stage.py pose --accel-device cuda --shard 1/2
+
+# legacy float32 pose .pkl -> float16 .npz (verifies each file before deleting)
+python scripts/convert_pose.py --write --delete-pkl
+
+# nightly backup to /wddata (cron runs this at 02:30; safe to run by hand)
+scripts/backup_to_raid.sh; cat /wddata/multidata-backup/LAST_SUCCESS
 
 # export a hand-annotated .eaf to a scoreable gold reference, then score an
 # engine against it (--case/--audio are required, not optional)
@@ -1005,5 +1032,5 @@ python scripts/bench_status.py
 For whatever's actually running right now (PIDs, log paths, how to check in
 remotely), see [`docs/running_job_notes.md`](docs/running_job_notes.md).
 
-*This is a living document. Update it as the mini reveals real timings and the
+*This is a living document. Update it as tofino reveals real timings and the
 source-system ingest gets figured out.*

@@ -1,8 +1,11 @@
 # multidata-local
 
-Clean-room prototype of the multidata pipeline on the CWRU Mac mini (Apple
-Silicon): from raw clinical-interaction video → **speech transcripts, timing,
-diarization, ELAN, pose estimation**, plus an **ASR benchmarking** wing.
+Clean-room prototype of the multidata pipeline: from raw clinical-interaction
+video → **speech transcripts, timing, diarization, ELAN, pose estimation**,
+plus an **ASR benchmarking** wing. Built on the CWRU Mac mini (Apple Silicon);
+since 2026-10-26 everything runs on **`tofino`** (Linux, RTX 5080), the only
+machine that holds the data and writes the manifest — see
+[docs/current_status.md](docs/current_status.md).
 
 Deliberately *not* a fork of the thrashed `multidata` repo — only known-good code
 is carried over.
@@ -24,8 +27,9 @@ is carried over.
    — the build checklist for the spec above: what's done, what's deliberately
    deferred, and why.
 6. **[docs/running_job_notes.md](docs/running_job_notes.md)** — PIDs, log
-   paths, and check-in commands for launching/checking a pose batch. Nothing is
-   running right now: **pose is parked**, and
+   paths, and check-in commands for jobs on tofino, plus the nightly backup to
+   `/wddata` (checking it, restoring from it). Pose as a research direction is
+   **parked**, though the stage still runs on newly ingested video;
    **[docs/pose_parked.md](docs/pose_parked.md)** is the resumption note — where
    the work got to, what blocks it, and what to do first when it comes back.
 
@@ -42,15 +46,15 @@ src/multidata/  stages: manifest, ingest, audio, asr, diarize, elan, pose
 scripts/        run_stage.py — manifest-driven, resumable batch runner
                 eaf_to_gold.py — hand-annotated .eaf -> a scoreable gold reference
                 bench_status.py — one-screen view of gold coverage + scores
+                convert_pose.py — legacy float32 pose .pkl -> float16 .npz
+                backup_to_raid.sh — tofino's nightly backup to /wddata (cron)
 benchmarks/     ASR benchmarking wing
                 configs/    providers.yaml, glossary.yaml — the capability/term registries
                 references/ tracked gold references (<case_id>.gold.txt/.rttm)
                 results/    tracked runs.csv (append-only provenance ledger)
                 runs/, cache/  GITIGNORED — per-run detail + response cache (see spec §7/§9)
-annotation/     kit-building tools (make_kit.py, submit_checks.py,
-                pull_submission.py) that survived the abandoned cloud
-                remote-desktop attempt -- see annotation/README.md and
-                docs/current_status.md's "Annotation environment abandoned"
+annotation/     hand-annotation workflow (kits via Box, pass 1 -> pass 2 -> gold)
+                and assignments.csv, who has which pass -- see annotation/README.md
 elan/           template.etf — the versioned annotation template
 docs/           guides
 tests/          pytest — see tests/README.md for what is/isn't covered
@@ -91,8 +95,13 @@ conda activate md-speech && python scripts/run_stage.py audio
 conda activate md-speech && python scripts/run_stage.py asr      # --engine whisperx
 conda activate md-pose   && python scripts/run_stage.py pose
 
-# tests (md-speech only; everything else has no pytest/pyyaml installed)
+# tests -- every env has pytest; md-speech runs all but the pose I/O tests,
+# which need the pose stack and run in md-pose (see tests/README.md)
 conda activate md-speech && python -m pytest -q
+conda activate md-pose   && python -m pytest -q tests/test_pose_io.py
+
+# convert any legacy float32 pose .pkl to float16 .npz (verifies, then deletes)
+conda activate md-pose   && python scripts/convert_pose.py --write --delete-pkl
 
 # once you have a gold .eaf: export it, then score an engine against it
 conda activate md-speech && python scripts/eaf_to_gold.py --eaf <path.eaf> --case <case_id>
@@ -108,7 +117,7 @@ by module** — know which is which before trusting a run:
 
 | Module | State |
 |---|---|
-| `pose.py`, `kinematics.py` | **Settled and running now** (commit `aaf0a9b`): `rtmlib.Wholebody` (133 keypoints), device auto-detect (mps/cuda), `--detect-every` frame-skip, `--shard` for concurrent workers. Split across this Mac and a Linux CUDA box (`tofino`) — see pipeline doc §9 and `docs/running_job_notes.md` |
+| `pose.py`, `kinematics.py` | **Settled and running now** (commit `aaf0a9b`): `rtmlib.Wholebody` (133 keypoints), device auto-detect (mps/cuda), `--detect-every` frame-skip, `--shard` for concurrent workers. Runs on `tofino` (CUDA); writes float16 `.npz` (`pose.save()`/`pose.load()`, ~27 MB per video) — see pipeline doc §9, `docs/pose_parked.md` and `docs/running_job_notes.md` |
 | `elan.py` | Promoted from `transcription_suite.ipynb`; **ran on real transcripts**, any engine |
 | `acoustics.py` | Promoted from `praat_maker.ipynb`; **ran on real audio** |
 | `ingest.py`, `audio.py`, `manifest.py`, `run_stage.py` | **Ran end-to-end on real cases** — ingest, audio, asr, elan stages all exercised |
@@ -116,8 +125,8 @@ by module** — know which is which before trusting a run:
 | `eaf_to_gold.py`, `run_benchmark.py`, `bench_status.py` | **Ran end-to-end on a real case** (261456) — export, live/cached/cache-hit scoring, excerpt-span filtering, and the status view all exercised, not just sketched. First real comparison already in: `whisperx_disfluent` (WER .29) beat `whisperx` (WER .41) on that one case — one data point, not yet a pattern. |
 | `normalize.py`, `redact.py`, `records.py`, `providers.py`, `glossary.py`, `bench_runs.py` | New this round, pure/tested modules underlying the above — see [asr_provider_spec.md](docs/asr_provider_spec.md) |
 
-**178 tests pass** (`python -m pytest -q` in `md-speech`) — see `tests/README.md`
-for what is and isn't covered. See pipeline doc §11 for the 1 → few → scale
+**205 tests pass** in `md-speech`, plus 5 pose I/O tests in `md-pose` — see
+`tests/README.md` for what is and isn't covered. See pipeline doc §11 for the 1 → few → scale
 phasing.
 
 **ASR direction:** Whisper + pyannote run locally. Transcription Suite (the old
