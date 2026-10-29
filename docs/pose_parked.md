@@ -86,6 +86,89 @@ Two plausible routes, neither investigated:
 A second, harder identity problem sits behind it: **the same person across two
 cameras.** Leave it alone until single-camera identity works.
 
+### Mirrors: phantom people (found 2026-10-29)
+
+Every exam room we've looked at has a wall mirror, and at least one camera in
+each room sees it: rooms 7 (cams 24 and 33), 11 (16), 13 (290), 14 (13) and
+00 LA (327). These are from spot-check stills, not a full survey. **The pose model detects reflections as people.** Case 255387, camera
+327: across the whole video there are on average 1.2 reflected "people" per
+frame, and 1.9 per frame during the 2:25–3:10 demo clip. That's more
+reflections than real people. This is why that camera reports 4 people in
+almost half its frames, though only two people are in the room.
+
+Why it's hairy rather than a quick mask:
+
+- **Real people overlap the mirror.** A learner standing at the chair has their
+  head in the mirror's area of the frame. Masking every keypoint inside the
+  mirror cuts off real heads, and masking by bounding box drops real people.
+- **Reflections look like whole, confident bodies.** Detection scores alone
+  won't filter them out.
+- **They hit everything downstream.** They take up slots (only 4 per frame, so
+  a reflection can push out a real person), they create false learner/patient
+  candidates for identity, and in 3D work a reflection is effectively a third
+  "camera" whose geometry is mirrored.
+
+What worked for the demo (`255387_two_view_2m25-3m10.mp4`): draw a mirror
+outline by hand for each camera, and call a detection a reflection when ≥ 80%
+of its confident body keypoints fall inside that outline. That's enough for a
+45-second clip on a fixed camera. It isn't a pipeline answer: the outline is
+per camera, has to be redrawn whenever the camera moves, and hasn't been
+checked in other rooms. Better routes, neither tried yet: tag mirror outlines
+per camera in `db_seed/camera_rooms.csv`, or flag a detection that is the
+mirror image of a real person in the same frame.
+
+### Syncing cameras (2026-10-29, branch `calibration-sync`)
+
+Triangulation needs the two cameras' frames paired by time. Two facts about
+the raw files decide how:
+
+- **A case's two files start up to ~1 s apart, by a fixed amount, with no
+  drift.** Both carry the same audio feed, so audio cross-correlation gives
+  the offset to the sample (always a multiple of 32 ms). Examples: 255387
+  is 0.832 s, 260723 is 0.192 s.
+- **Files drop video frames.** Most lose a frame or two, but some lose a lot:
+  261464/337 lost ~1170 s, 252850/4 ~310 s, room 11's camera 16 (261456,
+  261505) ~230–270 s. So frame number is not time.
+
+The `sync` stage (`run_stage.py sync`, md-speech; `multidata.sync`) writes
+`videos.sync_offset_s` (seconds to add to this file's time to get the
+reference camera's time; reference = `cases.audio_camera`, offset 0),
+`videos.sync_agreement`, and per-frame timestamps to
+`data/sync/<case_id>/<camera>.npz`. Pose frame `i` of camera `c` happened at
+`frame_time_s[i] + sync_offset_s[c]` (`sync.reference_times()`); pair the two
+cameras with `sync.nearest_frames()`. No pose rerun was needed.
+
+Backfilled 2026-10-29: 65 rows done, 4 failed (the offset is left NULL, never
+guessed):
+
+| Case/camera | Why |
+|---|---|
+| 261456/31, 261505/31 | Room 11: camera 16's audio has gaps too, so windows disagree |
+| 261041/41 | Only 58% of windows agree. Not looked at yet |
+| 260656/26 | 2-minute clip, too few windows (pose also failed on it) |
+
+Two wrinkles:
+
+- **OpenCV sometimes skips frames the file has** (5 files, all with big
+  drops), so pose has fewer frames than the timestamp list.
+  `scripts/fix_frame_times.py` (md-pose) re-reads those files with OpenCV and
+  keeps only the timestamps of the frames pose saw. Re-running `sync` on a row
+  undoes that, so run the fix script after. `sync.reference_times(...,
+  n_frames=T)` refuses a mismatch rather than pairing wrongly.
+- **Most files repeat one timestamp about 0.5 s in** (two frames at
+  0.467 s, none at 0.5 s). That's in the files, and costs one frame at most
+  33 ms.
+
+### Cameras move
+
+**Camera 15 (room 00 LA) is a pan/tilt camera, and its view changes during the
+session**: about ten large jumps in case 255387 (0:58, ~2:00–2:08, 3:36,
+4:38, 5:53, 7:59, 8:10, 9:47, 10:13, 10:29). Camera 327 in the same room is
+fixed until the last minute. So any per-camera fixed geometry (mirror outlines,
+camera angles, a "where the chair is" anchor) is only valid between moves, and
+needs a check that the view hasn't changed. Other rooms' cameras haven't been
+checked for this.
+
 ---
 
 ## What to do when you come back, in order

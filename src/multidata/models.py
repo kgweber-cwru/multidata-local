@@ -130,12 +130,16 @@ class Video:
     diarize_status: str = "pending"
     elan_status: str = "pending"
     pose_status: str = "pending"
+    sync_status: str = "pending"
+    sync_offset_s: Optional[float] = None
+    sync_agreement: Optional[float] = None
     asr_model: str = ""
     asr_commit: str = ""
     notes: str = ""
 
     STATUS_FIELDS = (
         "audio_status", "asr_status", "diarize_status", "elan_status", "pose_status",
+        "sync_status",
     )
 
     @classmethod

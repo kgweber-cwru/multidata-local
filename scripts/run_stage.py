@@ -18,6 +18,11 @@ only the case's canonical camera does the work — the other camera's row for
 these stages gets marked `skipped`, not run twice. `pose` stays per-camera;
 the two viewpoints are genuinely different data.
 
+`sync` (md-speech) writes each camera's frame timestamps to
+`data/sync/<case_id>/<camera>.npz` and its audio offset from the case's
+reference camera to `videos.sync_offset_s` -- what triangulation needs to pair
+the two cameras' frames by time. See `multidata.sync`.
+
 `asr` writes `data/transcripts/<case_id>/<camera>_<engine>_<model>.json` (plus
 a `.txt` sibling for a quick read) — always word-level speaker-labeled
 regardless of engine, reusing `data/diarization/<case_id>/<camera>.rttm` if
@@ -237,12 +242,58 @@ def stage_pose(row, args):
     return {}
 
 
+def stage_sync(row, args):
+    """Frame timestamps for this file, and its audio offset from the case's
+    reference camera (`cases.audio_camera`, offset 0) -- see multidata.sync.
+    Each row is independent: the non-reference row measures itself against
+    the reference camera's audio. Audio for a camera without a kept wav is
+    extracted to a temp dir and thrown away."""
+    from multidata import sync
+
+    case_id, camera = row["case_id"], row["camera"]
+    video = _abs(row["filepath"])
+
+    times = sync.frame_times(video)
+    sync.save_frame_times(times, _out("sync", row, ".npz"))
+    d = sync.dropped(times)
+    log.info("frame times: %s/%s  %d frames, %d gaps, %.1f s lost (max gap %.2f s)",
+             case_id, camera, len(times), d["gaps"], d["lost_s"], d["max_gap_s"])
+
+    ref = manifest.ensure_audio_camera(case_id, args.manifest)
+    if camera == ref:
+        # the reference defines the clock; nothing to measure
+        return {"sync_offset_s": 0.0, "sync_agreement": None}
+
+    ref_video = manifest.get_video(case_id, ref, args.manifest)
+    if ref_video is None:
+        raise KeyError(f"reference camera {ref} has no video row for case {case_id}")
+    ref_row = {"camera": ref, "audio_path": ref_video.audio_path, "filepath": ref_video.filepath}
+    with sync.tempdir() as tmp:
+        wavs = []
+        for r in (ref_row, row):
+            kept = _abs(r["audio_path"]) if r["audio_path"] else DATA / "audio" / case_id / f"{r['camera']}.wav"
+            if not kept.exists():
+                kept = sync.extract_audio(_abs(r["filepath"]), Path(tmp) / f"{r['camera']}.wav")
+            wavs.append(kept)
+        offset, m = sync.offset_from_audio(*wavs)
+
+    log.info("audio offset: %s/%s vs %s  %s", case_id, camera, ref, sync.summary(m))
+    if offset is None or m["agreement"] < sync.MIN_AGREEMENT:
+        log.warning("sync FAILED for %s/%s: audio windows don't agree on one offset "
+                    "(agreement %.2f, %d windows) -- not writing an offset",
+                    case_id, camera, m["agreement"], m["windows"])
+        return {"sync_status": "failed", "sync_offset_s": None,
+                "sync_agreement": m["agreement"]}
+    return {"sync_offset_s": round(offset, 6), "sync_agreement": m["agreement"]}
+
+
 STAGES = {
     "audio": stage_audio,
     "asr": stage_asr,
     "diarize": stage_diarize,
     "elan": stage_elan,
     "pose": stage_pose,
+    "sync": stage_sync,
 }
 
 

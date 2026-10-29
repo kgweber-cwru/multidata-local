@@ -25,7 +25,7 @@ available` rather than needing real GPU hardware; that file `importorskip`s
 it. `test_pose_io.py` is the other exception: it round-trips synthetic
 arrays through `pose.save()`/`pose.load()` (float16 `.npz`, legacy `.pkl`)
 and needs the md-pose imports, but still no model, GPU or real video.
-Everything else is stdlib or pyyaml. That's a deliberate boundary, not an
+`test_sync.py` needs numpy (it `importorskip`s it) and uses synthetic noise, not real audio. Everything else is stdlib or pyyaml. That's a deliberate boundary, not an
 oversight:
 
 - The modules under test in Phase 1

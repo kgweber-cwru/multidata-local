@@ -69,6 +69,9 @@ CREATE TABLE IF NOT EXISTS videos (
     diarize_status TEXT NOT NULL DEFAULT 'pending',
     elan_status TEXT NOT NULL DEFAULT 'pending',
     pose_status TEXT NOT NULL DEFAULT 'pending',
+    sync_status TEXT NOT NULL DEFAULT 'pending',
+    sync_offset_s REAL,
+    sync_agreement REAL,
     asr_model TEXT NOT NULL DEFAULT '',
     asr_commit TEXT NOT NULL DEFAULT '',
     notes TEXT NOT NULL DEFAULT '',
@@ -145,6 +148,16 @@ def _migrate(conn):
         conn.execute("ALTER TABLE cases ADD COLUMN cloud_release INTEGER NOT NULL DEFAULT 0")
     if "cloud_release_basis" not in cols:
         conn.execute("ALTER TABLE cases ADD COLUMN cloud_release_basis TEXT NOT NULL DEFAULT ''")
+
+    # Camera sync (multidata.sync). sync_offset_s stays NULL until measured:
+    # NULL means "unknown", and 0.0 is a real answer (the reference camera).
+    vcols = {row["name"] for row in conn.execute("PRAGMA table_info(videos)")}
+    if "sync_status" not in vcols:
+        conn.execute("ALTER TABLE videos ADD COLUMN sync_status TEXT NOT NULL DEFAULT 'pending'")
+    if "sync_offset_s" not in vcols:
+        conn.execute("ALTER TABLE videos ADD COLUMN sync_offset_s REAL")
+    if "sync_agreement" not in vcols:
+        conn.execute("ALTER TABLE videos ADD COLUMN sync_agreement REAL")
 
     _seed_cameras_once(conn)
 

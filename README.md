@@ -39,7 +39,7 @@ is carried over.
 env/            conda envs — speech (ASR) and pose, kept separate on purpose;
                 pose has two variants (pose.yml Mac / pose-nvidia.yml Linux+CUDA)
                 that both build the same md-pose env name -- see Quick start
-src/multidata/  stages: manifest, ingest, audio, asr, diarize, elan, pose
+src/multidata/  stages: manifest, ingest, audio, asr, diarize, elan, pose, sync
                 helpers: kinematics (pose features), acoustics (Praat features)
                 ASR benchmark wing: normalize, redact, records, providers,
                 glossary, bench_runs (see docs/asr_provider_spec.md)
@@ -47,6 +47,8 @@ scripts/        run_stage.py — manifest-driven, resumable batch runner
                 eaf_to_gold.py — hand-annotated .eaf -> a scoreable gold reference
                 bench_status.py — one-screen view of gold coverage + scores
                 convert_pose.py — legacy float32 pose .pkl -> float16 .npz
+                render_two_view_overlay.py — side-by-side, time-synced pose overlay
+                fix_frame_times.py — line frame times up with pose where OpenCV skipped frames
                 backup_to_raid.sh — tofino's nightly backup to /wddata (cron)
 benchmarks/     ASR benchmarking wing
                 configs/    providers.yaml, glossary.yaml — the capability/term registries
@@ -94,6 +96,8 @@ conda activate md-pose    && pip install -e .
 conda activate md-speech && python scripts/run_stage.py audio
 conda activate md-speech && python scripts/run_stage.py asr      # --engine whisperx
 conda activate md-pose   && python scripts/run_stage.py pose
+conda activate md-speech && python scripts/run_stage.py sync     # camera offsets + frame times
+conda activate md-pose   && python scripts/fix_frame_times.py --write   # after sync, if pose ran
 
 # tests -- every env has pytest; md-speech runs all but the pose I/O tests,
 # which need the pose stack and run in md-pose (see tests/README.md)
