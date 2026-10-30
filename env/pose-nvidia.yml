@@ -20,6 +20,7 @@ name: md-pose
 channels: [conda-forge]
 dependencies:
   - python=3.11
+  - ffmpeg                    # views stage: keyframe-only decoding (ffmpeg/ffprobe)
   - pip
   - pip:
       - rtmlib

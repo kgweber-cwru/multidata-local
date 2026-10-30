@@ -39,7 +39,7 @@ is carried over.
 env/            conda envs — speech (ASR) and pose, kept separate on purpose;
                 pose has two variants (pose.yml Mac / pose-nvidia.yml Linux+CUDA)
                 that both build the same md-pose env name -- see Quick start
-src/multidata/  stages: manifest, ingest, audio, asr, diarize, elan, pose, sync
+src/multidata/  stages: manifest, ingest, audio, asr, diarize, elan, pose, sync, views
                 helpers: kinematics (pose features), acoustics (Praat features)
                 ASR benchmark wing: normalize, redact, records, providers,
                 glossary, bench_runs (see docs/asr_provider_spec.md)
@@ -96,6 +96,7 @@ conda activate md-speech && python scripts/run_stage.py audio
 conda activate md-speech && python scripts/run_stage.py asr      # --engine whisperx
 conda activate md-pose   && python scripts/run_stage.py pose
 conda activate md-speech && python scripts/run_stage.py sync     # camera offsets + frame times
+conda activate md-pose   && python scripts/run_stage.py views    # where cameras point, when they move
 conda activate md-pose   && python scripts/fix_frame_times.py --write   # after sync, if pose ran
 
 # tests -- every env has pytest; md-speech runs all but the pose I/O tests,

@@ -164,8 +164,19 @@ matching to detect view changes) found:
 So 3D comes in tiers: on-preset stretches with a stored calibration;
 off-preset stretches located from the video (or from logged PTZ values, if
 the control system has them); the rest no 3D. Correction to an earlier note:
-camera 327 (00 LA) did move early in 255387, not only at the end. The survey
-script is not in the repo yet; it becomes the view-segmentation stage.
+camera 327 (00 LA) did move early in 255387, not only at the end.
+
+**The `views` stage** (`run_stage.py views`, md-pose, `multidata.views`) now
+does this for every video: steady stretches in `data/views/<case>/<camera>.json`
+(file-clock and reference-clock times, view id, match quality, move from the
+previous stretch), a per-camera view library with stable ids
+(`data/views/library/<camera>/v<n>.npz/.png`), and in the manifest
+`camera_views` (one row per view, with a label: provisional until someone
+names it, e.g. from Drew's preset list -- `manifest.set_view_label()`) and
+`video_views` (seconds per video per view). Which views are presets is a query
+(`manifest.view_summary()`: seen in 2+ cases or held 3+ times), so it updates
+as cases arrive. Run it as one worker, oldest videos first (the runner does).
+The original survey outputs are kept in `data/views/survey_2026-10-30/`.
 
 ---
 

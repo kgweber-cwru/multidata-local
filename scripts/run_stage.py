@@ -289,6 +289,34 @@ def stage_sync(row, args):
     return {"sync_offset_s": round(offset, 6), "sync_agreement": m["agreement"]}
 
 
+_view_libraries = {}
+
+
+def stage_views(row, args):
+    """Steady stretches and which view each is (multidata.views). Oldest
+    videos first, one worker: views are added to a shared per-camera library."""
+    from multidata import views
+
+    cam = row["camera"]
+    if cam not in _view_libraries:
+        _view_libraries[cam] = views.Library(DATA / "views" / "library", cam)
+    lib = _view_libraries[cam]
+    log.info("finding camera views: %s/%s", row["case_id"], cam)
+    result, new = views.process(_abs(row["filepath"]), cam, lib, row["sync_offset_s"])
+    views.save(result, _out("views", row, ".json"))
+    for vid in new:
+        manifest.add_camera_view(cam, vid, row["case_id"],
+                                 (lib.dir / f"{vid}.png").relative_to(ROOT), args.manifest)
+    manifest.set_video_views(row["case_id"], cam, views.usage(result), args.manifest)
+    st = result["stretches"]
+    details = {"keyframes": result["keyframes"], "stretches": len(st),
+               "moves": len(st) - 1, "new_views": new,
+               "seconds_unassigned": round(sum(s["dur_s"] for s in st if not s["view"]), 1)}
+    log.info("%s/%s: %d stretches, %d new view(s) %s", row["case_id"], cam, len(st),
+             len(new), new)
+    return {"_details": details}
+
+
 STAGES = {
     "audio": stage_audio,
     "asr": stage_asr,
@@ -296,12 +324,13 @@ STAGES = {
     "elan": stage_elan,
     "pose": stage_pose,
     "sync": stage_sync,
+    "views": stage_views,
 }
 
 
 # Stages scoped to the small-room 3D pilot: large-room rows stay pending
 # (untouched) unless --all-rooms. Transcription stages run on every room.
-PILOT_SMALL_ROOMS = {"pose", "sync"}
+PILOT_SMALL_ROOMS = {"pose", "sync", "views"}
 
 
 def _run_env():
@@ -331,6 +360,7 @@ STAGE_PARAMS = {
     "elan": ("engine", "model"),
     "pose": ("accel_device", "detect_every"),
     "sync": (),
+    "views": (),
 }
 
 
@@ -373,7 +403,7 @@ def main():
                          "RTX 5080); default 1 = every frame. Eyeball a "
                          "render_overlay() render before using a higher stride")
     ap.add_argument("--all-rooms", action="store_true",
-                    help="pose/sync: include large rooms ('00 LA' etc.); by default "
+                    help="pose/sync/views: include large rooms ('00 LA' etc.); by default "
                          "the 3D pilot runs on small exam rooms only")
     ap.add_argument("--shard", type=_parse_shard, default=None,
                     help="run only every nth row, for coordinating N concurrent workers "
@@ -399,6 +429,11 @@ def main():
     # rows early and surfaces a representative failure sooner than working in
     # arbitrary (created-order) order would.
     rows.sort(key=lambda r: r["duration_s"] or 0)
+    if args.stage == "views":
+        # oldest first, so view ids follow first appearance; one worker only
+        if args.shard:
+            ap.error("views must run as one worker (it adds to a shared view library)")
+        rows.sort(key=lambda r: (r["video_date"], r["video_time"], r["camera"]))
     if args.shard:
         idx, total = args.shard
         rows = rows[idx::total]  # interleaved, not split in half: keeps every

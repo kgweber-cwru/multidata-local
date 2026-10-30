@@ -71,6 +71,7 @@ CREATE TABLE IF NOT EXISTS videos (
     elan_status TEXT NOT NULL DEFAULT 'pending',
     pose_status TEXT NOT NULL DEFAULT 'pending',
     sync_status TEXT NOT NULL DEFAULT 'pending',
+    views_status TEXT NOT NULL DEFAULT 'pending',
     sync_offset_s REAL,
     sync_agreement REAL,
     asr_model TEXT NOT NULL DEFAULT '',
@@ -112,6 +113,34 @@ CREATE TABLE IF NOT EXISTS gold (
     span_start REAL,
     span_end REAL,
     notes TEXT NOT NULL DEFAULT ''
+);
+
+-- Camera views (multidata.views): one row per view a camera has been seen
+-- holding. `view_id` is stable per camera (v1, v2, ...). `label` starts
+-- provisional (`label_source` 'provisional'); a person's name for it (e.g.
+-- Drew's preset name) replaces it with label_source 'confirmed'.
+CREATE TABLE IF NOT EXISTS camera_views (
+    camera TEXT NOT NULL,
+    view_id TEXT NOT NULL,
+    label TEXT NOT NULL DEFAULT '',
+    label_source TEXT NOT NULL DEFAULT '',
+    first_case_id TEXT NOT NULL DEFAULT '',
+    samples TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    notes TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (camera, view_id)
+);
+
+-- How long each video spent in each view; per-stretch detail is in
+-- data/views/<case_id>/<camera>.json. A view is a preset when it recurs:
+-- see `view_summary()`.
+CREATE TABLE IF NOT EXISTS video_views (
+    case_id TEXT NOT NULL,
+    camera TEXT NOT NULL,
+    view_id TEXT NOT NULL,
+    seconds REAL NOT NULL,
+    stretches INTEGER NOT NULL,
+    PRIMARY KEY (case_id, camera, view_id)
 );
 
 -- One row per stage run on one video row: what it cost, so the pilot's
@@ -184,6 +213,8 @@ def _migrate(conn):
         conn.execute("ALTER TABLE videos ADD COLUMN sync_offset_s REAL")
     if "sync_agreement" not in vcols:
         conn.execute("ALTER TABLE videos ADD COLUMN sync_agreement REAL")
+    if "views_status" not in vcols:
+        conn.execute("ALTER TABLE videos ADD COLUMN views_status TEXT NOT NULL DEFAULT 'pending'")
 
     _seed_cameras_once(conn)
 
@@ -529,6 +560,54 @@ def record_stage_run(stage, case_id, camera, status, started_at, wall_s, media_s
              json.dumps(params or {}, default=str), json.dumps(details or {}, default=str),
              error),
         )
+
+
+def add_camera_view(camera, view_id, first_case_id, samples, path=DEFAULT_PATH):
+    """Register a newly seen view (unlabelled until someone names it)."""
+    with closing(connect(path)) as conn, conn:
+        conn.execute(
+            "INSERT OR IGNORE INTO camera_views (camera, view_id, first_case_id, samples, "
+            "created_at) VALUES (?, ?, ?, ?, ?)",
+            (str(camera), view_id, first_case_id, str(samples),
+             datetime.now().isoformat(timespec="seconds")))
+
+
+def set_view_label(camera, view_id, label, source="confirmed", path=DEFAULT_PATH):
+    """Name a view, e.g. with the operator's preset name."""
+    with closing(connect(path)) as conn, conn:
+        n = conn.execute("UPDATE camera_views SET label = ?, label_source = ? "
+                         "WHERE camera = ? AND view_id = ?",
+                         (label, source, str(camera), view_id)).rowcount
+    if not n:
+        raise KeyError(f"no view {view_id} on camera {camera}")
+
+
+def set_video_views(case_id, camera, usage, path=DEFAULT_PATH):
+    """Replace one video's per-view time: usage = {view_id: (seconds, stretches)}."""
+    with closing(connect(path)) as conn, conn:
+        conn.execute("DELETE FROM video_views WHERE case_id = ? AND camera = ?",
+                     (case_id, str(camera)))
+        conn.executemany(
+            "INSERT INTO video_views (case_id, camera, view_id, seconds, stretches) "
+            "VALUES (?, ?, ?, ?, ?)",
+            [(case_id, str(camera), v, round(s, 1), n) for v, (s, n) in usage.items()])
+
+
+def view_summary(path=DEFAULT_PATH, min_cases=2, min_stretches=3):
+    """Every known view with its label, total time, cases seen in, and
+    whether it counts as a preset (seen in `min_cases`+ cases, or held
+    `min_stretches`+ separate times)."""
+    with closing(connect(path)) as conn:
+        rows = conn.execute(
+            "SELECT cv.camera, cv.view_id, cv.label, cv.label_source, cv.samples, "
+            "COALESCE(SUM(vv.seconds), 0) AS seconds, COUNT(DISTINCT vv.case_id) AS cases, "
+            "COALESCE(SUM(vv.stretches), 0) AS stretches "
+            "FROM camera_views cv LEFT JOIN video_views vv USING (camera, view_id) "
+            "GROUP BY cv.camera, cv.view_id ORDER BY cv.camera, seconds DESC").fetchall()
+    out = [dict(r) for r in rows]
+    for r in out:
+        r["is_preset"] = r["cases"] >= min_cases or r["stretches"] >= min_stretches
+    return out
 
 
 def save_match(filename, status, camera, video_date, video_time, path=DEFAULT_PATH,
