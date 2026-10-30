@@ -2,8 +2,7 @@
 
 Operates on one slot of a pose entry: `entry["keypoint"][s]`, shape (T, V, C).
 Only reads indices 0-16 (nose/shoulders/wrists), the COCO-17 body prefix that
-`pose.py`'s COCO-WholeBody output (`rtmlib.Wholebody`, V=133) keeps identical
-to plain COCO-17 (rtmlib `Body`, V=17) -- works unchanged against either.
+`pose.py`'s HALPE_26 output (V=26) keeps identical to plain COCO-17.
 Runs in the **md-pose** env.
 
 Exploratory, not validated against gold annotations yet — thresholds below are

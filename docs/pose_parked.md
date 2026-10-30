@@ -1,54 +1,37 @@
-# Pose — parked 2026-09-14
+# Pose — restarted 2026-10-30 (was parked 2026-09-14)
 
-**Read this before touching anything pose-related.** Pose *generation* works
-and is finished for the current sample. Pose *usability* is barely started, and
-there is one specific gap that blocks everything downstream. This note exists so
-that coming back cold costs a read, not a re-derivation.
-
-Parked because the priority is audio transcription validation (gold references
-and the ASR bake-off). Nothing about pose is broken or waiting on a fix — it is
-simply not the thing being worked on.
-
-Operational commands (launch, check, stop) stay in
-[running_job_notes.md](running_job_notes.md). Architecture and the throughput
-baseline stay in [../multidata_local_pipeline.md](../multidata_local_pipeline.md)
-§9. This file is the part neither of those covers: **what state the work is in,
-and what to do next.**
+**Read this before touching anything pose-related.** Pose is active again,
+aimed at 3D: two calibrated cameras per small exam room, triangulated. This
+note says what state the work is in and what to do next. Operational commands
+stay in [running_job_notes.md](running_job_notes.md); architecture and
+throughput in [../multidata_local_pipeline.md](../multidata_local_pipeline.md) §9.
 
 ---
 
-## Where we got
+## Where we are (2026-10-30)
 
 | | |
 |---|---|
-| Videos processed | **60 done, 1 failed** of the original 61; 8 more (Room 6, 2026-02-16) ingested and running 2026-10-26 |
-| Total material | 32.9 h, mean 32.3 min per video, ~2 cameras per case (original 61) |
-| Model | `rtmlib.Wholebody`, 133 keypoints (COCO-WholeBody) |
-| Runs on | `tofino` (RTX 5080, `cuda`). The Mac (`mps`) path still works in the code, but the Mac mini is being retired |
-| Throughput | **1.67x realtime** aggregate on the 5080, at `--detect-every 1` |
-| Output | `data/pose/<case_id>/<camera>.npz`, float16 compressed — 1.6 GB for the 60 (~27 MB each; was 23 GB as float32 `.pkl`) |
+| Model | rtmlib `BodyWithFeet`: YOLOX-m detector + RTMPose-m, **HALPE_26** (26 keypoints: COCO-17 body + head top, neck, mid-hip, 6 foot points). Five face points only -- a deliberate choice, partly for IRB |
+| Scope | **3D pilot: small exam rooms only** (two-digit rooms, built alike). Large-room (`00 LA`, `00 LB`) data and case metadata deleted 2026-10-30; they can be ingested again for transcription/2D. `run_stage.py pose`/`sync` skip large rooms unless `--all-rooms` |
+| Pose files | All WholeBody (133-keypoint) files deleted 2026-10-30. Every video is `pending` for a fresh HALPE_26 run |
+| Output | `data/pose/<case_id>/<camera>.npz`: keypoints, scores and detector boxes (float16), up to 8 people per frame, plus OpenCV's time per frame (`frame_ms`) and the model/settings used. See `pose.py` |
+| Throughput | 1.54x realtime on the first HALPE_26 clip (260656/23, RTX 5080), detection ~60% of the time -- in line with the old WholeBody baseline (1.67x). Every run's cost is now recorded in the manifest's `stage_runs` table |
+| Runs on | `tofino` (RTX 5080, `cuda`), md-pose env. No torch needed |
+| 3D plan | Our own 2D pose + audio sync feed our own small 3D module (calibration store, triangulation, two-view person matching, mirror filter), using well-established libraries (OpenCV, SciPy). Pose2Sim, in its own env, is a cross-check and a later route to OpenSim -- see "Why not Pose2Sim end to end" below |
 
-The RTX 5080 is tofino's permanent card (the original 3070 failed in 2026-07 and
-is gone). That baseline is settled — **don't re-benchmark it.** The CUDA detector
-routing and the `preload_dlls()` fix that were once uncommitted on tofino are
-merged into `main` and confirmed against a full 18-video batch.
+### Why not Pose2Sim end to end (reviewed 2026-10-30)
 
-Also settled, don't redo: the `Body` → `Wholebody` switch, and the
-`onnxruntime-gpu` force-reinstall gotcha for fresh `md-pose` envs on Linux
-(documented at the top of `env/pose-nvidia.yml` and in the README quick start).
-
-**Where the current 60 files came from (2026-10-26).** When the machines were
-consolidated, only 18 of tofino's 60 `.pkl` files were Wholebody (the Sep 4
-CUDA batch); the other 42 were left over from the earlier `Body` run, 17
-keypoints. The Mac mini's 60 (Jul 31/Aug 1, `mps`) were all Wholebody, so
-those are the set that was converted to `.npz` and now lives on tofino;
-tofino's old 60 are archived in `~/multidata-archive/2026-10-26_pre-merge/pose/`.
-So the existing 60 are a Mac run and anything new is a CUDA run. On the one
-clip compared (260656/23), the two agree to a median of 1.0 px (95th
-percentile 4.1 px) on confident keypoints — backend numerics, not a model
-difference.
-
----
+Pose2Sim assumes fixed cameras with one calibration per project, frame number
+= time, short trials and ideally 4+ cameras. We have two PTZ cameras that move
+5-20 times an hour, dropped frames, sub-frame start offsets, 20-70 minute
+sessions and mirrors. Everything hard here (sync, view segmentation,
+per-segment calibration incl. zoom, mirror rejection) we'd build either way;
+what Pose2Sim adds on top (triangulation, association, tracking) is small for
+two views. Traps if it is used later: `fill_large_gaps_with` defaults to
+`'last_value'` (set `'nan'`), `frame_range = 'auto'` trims (set `'all'`),
+`undistort_points` listed as not implemented, its face blurring re-encodes
+without audio and truncates the frame rate.
 
 ## The one thing that actually blocks usability
 
@@ -88,9 +71,11 @@ cameras.** Leave it alone until single-camera identity works.
 
 ### Mirrors: phantom people (found 2026-10-29)
 
-Every exam room we've looked at has a wall mirror, and at least one camera in
-each room sees it: rooms 7 (cams 24 and 33), 11 (16), 13 (290), 14 (13) and
-00 LA (327). These are from spot-check stills, not a full survey. **The pose model detects reflections as people.** Case 255387, camera
+Every exam room we've looked at has a wall mirror (the one-way window to the
+control room, which reflects when the control room is dark), and at least one
+camera in each room sees it: rooms 7 (cams 24 and 33), 11 (16), 13 (290) and
+14 (13). The numbers below come from case 255387 (large room 00 LA, since
+dropped), but the HALPE_26 test clip in room 09 shows the same thing. These are from spot-check stills, not a full survey. **The pose model detects reflections as people.** Case 255387, camera
 327: across the whole video there are on average 1.2 reflected "people" per
 frame, and 1.9 per frame during the 2:25–3:10 demo clip. That's more
 reflections than real people. This is why that camera reports 4 people in
@@ -159,15 +144,28 @@ Two wrinkles:
   0.467 s, none at 0.5 s). That's in the files, and costs one frame at most
   33 ms.
 
-### Cameras move
+### Cameras move (survey 2026-10-30)
 
-**Camera 15 (room 00 LA) is a pan/tilt camera, and its view changes during the
-session**: about ten large jumps in case 255387 (0:58, ~2:00–2:08, 3:36,
-4:38, 5:53, 7:59, 8:10, 9:47, 10:13, 10:29). Camera 327 in the same room is
-fixed until the last minute. So any per-camera fixed geometry (mirror outlines,
-camera angles, a "where the chair is" anchor) is only valid between moves, and
-needs a check that the view hasn't changed. Other rooms' cameras haven't been
-checked for this.
+The cameras are PTZ and an operator steers them during sessions. A survey of
+all small-room footage (18 h, 29 two-camera cases; keyframes only, ORB feature
+matching to detect view changes) found:
+
+- **5-20 moves an hour** per camera, following the action and zooming in on
+  the bed. Room 07 moves least (~2/hour).
+- Both cameras are holding a view (30 s or more) **99%** of the time, but both
+  are in a recurring position only **~39%** of the time.
+- Recurring positions are the presets: home/wide, exam table, desk,
+  sink/counter. In room 06 (7 cases), 3-4 of them cover ~53% of each camera's
+  time.
+- 56% of moves happen on both cameras within 3 s: presets look paired.
+- The exam table changes shape between cases (chair vs. flat), so it is not a
+  fixed reference.
+
+So 3D comes in tiers: on-preset stretches with a stored calibration;
+off-preset stretches located from the video (or from logged PTZ values, if
+the control system has them); the rest no 3D. Correction to an earlier note:
+camera 327 (00 LA) did move early in 255387, not only at the end. The survey
+script is not in the repo yet; it becomes the view-segmentation stage.
 
 ---
 

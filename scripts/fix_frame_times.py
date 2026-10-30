@@ -11,6 +11,8 @@ returns fewer frames -- so pose frame i is not file frame i, and
 each such file with OpenCV (no pose network; ~5 s per 20 min of video),
 matches each decoded frame to its real timestamp (`sync.snap_to_pts`), and
 rewrites `data/sync/<case_id>/<camera>.npz` so entry i is pose frame i.
+Pose files now store OpenCV's time for each frame they hold (`frame_ms`), so
+those are used directly and the video is only re-decoded for older files.
 
 Only touches files whose pose frame count differs from their stored frame
 times. Re-running the sync stage on a row overwrites the fix, so run this
@@ -57,10 +59,11 @@ def main():
             continue
         with np.load(pose_path) as z:
             T = z["keypoint"].shape[1]
+            stored = z["frame_ms"] / 1000 if "frame_ms" in z.files else None
         pts = sync.load_frame_times(times_path)
         if T == len(pts):
             continue
-        dec = decoder_times(ROOT / v.filepath)
+        dec = stored if stored is not None else decoder_times(ROOT / v.filepath)
         if len(dec) != T:
             log.error("%s/%s: OpenCV now returns %d frames but pose has %d -- "
                       "can't tell which frames pose saw; leaving it", v.case_id, v.camera, len(dec), T)

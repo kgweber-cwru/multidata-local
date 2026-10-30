@@ -2,8 +2,8 @@
 """Utility: render a short side-by-side pose overlay of a case's two cameras,
 with the same person drawn in the same color in both views.
 
-    python scripts/render_two_view_overlay.py --case 255387 --start 145 --dur 45 \
-        --out data/pose_overlays/demo/255387_two_view_2m25-3m10.mp4     # md-pose env
+    python scripts/render_two_view_overlay.py --case 261498 --start 145 --dur 45 \
+        --out data/pose_overlays/demo/261498_two_view.mp4     # md-pose env
 
 For each camera and each frame, every detection is labelled:
   mirror   - at least MIRROR_FRAC of its confident body keypoints fall inside
@@ -17,11 +17,11 @@ the patient sits still and the learner moves around.
 Limits (see docs/pose_parked.md, "Mirrors" and "Cameras move"):
   - Identity is decided per frame by position. There's no tracker.
   - The patient anchor needs a clip long enough for the learner to move
-    around (tens of seconds). On a 3-second clip of 255387 it found the
-    wrong person in both cameras.
+    around (tens of seconds); on a 3-second clip it picked the wrong person.
   - Mirror outlines are drawn by hand for each camera and only hold while the
-    camera doesn't move. Camera 15 pans and tilts, so pick a clip where it
-    holds still.
+    camera doesn't move -- and the cameras move 5-20 times an hour, so pick
+    a clip where both hold still. Stopgap only: the 3D work replaces this
+    with measured window planes.
   - Frames are paired by time on the case's reference clock, from the sync
     stage (`run_stage.py sync`: frame timestamps + audio offset; see
     multidata.sync). Without sync data for a camera it falls back to frame
@@ -52,22 +52,17 @@ log = logging.getLogger("render_two_view_overlay")
 
 # Mirror outlines in full-resolution (1280x720) pixels, per camera. Each one
 # holds only for the camera's view at the time it was drawn.
-MIRRORS = {
-    "327": [(250, 0), (690, 0), (690, 150), (265, 220)],  # drawn on case 255387
-}
+MIRRORS = {}  # e.g. "20": [(x, y), ...] -- the one drawn before was a dropped large room
 KPT_THR = 0.3
 MIRROR_FRAC = 0.8
 COLORS = {"patient": (60, 170, 255), "learner": (255, 160, 40),  # BGR
           "mirror": (200, 80, 200), "other": (120, 120, 120)}
 
-# COCO-WholeBody links: body + feet, then both hands (keypoints 91-111, 112-132).
-BODY = [(15, 13), (13, 11), (16, 14), (14, 12), (11, 12), (5, 11), (6, 12), (5, 6),
-        (5, 7), (6, 8), (7, 9), (8, 10), (1, 2), (0, 1), (0, 2), (1, 3), (2, 4),
-        (15, 17), (15, 18), (15, 19), (16, 20), (16, 21), (16, 22)]
-HAND = [(0, 1), (1, 2), (2, 3), (3, 4), (0, 5), (5, 6), (6, 7), (7, 8), (0, 9), (9, 10),
-        (10, 11), (11, 12), (0, 13), (13, 14), (14, 15), (15, 16), (0, 17), (17, 18),
-        (18, 19), (19, 20)]
-LINKS = BODY + [(a + 91, b + 91) for a, b in HAND] + [(a + 112, b + 112) for a, b in HAND]
+# HALPE_26 links (pose.KEYPOINTS): legs to mid-hip, head-neck-hip spine,
+# arms from the neck, face, feet.
+LINKS = [(15, 13), (13, 11), (11, 19), (16, 14), (14, 12), (12, 19), (17, 18), (18, 19),
+         (18, 5), (5, 7), (7, 9), (18, 6), (6, 8), (8, 10), (1, 2), (0, 1), (0, 2),
+         (1, 3), (2, 4), (15, 20), (15, 22), (15, 24), (16, 21), (16, 23), (16, 25)]
 
 
 def _in_mirror(mirror, x, y):

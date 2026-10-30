@@ -80,7 +80,7 @@ If you need to restart (e.g. after a code change), completed rows stay
 `done` in the manifest either way, so a restart just picks up wherever
 `pending` rows are left -- no need to clear `pose_status` again unless
 you're intentionally re-running already-`done` rows (e.g. a model change,
-like the Body->Wholebody switch).
+like the WholeBody->HALPE_26 switch).
 
 If you add a second worker later, both need `--shard i/2` (`0/2`/`1/2`,
 interleaved over the duration-sorted list so each gets a short+long mix,

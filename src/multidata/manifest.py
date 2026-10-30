@@ -7,7 +7,8 @@ The two tables matching the two models in `multidata.models`:
   videos  one row per physical camera file, usually two per case — this is
           what every processing stage actually reads/writes
 
-...plus `cameras`, `video_case_matches` (ingest bookkeeping, §2) and `gold`
+...plus `cameras`, `video_case_matches` (ingest bookkeeping, §2), `stage_runs`
+(what each stage run cost, for scaling estimates) and `gold`
 (one row per gold reference produced, possibly several per case for excerpt
 gold — implementation plan Phase 2.4), none of which have their own
 dataclass; `Case`/`Video`/`Camera` exist because their columns get
@@ -111,6 +112,31 @@ CREATE TABLE IF NOT EXISTS gold (
     span_start REAL,
     span_end REAL,
     notes TEXT NOT NULL DEFAULT ''
+);
+
+-- One row per stage run on one video row: what it cost, so the pilot's
+-- numbers can be scaled to the full corpus (`record_stage_run`). Written by
+-- run_stage.py for every stage, success or failure. `realtime_x` is media
+-- seconds processed per wall-clock second (2.0 = twice as fast as playback).
+-- `params` and `details` are JSON: the flags that shaped the run, and
+-- whatever the stage measured (e.g. pose's decode/detect/pose split).
+CREATE TABLE IF NOT EXISTS stage_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    stage TEXT NOT NULL,
+    case_id TEXT NOT NULL,
+    camera TEXT NOT NULL,
+    status TEXT NOT NULL,
+    started_at TEXT NOT NULL,
+    wall_s REAL NOT NULL,
+    media_s REAL,
+    realtime_x REAL,
+    host TEXT NOT NULL DEFAULT '',
+    device TEXT NOT NULL DEFAULT '',
+    gpu TEXT NOT NULL DEFAULT '',
+    code_commit TEXT NOT NULL DEFAULT '',
+    params TEXT NOT NULL DEFAULT '{}',
+    details TEXT NOT NULL DEFAULT '{}',
+    error TEXT NOT NULL DEFAULT ''
 );
 """
 
@@ -484,6 +510,25 @@ def get_cached_match(filename, path=DEFAULT_PATH):
             "SELECT * FROM video_case_matches WHERE filename = ?", (filename,)
         ).fetchone()
     return dict(row) if row else None
+
+
+def record_stage_run(stage, case_id, camera, status, started_at, wall_s, media_s=None,
+                     device="", gpu="", host="", code_commit="", params=None,
+                     details=None, error="", path=DEFAULT_PATH):
+    """Append one `stage_runs` row (see the table's comment in SCHEMA)."""
+    import json
+
+    realtime_x = media_s / wall_s if status == "done" and media_s and wall_s > 0 else None
+    with closing(connect(path)) as conn, conn:
+        conn.execute(
+            "INSERT INTO stage_runs (stage, case_id, camera, status, started_at, wall_s, "
+            "media_s, realtime_x, host, device, gpu, code_commit, params, details, error) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (stage, case_id, camera, status, started_at, wall_s, media_s, realtime_x,
+             host, device or "", gpu or "", code_commit,
+             json.dumps(params or {}, default=str), json.dumps(details or {}, default=str),
+             error),
+        )
 
 
 def save_match(filename, status, camera, video_date, video_time, path=DEFAULT_PATH,

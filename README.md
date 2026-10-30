@@ -46,7 +46,6 @@ src/multidata/  stages: manifest, ingest, audio, asr, diarize, elan, pose, sync
 scripts/        run_stage.py — manifest-driven, resumable batch runner
                 eaf_to_gold.py — hand-annotated .eaf -> a scoreable gold reference
                 bench_status.py — one-screen view of gold coverage + scores
-                convert_pose.py — legacy float32 pose .pkl -> float16 .npz
                 render_two_view_overlay.py — side-by-side, time-synced pose overlay
                 fix_frame_times.py — line frame times up with pose where OpenCV skipped frames
                 backup_to_raid.sh — tofino's nightly backup to /wddata (cron)
@@ -104,9 +103,6 @@ conda activate md-pose   && python scripts/fix_frame_times.py --write   # after 
 conda activate md-speech && python -m pytest -q
 conda activate md-pose   && python -m pytest -q tests/test_pose_io.py
 
-# convert any legacy float32 pose .pkl to float16 .npz (verifies, then deletes)
-conda activate md-pose   && python scripts/convert_pose.py --write --delete-pkl
-
 # once you have a gold .eaf: export it, then score an engine against it
 conda activate md-speech && python scripts/eaf_to_gold.py --eaf <path.eaf> --case <case_id>
 conda activate md-speech && python benchmarks/run_benchmark.py --case <case_id> \
@@ -121,7 +117,7 @@ by module** — know which is which before trusting a run:
 
 | Module | State |
 |---|---|
-| `pose.py`, `kinematics.py` | **Settled and running now** (commit `aaf0a9b`): `rtmlib.Wholebody` (133 keypoints), device auto-detect (mps/cuda), `--detect-every` frame-skip, `--shard` for concurrent workers. Runs on `tofino` (CUDA); writes float16 `.npz` (`pose.save()`/`pose.load()`, ~27 MB per video) — see pipeline doc §9, `docs/pose_parked.md` and `docs/running_job_notes.md` |
+| `pose.py`, `kinematics.py` | **Restarted 2026-10-30 for 3D:** rtmlib HALPE_26 (26 keypoints, 5 on the face), up to 8 people per frame, detector boxes and per-frame times saved, on `tofino` (CUDA, ~1.5x realtime). Every stage's cost goes to the manifest's `stage_runs` table. 3D pilot is small rooms only (`--all-rooms` to override). See `docs/pose_parked.md` |
 | `elan.py` | Promoted from `transcription_suite.ipynb`; **ran on real transcripts**, any engine |
 | `acoustics.py` | Promoted from `praat_maker.ipynb`; **ran on real audio** |
 | `ingest.py`, `audio.py`, `manifest.py`, `run_stage.py` | **Ran end-to-end on real cases** — ingest, audio, asr, elan stages all exercised |
@@ -129,7 +125,7 @@ by module** — know which is which before trusting a run:
 | `eaf_to_gold.py`, `run_benchmark.py`, `bench_status.py` | **Ran end-to-end on a real case** (261456) — export, live/cached/cache-hit scoring, excerpt-span filtering, and the status view all exercised, not just sketched. First real comparison already in: `whisperx_disfluent` (WER .29) beat `whisperx` (WER .41) on that one case — one data point, not yet a pattern. |
 | `normalize.py`, `redact.py`, `records.py`, `providers.py`, `glossary.py`, `bench_runs.py` | New this round, pure/tested modules underlying the above — see [asr_provider_spec.md](docs/asr_provider_spec.md) |
 
-**205 tests pass** in `md-speech`, plus 5 pose I/O tests in `md-pose` — see
+**231 tests pass** in `md-speech`, plus 6 pose I/O tests in `md-pose` — see
 `tests/README.md` for what is and isn't covered. See pipeline doc §11 for the 1 → few → scale
 phasing.
 

@@ -91,6 +91,14 @@ def _case_minute(recording_start_time: str):
         return None
 
 
+def is_large_room(room) -> bool:
+    """Large rooms carry an 'L' ('00 LA', '00 LB'). The 3D pilot covers only
+    the small exam rooms (two-digit numbers, built alike); large rooms can
+    still be ingested for transcription and 2D work. Pose skips them unless
+    asked (`run_stage.py pose --all-rooms`)."""
+    return "L" in _normalize(room)
+
+
 def match_case(video_date, video_time, camera, cases, camera_room_map) -> str:
     """Return the one case_id whose room (via `camera_room_map`) and
     `recording_start_time` (truncated to the minute) match. Raises

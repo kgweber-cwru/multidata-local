@@ -278,7 +278,6 @@ dependencies:
   - pip:
       - rtmlib
       - onnxruntime                 # CPU; CoreML EP optional (see §9)
-      - mmengine                    # reads legacy pose .pkl (output is .npz since 2026-10)
       - opencv-python numpy
 ```
 
@@ -288,7 +287,7 @@ conda env create -f env/pose.yml
 
 > We deliberately do **not** install full mmpose/mmcv — rtmlib + onnxruntime
 > gives you RTMPose without the mmcv build hell that helped make the old env a
-> mess. Reuse your existing `Body`/`Wholebody` cells.
+> mess.
 
 ### Install `multidata` itself — once per env
 
@@ -681,18 +680,21 @@ benchmark you can't attribute to an exact config is noise.
 
 ---
 
-## 9. Pose estimation (rtmlib) — `md-pose` env (settled as of commit `aaf0a9b`)
+## 9. Pose estimation (rtmlib) — `md-pose` env (HALPE_26 since 2026-10-30)
 
-`src/multidata/pose.py` runs rtmlib's **`Wholebody`** (not `Body`) — 133
-COCO-WholeBody keypoints (body+feet+face+hands) rather than the plain 17-point
-COCO body layout. Per camera → `data/pose/<case_id>/<camera>.npz`, `(M, T, V,
-C)` / `(M, T, V)`, stored float16 and compressed by `pose.save()` (~27 MB per
-video; up to 0.5 px coordinate error inside a 1920-wide frame) and read back
-as float32 by `pose.load()`, which also reads the float32 `.pkl` files written
-before 2026-10-26 (`scripts/convert_pose.py` converts those; see
-`docs/pose_parked.md`). Indices 0–16 of the 133 are the *same* 17 body joints, same
-order, as plain `Body` output (nose=0, ...) — `kinematics.py` only reads that
-prefix, so it works unchanged against either.
+`src/multidata/pose.py` runs rtmlib's **`BodyWithFeet`** models -- YOLOX-m
+detector + RTMPose-m trained on **HALPE_26**: the 17 COCO body joints in COCO
+order (nose=0 ... right ankle=16), then head top, neck, mid-hip and six foot
+points (`pose.KEYPOINTS`). Only five face points, deliberately. Per camera →
+`data/pose/<case_id>/<camera>.npz`: keypoints `(M, T, 26, 2)`, scores, detector
+boxes (all float16; up to 0.5 px coordinate error inside a 1920-wide frame),
+OpenCV's per-frame time `frame_ms`, and the model/settings used. M = 8 slots
+(mirror reflections count as people). `kinematics.py` reads only the COCO-17
+prefix, so it is unchanged. The earlier 133-keypoint WholeBody files were
+deleted 2026-10-30 (see `docs/pose_parked.md`).
+
+Every run of every stage records its cost (wall time, realtime factor, GPU,
+commit, flags, stage details) in the manifest's `stage_runs` table.
 
 **Device split, resolved via `--profile` (measure, don't guess):**
 - The **YOLOX detector** is pinned to CPU only on `mps` — CoreML can build a
@@ -1012,9 +1014,6 @@ python scripts/run_stage.py pose --accel-device cuda
 # every active worker needs the same total, e.g. both 0/2 and 1/2, not mixed
 python scripts/run_stage.py pose --accel-device cuda --shard 0/2
 python scripts/run_stage.py pose --accel-device cuda --shard 1/2
-
-# legacy float32 pose .pkl -> float16 .npz (verifies each file before deleting)
-python scripts/convert_pose.py --write --delete-pkl
 
 # nightly backup to /wddata (cron runs this at 02:30; safe to run by hand)
 scripts/backup_to_raid.sh; cat /wddata/multidata-backup/LAST_SUCCESS

@@ -48,7 +48,9 @@ file just interleaves noise into an otherwise clean log.
 import argparse
 import logging
 import sys
+import time
 import traceback
+from datetime import datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -236,10 +238,10 @@ def stage_pose(row, args):
     from multidata import pose
 
     log.info("extracting pose: %s/%s/%s seconds", row["case_id"], row["camera"], row["duration_s"])
-    pose.extract(_abs(row["filepath"]), _out("pose", row, ".npz"),
-                device=args.accel_device, profile=args.profile,
-                detect_every=args.detect_every)
-    return {}
+    _, details = pose.extract(_abs(row["filepath"]), _out("pose", row, ".npz"),
+                              device=args.accel_device, profile=args.profile,
+                              detect_every=args.detect_every)
+    return {"_details": details}
 
 
 def stage_sync(row, args):
@@ -297,6 +299,46 @@ STAGES = {
 }
 
 
+# Stages scoped to the small-room 3D pilot: large-room rows stay pending
+# (untouched) unless --all-rooms. Transcription stages run on every room.
+PILOT_SMALL_ROOMS = {"pose", "sync"}
+
+
+def _run_env():
+    """Where and on what code a batch ran -- recorded with every stage run."""
+    import platform
+    import subprocess
+
+    def out(cmd):
+        try:
+            return subprocess.run(cmd, capture_output=True, text=True, timeout=10,
+                                  cwd=ROOT).stdout.strip()
+        except (OSError, subprocess.SubprocessError):
+            return ""
+
+    commit = out(["git", "rev-parse", "--short", "HEAD"])
+    if commit and out(["git", "status", "--porcelain", "--untracked-files=no"]):
+        commit += "-dirty"
+    gpu = out(["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"]).splitlines()
+    return {"host": platform.node(), "code_commit": commit, "gpu": gpu[0] if gpu else ""}
+
+
+# The flags that can change each stage's cost or output, recorded per run.
+STAGE_PARAMS = {
+    "audio": ("loudnorm",),
+    "asr": ("engine", "model", "language", "device", "accel_device"),
+    "diarize": ("max_speakers", "accel_device"),
+    "elan": ("engine", "model"),
+    "pose": ("accel_device", "detect_every"),
+    "sync": (),
+}
+
+
+def _run_params(args):
+    keep = STAGE_PARAMS.get(args.stage, ()) + ("shard",)
+    return {k: getattr(args, k) for k in keep if getattr(args, k, None) not in (None, False)}
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("stage", choices=sorted(STAGES))
@@ -323,14 +365,16 @@ def main():
                     help="also print full tracebacks to the console on failure "
                          "(the log file always gets them regardless)")
     ap.add_argument("--profile", action="store_true",
-                    help="pose: log a decode/detect/pose timing breakdown per video, "
-                         "for diagnosing where time (and GPU/CPU usage) actually goes")
+                    help="pose: also log the decode/detect/pose timing breakdown per video "
+                         "(it is always recorded in the manifest's stage_runs table)")
     ap.add_argument("--detect-every", type=int, default=1,
-                    help="pose: re-run the (CPU-bound) YOLOX detector only every Nth "
-                         "frame, holding bboxes for frames in between -- confirmed via "
-                         "--profile that detection is ~88%% of pose runtime; default 1 "
-                         "(every frame) is unchanged/safe, try higher after eyeballing "
-                         "a render_overlay() render at your chosen stride")
+                    help="pose: run the person detector only every Nth frame, reusing its "
+                         "boxes in between (detection is ~60%% of pose time on the "
+                         "RTX 5080); default 1 = every frame. Eyeball a "
+                         "render_overlay() render before using a higher stride")
+    ap.add_argument("--all-rooms", action="store_true",
+                    help="pose/sync: include large rooms ('00 LA' etc.); by default "
+                         "the 3D pilot runs on small exam rooms only")
     ap.add_argument("--shard", type=_parse_shard, default=None,
                     help="run only every nth row, for coordinating N concurrent workers "
                          "against the same manifest with no overlap -- e.g. '0/2' and "
@@ -341,6 +385,14 @@ def main():
     _setup_logging(args.verbose)
 
     rows = manifest.pending(args.stage, args.manifest)
+    if args.stage in PILOT_SMALL_ROOMS and not args.all_rooms:
+        from multidata.casematch import is_large_room
+
+        large = [r for r in rows if is_large_room(r["room_number"])]
+        if large:
+            log.info("%s: leaving %d large-room row(s) pending (pilot is small rooms; "
+                     "--all-rooms to include)", args.stage, len(large))
+        rows = [r for r in rows if not is_large_room(r["room_number"])]
     if args.only:
         rows = [r for r in rows if r["case_id"] == args.only]
     # Shortest videos first: on a long unattended batch, this clears the most
@@ -354,22 +406,37 @@ def main():
         # all the short rows while another is stuck alone on the long tail.
     log.info("%s: %d pending row(s)", args.stage, len(rows))
 
+    env = _run_env()
     ok = failed = 0
     for row in rows:
         label = f"{row['case_id']}/{row['camera']}"
         log.info("--- %s", label)
+        started = datetime.now().isoformat(timespec="seconds")
+        t0 = time.perf_counter()
+        details, error = {}, ""
         try:
             extra = STAGES[args.stage](row, args) or {}
+            details = extra.pop("_details", {})
             status = extra.pop(f"{args.stage}_status", "done")
             manifest.update(row["case_id"], row["camera"], args.manifest,
                             **{f"{args.stage}_status": status}, **extra)
             ok += 1
         except Exception as exc:
+            status, error = "failed", f"{type(exc).__name__}: {exc}"
             manifest.update(row["case_id"], row["camera"], args.manifest,
                             **{f"{args.stage}_status": "failed"})
-            log.error("FAILED %s %s: %s: %s", args.stage, label, type(exc).__name__, exc)
+            log.error("FAILED %s %s: %s", args.stage, label, error)
             log.debug("full traceback for %s %s:\n%s", args.stage, label, traceback.format_exc())
             failed += 1
+        wall = time.perf_counter() - t0
+        manifest.record_stage_run(
+            args.stage, row["case_id"], row["camera"], status, started, wall,
+            media_s=row["duration_s"], params=_run_params(args), details=details,
+            error=error, device=args.accel_device or args.device or "",
+            path=args.manifest, **env)
+        if status == "done" and row["duration_s"]:
+            log.info("%s %s: %.0f s wall, %.2fx realtime", args.stage, label, wall,
+                     row["duration_s"] / wall)
 
     log.info("%s: %d done, %d failed", args.stage, ok, failed)
     return 1 if failed else 0

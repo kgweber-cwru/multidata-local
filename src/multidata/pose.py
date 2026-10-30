@@ -1,287 +1,302 @@
-"""Stage: pose — rtmlib RTMPose extraction (pipeline doc §9).
+"""Stage: pose -- 2D keypoints per camera with rtmlib, HALPE_26 (pipeline doc §9).
 
-Promoted from `notebooks/mmpose.ipynb` cells 2-4 of the old multidata repo.
-Runs in the **md-pose** env.
+Runs in the **md-pose** env (rtmlib + onnxruntime-gpu; no torch needed).
 
-Tracker is OFF, deliberately: slot `s` is just the s-th detection in that frame
-and is NOT the same person across frames. Stable identity is deferred work, not
-a pipeline blocker (doc §9).
+Model: rtmlib's `BodyWithFeet` models -- a YOLOX person detector and an
+RTMPose network trained on HALPE_26. That is the 17 COCO body joints, in the
+COCO order (nose=0 ... right ankle=16), plus head top, neck, mid-hip and six
+foot points (`KEYPOINTS`). Only five points are on the face (nose, eyes,
+ears): enough for rough head direction, deliberately not a face mesh. The
+same keypoint set is Pose2Sim's default, so its later steps accept it as is.
 
-Output per camera: `data/pose/<case_id>/<camera>.npz` holding one entry dict
-with `keypoint` (M, T, V, C) and `keypoint_score` (M, T, V), stored float16 and
-compressed (`save()`), read back as float32 (`load()`). Older outputs are
-float32 `.pkl`; `load()` reads both, `scripts/convert_pose.py` converts.
-`V` (133) is COCO-WholeBody: indices 0-16 are the same 17 body joints, in the
-same order, as plain COCO body (nose=0, ...) -- 17-22 add feet, 23-90 face,
-91-132 the two hands. Anything hardwired to `V == 17` needs updating; nothing
-about the first 17 changed.
+Tracker is OFF: slot `s` is the s-th detection in that frame, not the same
+person across frames. Identity is solved later, in 3D.
+
+Output per camera: `data/pose/<case_id>/<camera>.npz` (`save()`/`load()`):
+
+  keypoint        (M, T, 26, 2)  pixel x, y         stored float16
+  keypoint_score  (M, T, 26)     0-1 confidence     stored float16
+  bbox            (M, T, 4)      detector box x0 y0 x1 y1, float16
+  frame_ms        (T,)           OpenCV's time for each frame it returned,
+                                 float64 -- which file frames pose saw (see
+                                 `sync.snap_to_pts`); OpenCV skips some
+  plus metadata: frame_dir, total_frames, img_shape, keypoint_set, models,
+  mode, detect_every, max_persons, rtmlib_version.
+
+M = `MAX_PERSONS` slots per frame; a frame with fewer detections leaves the
+rest at zero. 8, not 4: mirror reflections are detected as people, and with 4
+slots they pushed real people out.
 """
 import logging
 import time
 from pathlib import Path
 
 import cv2
-import mmengine
 import numpy as np
-from tqdm import tqdm
 import onnxruntime as ort
+from tqdm import tqdm
 
 log = logging.getLogger(__name__)
 
-MAX_PERSONS = 4  # fixed M slots; frames with fewer people leave slots at zero
+KEYPOINT_SET = "halpe26"
+KEYPOINTS = [
+    "nose", "left_eye", "right_eye", "left_ear", "right_ear",
+    "left_shoulder", "right_shoulder", "left_elbow", "right_elbow",
+    "left_wrist", "right_wrist", "left_hip", "right_hip",
+    "left_knee", "right_knee", "left_ankle", "right_ankle",
+    "head", "neck", "hip",
+    "left_big_toe", "right_big_toe", "left_small_toe", "right_small_toe",
+    "left_heel", "right_heel",
+]
+MAX_PERSONS = 8
 KPT_THR = 0.3
 
-_cuda_dlls_preloaded = False  # module-level: preload_dlls() is a process-wide
-# DLL search-path setup, not a per-call thing -- run_stage.py calls extract()
-# once per pending video row, and re-running it for every row in a batch is
-# pure waste once the first call has already primed the loader.
+_cuda_dlls_preloaded = False  # preload_dlls() is process-wide; once is enough
 
 # One fixed BGR color per slot, so "P0" is the same hue across the whole video.
 SLOT_COLORS = [(0, 0, 255), (0, 200, 0), (255, 128, 0), (255, 0, 255),
-               (0, 255, 255), (255, 255, 0)]
+               (0, 255, 255), (255, 255, 0), (128, 0, 255), (0, 128, 255)]
 
 
-def extract(video_path, out_path=None, max_persons=MAX_PERSONS,
-            mode="balanced", device=None, profile=False, detect_every=1):
-    """Run RTMPose over every frame of one video -> MMAction2-style entry dict.
+def default_device():
+    """'cuda' if onnxruntime can use the GPU, else 'cpu'."""
+    return "cuda" if "CUDAExecutionProvider" in ort.get_available_providers() else "cpu"
 
-    Detection normally runs on every frame; the pose network only runs on
-    frames where detection found someone. No identity across frames.
 
-    `detect_every` (default 1, i.e. every frame): re-run YOLOX only every Nth
-    frame, holding the last bboxes for the frames in between (still fed to
-    RTMPose every frame). Confirmed via `--profile` that YOLOX-on-CPU is ~88%
-    of wall-clock time and CoreML-accelerated RTMPose only ~11% (doc §9), so
-    this is the actual lever for throughput -- the held bbox is a person's
-    prior-frame position, not a fresh one, which very occasionally lags a fast
-    move; eyeball a `render_overlay()` render at your chosen stride before
-    trusting it for a full batch.
+def load_models(mode="balanced", device=None):
+    """(detector, pose_model, info) for HALPE_26 at `mode`.
 
-    `device` (the pose-network device) defaults to the best available
-    (`multidata.device.best_torch_device` — mps > cuda > cpu) *if* torch is
-    importable -- neither `env/pose.yml` nor `env/pose-nvidia.yml` installs
-    torch, so in the actual `md-pose` env leaving `device` unset raises
-    `ModuleNotFoundError` instead of auto-detecting. In practice `device` is
-    always passed explicitly (`run_stage.py --accel-device cuda`/`mps`); don't
-    rely on the auto-detect path in this env. The detector (YOLOX) is pinned
-    to CPU only on `mps`: onnxruntime's CoreML EP
-    can build a session for it but crashes at inference time on its dynamic
-    NMS output shape (`{1,1,1,8400,8400}` vs the graph's `{1,8400}}`) — a real
-    onnxruntime/CoreML limitation, confirmed on Apple Silicon. That's
-    specifically a CoreML issue, not a CUDA one, so on `cuda` the detector
-    also runs on the GPU. `tofino`'s permanent card is an RTX 5080 (its
-    original RTX 3070 failed in 2026-07 and is not coming back). Settled
-    baseline, an 18-video/~17.3h production batch (2026-09, detector + pose
-    net both on CUDA, zero crashes/fallback): 1.67x realtime aggregate (mean
-    1.72x per-video, range 1.38x-2.39x, stdev 0.31), decode ~4% /
-    detect[cuda] ~60% / pose[cuda] ~37% of wall-clock. Detect is still the
-    larger cost on this card, closer to the old CPU-bound-detector shape than
-    a single short smoke-test clip suggested -- plan capacity off the batch
-    aggregate (1.67x), not the smoke-test number. RTMPose has no dynamic-shape
-    issue and runs cleanly under CoreML EP; rtmlib falls back to CPU on its
-    own if the installed onnxruntime doesn't expose the requested execution
-    provider at all.
-
-    A CUDA `device` also needs `onnxruntime.preload_dlls()` called first --
-    pip-installed `onnxruntime-gpu` doesn't put the CUDA/cuDNN wheels' shared
-    libraries on the loader's default search path, so without this the CUDA
-    execution provider silently fails to load and rtmlib falls back to CPU.
-
-    If `out_path` is given the entry is dumped there as a native OpenMMLab
-    pickle.
+    A CUDA device needs `onnxruntime.preload_dlls()` first: pip's
+    onnxruntime-gpu doesn't put the CUDA/cuDNN libraries on the loader's
+    path, and without it the CUDA provider silently fails and runs on CPU.
+    The detector runs on CPU only on `mps` (CoreML can't handle YOLOX's
+    dynamic NMS output shape); on CUDA both run on the GPU.
     """
-    from rtmlib import Wholebody, YOLOX, RTMPose
+    import rtmlib
+    from rtmlib import YOLOX, RTMPose, BodyWithFeet
 
-    from multidata.device import best_torch_device
-
-    device = device or best_torch_device()
     global _cuda_dlls_preloaded
+    device = device or default_device()
     if device == "cuda" and not _cuda_dlls_preloaded:
         ort.preload_dlls(directory="")
         _cuda_dlls_preloaded = True
     det_device = "cpu" if device == "mps" else device
 
-    model_cfg = Wholebody.MODE[mode]
-    det_model = YOLOX(model_cfg["det"], model_input_size=model_cfg["det_input_size"],
-                       backend="onnxruntime", device=det_device)
-    pose_model = RTMPose(model_cfg["pose"], model_input_size=model_cfg["pose_input_size"],
+    cfg = BodyWithFeet.MODE[mode]
+    det = YOLOX(cfg["det"], model_input_size=cfg["det_input_size"],
+                backend="onnxruntime", device=det_device)
+    pose_model = RTMPose(cfg["pose"], model_input_size=cfg["pose_input_size"],
                          to_openpose=False, backend="onnxruntime", device=device)
+    info = {"mode": mode, "device": device, "det_device": det_device,
+            "det_model": Path(cfg["det"]).stem, "pose_model": Path(cfg["pose"]).stem,
+            "rtmlib_version": getattr(rtmlib, "__version__", "")
+            or _dist_version("rtmlib")}
+    return det, pose_model, info
+
+
+def _dist_version(name):
+    from importlib.metadata import PackageNotFoundError, version
+
+    try:
+        return version(name)
+    except PackageNotFoundError:
+        return ""
+
+
+def extract(video_path, out_path=None, max_persons=MAX_PERSONS, mode="balanced",
+            device=None, detect_every=1, profile=False):
+    """Run detection + HALPE_26 pose over every frame of one video.
+
+    Returns `(entry, details)`: the entry dict described in the module
+    docstring, and a dict of what the run cost and saw (timings, frame and
+    person counts), which run_stage.py records in `stage_runs`.
+
+    The pose network runs only on frames where the detector found someone --
+    most frames are an empty room, and rtmlib's all-in-one wrappers would
+    otherwise invent a whole-frame "person" there.
+
+    `detect_every` N: run the detector only every Nth frame and reuse its
+    boxes in between (the pose network still runs every frame). Detection is
+    ~60% of the time on the RTX 5080, so this is the speed lever; a reused box
+    lags a fast mover, so check an overlay before using it for a batch.
+    `profile` only adds a log line -- timings are always collected.
+    """
+    det, pose_model, info = load_models(mode, device)
 
     cap = cv2.VideoCapture(str(video_path))
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or None
 
-    # Per frame, record (keypoints, scores) for everyone detected, in detection order.
-    #
-    # Deliberately not `Wholebody.__call__`: rtmlib's Wholebody always runs the
-    # (expensive) pose network even when the detector finds no one, falling back to the
-    # whole frame as a fake bbox. Calling det_model/pose_model separately lets
-    # us skip the pose network on empty frames entirely — both for speed (most
-    # frames here are an empty room) and correctness (that fallback would
-    # otherwise write a phantom whole-frame "person" into slot 0 for every
-    # frame with nobody in it).
-    frame_dets = []
-    timings = {"decode": 0.0, "detect": 0.0, "pose": 0.0}
+    frames, frame_ms = [], []      # per frame: (keypoints, scores, bboxes)
+    timings = {"decode_s": 0.0, "detect_s": 0.0, "pose_s": 0.0}
     last_bboxes = np.empty((0, 4))
-    frame_idx = 0
-    with tqdm(total=total, unit="frame") as pbar:
-        while cap.isOpened():
-            t0 = time.perf_counter() if profile else None
-            ret, frame = cap.read()
-            if not ret:
+    i = 0
+    t_start = time.perf_counter()
+    with tqdm(total=total, unit="frame", disable=None) as pbar:
+        while True:
+            t0 = time.perf_counter()
+            ok, frame = cap.read()
+            if not ok:
                 break
-            t1 = time.perf_counter() if profile else None
-
-            if frame_idx % detect_every == 0:
-                last_bboxes = det_model(frame)
+            frame_ms.append(cap.get(cv2.CAP_PROP_POS_MSEC))
+            t1 = time.perf_counter()
+            if i % detect_every == 0:
+                last_bboxes = det(frame)
             bboxes = last_bboxes
-            t2 = time.perf_counter() if profile else None
-            if len(bboxes) == 0:
-                frame_dets.append((np.empty((0, 0, 0)), np.empty((0, 0))))
+            t2 = time.perf_counter()
+            if len(bboxes):
+                kp, sc = pose_model(frame, bboxes=bboxes)
+                frames.append((kp, sc, np.asarray(bboxes)))
             else:
-                keypoints, scores = pose_model(frame, bboxes=bboxes)
-                frame_dets.append((keypoints, scores))
-            t3 = time.perf_counter() if profile else None
-
-            if profile:
-                timings["decode"] += t1 - t0
-                timings["detect"] += t2 - t1
-                timings["pose"] += t3 - t2
-            frame_idx += 1
+                frames.append(None)
+            t3 = time.perf_counter()
+            timings["decode_s"] += t1 - t0
+            timings["detect_s"] += t2 - t1
+            timings["pose_s"] += t3 - t2
+            i += 1
             pbar.update(1)
-
-    if profile:
-        spent = sum(timings.values()) or 1e-9
-        log.info(
-            "profile (%d frames, detect_every=%d): decode=%.1fs (%.0f%%)  "
-            "detect[%s]=%.1fs (%.0f%%)  pose[%s]=%.1fs (%.0f%%)",
-            len(frame_dets), detect_every,
-            timings["decode"], 100 * timings["decode"] / spent,
-            det_device, timings["detect"], 100 * timings["detect"] / spent,
-            device, timings["pose"], 100 * timings["pose"] / spent,
-        )
     cap.release()
+    wall = time.perf_counter() - t_start
 
-    T = len(frame_dets)
-    sample = next((kp for kp, _ in frame_dets if len(kp) > 0), None)
-    if T == 0 or sample is None:
-        raise ValueError(f"No frames, or nobody detected, in {video_path}")
-    num_keypoints, num_coords = sample.shape[1:]
+    T, V, M = len(frames), len(KEYPOINTS), max_persons
+    if T == 0:
+        raise ValueError(f"OpenCV decoded no frames from {video_path}")
+    if all(f is None for f in frames):
+        # A real answer, not a failure: some cameras watch an empty corner.
+        log.warning("%s: nobody detected in any frame; writing an empty file", video_path)
 
-    M = max_persons
-    video_kpts = np.zeros((M, T, num_keypoints, num_coords), dtype=np.float32)
-    video_scores = np.zeros((M, T, num_keypoints), dtype=np.float32)
-
-    for t, (kpts, sc) in enumerate(frame_dets):
-        n = min(len(kpts), M)
-        if n:
-            video_kpts[:n, t] = kpts[:n]
-            video_scores[:n, t] = sc[:n]
+    kpts = np.zeros((M, T, V, 2), dtype=np.float32)
+    scores = np.zeros((M, T, V), dtype=np.float32)
+    boxes = np.zeros((M, T, 4), dtype=np.float32)
+    n_det = np.zeros(T, dtype=np.int16)
+    for t, f in enumerate(frames):
+        if f is None:
+            continue
+        kp, sc, bb = f
+        if kp.shape[1] != V:
+            raise ValueError(f"model returned {kp.shape[1]} keypoints, expected {V}")
+        n_det[t] = len(kp)
+        n = min(len(kp), M)
+        kpts[:n, t], scores[:n, t], boxes[:n, t] = kp[:n], sc[:n], bb[:n]
 
     entry = {
-        "frame_dir": str(video_path).split("/")[-1].replace(".mp4", ""),
+        "frame_dir": Path(video_path).stem,
         "total_frames": T,
         "img_shape": (height, width),
-        "label": 0,
-        "keypoint": video_kpts,
-        "keypoint_score": video_scores,
+        "keypoint_set": KEYPOINT_SET,
+        "keypoint": kpts,
+        "keypoint_score": scores,
+        "bbox": boxes,
+        "frame_ms": np.asarray(frame_ms, dtype=np.float64),
+        "models": f"{info['det_model']} + {info['pose_model']}",
+        "mode": mode,
+        "detect_every": detect_every,
+        "max_persons": M,
+        "rtmlib_version": info["rtmlib_version"],
     }
-
+    details = {
+        **{k: round(v, 2) for k, v in timings.items()},
+        "loop_s": round(wall, 2),
+        "frames": T,
+        "fps_processed": round(T / wall, 2) if wall else None,
+        "frames_with_people": int((n_det > 0).sum()),
+        "mean_detections": round(float(n_det.mean()), 3),
+        "max_detections": int(n_det.max()),
+        "frames_over_cap": int((n_det > M).sum()),
+        **{k: info[k] for k in ("device", "det_device", "det_model", "pose_model",
+                                "rtmlib_version")},
+    }
+    if details["frames_over_cap"]:
+        log.warning("%s: %d frames had more than %d detections; extras dropped",
+                    video_path, details["frames_over_cap"], M)
+    if profile:
+        log.info("profile: %s", details)
     if out_path is not None:
         save(entry, out_path)
-        log.info("wrote %s  (M=%d, T=%d, V=%d, C=%d)", out_path, M, T, num_keypoints, num_coords)
-    return entry
+        log.info("wrote %s  (M=%d, T=%d, V=%d)", out_path, M, T, V)
+    return entry, details
+
+
+_ARRAYS = ("keypoint", "keypoint_score", "bbox")
+_META = ("frame_dir", "total_frames", "img_shape", "keypoint_set", "models", "mode",
+         "detect_every", "max_persons", "rtmlib_version")
 
 
 def save(entry, out_path):
-    """Write an entry as compressed `.npz`, arrays cast to float16.
+    """Write an entry as compressed `.npz`: keypoints, scores and boxes as
+    float16, frame times float64.
 
-    ~14x smaller than the float32 pickle: half from float16, the rest from
-    compressing the zero-filled empty slots. float16 spacing is 1.0 between
-    1024 and 2048, so coordinates anywhere inside a 1920-wide frame lose up
-    to 0.5 px (off-frame extrapolations past 2048 px, up to 1 px); scores
-    (0-1) lose far less.
+    float16 spacing is 1.0 between 1024 and 2048, so coordinates inside a
+    1920-wide frame lose at most 0.5 px; scores (0-1) far less. Empty slots
+    are zeros and compress to almost nothing.
     """
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(
         str(out_path),
-        keypoint=entry["keypoint"].astype(np.float16),
-        keypoint_score=entry["keypoint_score"].astype(np.float16),
-        frame_dir=np.array(entry["frame_dir"]),
-        total_frames=np.array(entry["total_frames"]),
-        img_shape=np.array(entry["img_shape"]),
-        label=np.array(entry["label"]),
+        **{k: np.asarray(entry[k]).astype(np.float16) for k in _ARRAYS},
+        frame_ms=np.asarray(entry["frame_ms"], dtype=np.float64),
+        **{k: np.array(entry[k]) for k in _META},
     )
 
 
 def load(path):
-    """Read an entry from `.npz` (current) or `.pkl` (pre-float16 outputs).
-    Arrays come back float32 either way, so callers never do float16 math."""
-    path = Path(path)
-    if path.suffix == ".pkl":
-        return mmengine.load(str(path))
-    with np.load(path) as z:
-        return {
-            "frame_dir": str(z["frame_dir"]),
-            "total_frames": int(z["total_frames"]),
-            "img_shape": tuple(int(x) for x in z["img_shape"]),
-            "label": int(z["label"]),
-            "keypoint": z["keypoint"].astype(np.float32),
-            "keypoint_score": z["keypoint_score"].astype(np.float32),
-        }
+    """Read an entry written by `save()`. Arrays come back float32 (frame
+    times float64), so callers never do float16 math."""
+    with np.load(Path(path)) as z:
+        entry = {k: z[k].astype(np.float32) for k in _ARRAYS}
+        entry["frame_ms"] = z["frame_ms"].astype(np.float64)
+        for k in _META:
+            v = z[k]
+            entry[k] = (tuple(int(x) for x in v) if k == "img_shape"
+                        else v.item() if v.ndim == 0 else v)
+        entry["frame_dir"] = str(entry["frame_dir"])
+        entry["keypoint_set"] = str(entry["keypoint_set"])
+    return entry
 
 
 def presence(entry):
-    """Per-slot fraction of frames that actually carry a detection (sanity check)."""
-    kp = entry["keypoint"]  # (M, T, V, C)
-    return (kp != 0).any(axis=(2, 3)).mean(axis=1)
+    """Per-slot fraction of frames that carry a detection (sanity check)."""
+    return (entry["keypoint_score"] > 0).any(axis=2).mean(axis=1)
 
 
 def render_overlay(video_path, entry, out_path, kpt_thr=KPT_THR):
     """Draw slot-colored skeletons + P<slot> labels onto a copy of the video.
 
-    Eyeball check for how badly the missing tracker hurts: scrub and watch one
-    label. If P0 stays glued to the same human, the slot is clean; if it jumps
-    bodies, it isn't.
+    Eyeball check: slots are not identities (no tracker), so watching one
+    label jump between bodies is expected.
     """
     from rtmlib import draw_skeleton
 
-    kp = entry["keypoint"]
-    sc = entry["keypoint_score"]
+    kp, sc = entry["keypoint"], entry["keypoint_score"]
     M, T = kp.shape[:2]
 
     cap = cv2.VideoCapture(str(video_path))
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
-
     writer = cv2.VideoWriter(str(out_path), cv2.VideoWriter_fourcc(*"mp4v"),
                              fps, (width, height))
-
     t = 0
-    while cap.isOpened() and t < T:
-        ret, frame = cap.read()
-        if not ret:
+    while t < T:
+        ok, frame = cap.read()
+        if not ok:
             break
-
         for s in range(M):
             visible = sc[s, t] > kpt_thr
             if not visible.any():
-                continue  # this person isn't in this frame
-            color = SLOT_COLORS[s % len(SLOT_COLORS)]
-            # rtmlib's draw_skeleton infers the keypoint count from shape[1] of a
-            # *batched* (N, V, C) array, so add a leading instance axis just for
-            # drawing. Our stored layout stays (M, T, V, C) untouched.
+                continue
+            # draw_skeleton picks the skeleton from shape[1] of a batched
+            # (N, V, C) array, so add an instance axis just for drawing.
             frame = draw_skeleton(frame, kp[s, t][None], sc[s, t][None],
                                   kpt_thr=kpt_thr, radius=3, line_width=2)
             xs, ys = kp[s, t, visible, 0], kp[s, t, visible, 1]
-            anchor = (int(xs.min()), int(ys.min()) - 8)
-            cv2.putText(frame, f"P{s}", anchor, cv2.FONT_HERSHEY_SIMPLEX,
-                        0.8, color, 2, cv2.LINE_AA)
-
+            cv2.putText(frame, f"P{s}", (int(xs.min()), int(ys.min()) - 8),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, SLOT_COLORS[s % len(SLOT_COLORS)],
+                        2, cv2.LINE_AA)
         writer.write(frame)
         t += 1
-
     cap.release()
     writer.release()
     log.info("wrote %s  (%d frames, M=%d)", out_path, t, M)

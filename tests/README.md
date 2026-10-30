@@ -2,7 +2,7 @@
 
 `python -m pytest` from the repo root. Every env file lists `pytest` (added to
 all of them 2026-10-26). `md-speech` runs the whole suite except
-`test_pose_io.py`, which needs the pose stack (`cv2`, `mmengine`) and so runs
+`test_pose_io.py`, which needs the pose stack (`cv2`, `onnxruntime`) and so runs
 in `md-pose`; each env `importorskip`s what it lacks, so between the two
 everything runs.
 
@@ -23,7 +23,7 @@ weight, GPU, network, or the manifest database.** `torch` shows up only in
 available` rather than needing real GPU hardware; that file `importorskip`s
 `torch` so the rest of the suite still collects and passes in an env without
 it. `test_pose_io.py` is the other exception: it round-trips synthetic
-arrays through `pose.save()`/`pose.load()` (float16 `.npz`, legacy `.pkl`)
+HALPE_26 arrays through `pose.save()`/`pose.load()` (float16 `.npz`)
 and needs the md-pose imports, but still no model, GPU or real video.
 `test_sync.py` needs numpy (it `importorskip`s it) and uses synthetic noise, not real audio. Everything else is stdlib or pyyaml. That's a deliberate boundary, not an
 oversight:
