@@ -35,7 +35,7 @@ confident window gives one lag. The offset is the median, and windows count as
 agreeing when within AGREE_TOL_S of it. A case whose audio has gaps (room 11)
 gives scattered lags and fails, so a bad offset is never written.
 
-numpy + stdlib only (wav via `wave`); `ffmpeg`/`ffprobe` come from PATH, as in
+numpy + stdlib only (wav via `wave`); `ffmpeg`/`ffprobe` found by `tools.which`, as in
 `audio.py` -- run in md-speech.
 """
 import json
@@ -45,6 +45,8 @@ import wave
 from pathlib import Path
 
 import numpy as np
+
+from multidata.tools import which
 
 SAMPLE_RATE = 16000
 WINDOW_S = 10.0
@@ -137,7 +139,7 @@ def frame_times(video_path):
     is the i-th frame a decoder (cv2, so pose) returns. Gaps show up as
     jumps bigger than one frame period."""
     out = subprocess.run(
-        ["ffprobe", "-v", "error", "-select_streams", "v:0",
+        [which("ffprobe"), "-v", "error", "-select_streams", "v:0",
          "-show_entries", "packet=pts_time", "-of", "csv=p=0", str(video_path)],
         check=True, capture_output=True, text=True,
     ).stdout

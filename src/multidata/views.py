@@ -1,6 +1,6 @@
 """Stage: views -- where each camera is pointing, and when it moves.
 
-Runs in the **md-pose** env (OpenCV, plus `ffmpeg`/`ffprobe` on PATH).
+Runs in the **md-pose** env (OpenCV, plus the env's `ffmpeg`/`ffprobe`).
 
 The exam-room cameras are PTZ and an operator steers them during sessions
 (a 2026-10-30 survey found 5-20 moves an hour). A 3D calibration only holds
@@ -39,13 +39,13 @@ Outputs:
     not a stored flag, so it updates itself as cases arrive.
 """
 import json
-import shutil
 import subprocess
-import sys
 from pathlib import Path
 
 import cv2
 import numpy as np
+
+from multidata.tools import which
 
 W, H = 320, 180
 PERSIST = 3                 # keyframes a change must last (~3 s)
@@ -69,23 +69,14 @@ def _tools():
     return _ORB, _BF
 
 
-def _bin(name):
-    """`name` from PATH, else from this Python's own env (an env used
-    without `conda activate` isn't on PATH)."""
-    path = shutil.which(name) or shutil.which(name, path=str(Path(sys.executable).parent))
-    if not path:
-        raise RuntimeError(f"{name} not found -- install ffmpeg into this env")
-    return path
-
-
 def keyframes(video_path):
     """(times_s, frames): keyframes only, gray, W x H. Fast: no other frame
     is decoded. Times are the file's own presentation timestamps."""
-    t = subprocess.run([_bin("ffprobe"), "-v", "error", "-select_streams", "v:0",
+    t = subprocess.run([which("ffprobe"), "-v", "error", "-select_streams", "v:0",
                         "-skip_frame", "nokey", "-show_entries", "frame=pts_time",
                         "-of", "csv=p=0", str(video_path)],
                        capture_output=True, text=True, check=True).stdout.split()
-    raw = subprocess.run([_bin("ffmpeg"), "-v", "error", "-skip_frame", "nokey",
+    raw = subprocess.run([which("ffmpeg"), "-v", "error", "-skip_frame", "nokey",
                           "-i", str(video_path), "-an", "-fps_mode", "passthrough",
                           "-vf", f"scale={W}:{H},format=gray", "-f", "rawvideo", "-"],
                          capture_output=True, check=True).stdout

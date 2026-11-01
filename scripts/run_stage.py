@@ -495,7 +495,10 @@ def main():
             status = extra.pop(f"{args.stage}_status", "done")
             manifest.update(row["case_id"], row["camera"], args.manifest,
                             **{f"{args.stage}_status": status}, **extra)
-            ok += 1
+            if status == "failed":   # a stage can fail without raising (e.g. sync)
+                failed += 1
+            else:
+                ok += 1
         except Exception as exc:
             status, error = "failed", f"{type(exc).__name__}: {exc}"
             manifest.update(row["case_id"], row["camera"], args.manifest,

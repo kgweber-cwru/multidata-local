@@ -6,6 +6,8 @@ import subprocess
 from datetime import datetime
 from pathlib import Path
 
+from multidata.tools import which
+
 FILENAME_RE = re.compile(
     r"^(?P<date>\d{8})-(?P<time>\d{6})-(?P<recording_id>v\d+)-(?P<camera>\d+)$"
 )
@@ -43,9 +45,9 @@ def parse_filename(path) -> dict:
 
 
 def probe(path) -> dict:
-    """ffprobe -> dict of format + streams. Requires ffmpeg on PATH."""
+    """ffprobe -> dict of format + streams (ffprobe found by `tools.which`)."""
     out = subprocess.run(
-        ["ffprobe", "-v", "quiet", "-print_format", "json",
+        [which("ffprobe"), "-v", "quiet", "-print_format", "json",
          "-show_format", "-show_streams", str(path)],
         capture_output=True, text=True, check=True,
     ).stdout

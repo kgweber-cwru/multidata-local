@@ -341,6 +341,11 @@ token in `.env` (gitignored), never in code.
 
 ### 4a. Manual (now)
 
+**Easiest:** `python scripts/ingest_raw.py` (dry run) then `--write` does
+everything below for every new file in `data/raw/`. First time, or teaching
+someone: `notebooks/ingest_walkthrough.ipynb` goes through the same steps one
+at a time, then runs the processing stages.
+
 Drop source files into `data/raw/` (flat, no per-case subfolder — see §2),
 named to the §2 spec (`<date>-<time>-<recording_id>-<camera>.mp4`), then
 resolve the case_id, register, and validate with `src/multidata/ingest.py`

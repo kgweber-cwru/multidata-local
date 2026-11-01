@@ -13,6 +13,8 @@ denoiser, not the ASR (doc §5).
 import subprocess
 from pathlib import Path
 
+from multidata.tools import which
+
 SAMPLE_RATE = 16000
 
 
@@ -25,7 +27,7 @@ def extract(video_path, out_path, loudnorm=False, overwrite=True):
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    cmd = ["ffmpeg", "-y" if overwrite else "-n", "-i", str(video_path),
+    cmd = [which("ffmpeg"), "-y" if overwrite else "-n", "-i", str(video_path),
            "-vn", "-ac", "1", "-ar", str(SAMPLE_RATE), "-sample_fmt", "s16"]
     if loudnorm:
         cmd += ["-af", "loudnorm"]

@@ -51,6 +51,7 @@ scripts/        run_stage.py — manifest-driven, resumable batch runner
                 render_two_view_overlay.py — side-by-side, time-synced pose overlay
                 fix_frame_times.py — line frame times up with pose where OpenCV skipped frames
                 review_views.py — contact sheets + spreadsheet for naming camera views (presets)
+                ingest_raw.py — register new raw videos (dry run, then --write)
                 backup_to_raid.sh — tofino's nightly backup to /wddata (cron)
 benchmarks/     ASR benchmarking wing
                 configs/    providers.yaml, glossary.yaml — the capability/term registries
@@ -61,6 +62,8 @@ annotation/     hand-annotation workflow (kits via Box, pass 1 -> pass 2 -> gold
                 and assignments.csv, who has which pass -- see annotation/README.md
 elan/           template.etf — the versioned annotation template
 docs/           guides
+notebooks/      ingest_walkthrough.ipynb — step-by-step ingest + processing (start here
+                to learn the pipeline); the other notebooks are personal scratch
 tests/          pytest — see tests/README.md for what is/isn't covered
 data/           GITIGNORED — raw video + derived artifacts (see pipeline doc §2)
 logs/           GITIGNORED — run_stage.py's structured log + nohup/PID files
