@@ -31,6 +31,7 @@ Speed is media time processed per hour of machine time ("realtime" = 1x).
 | audio | CPU | ~2,000x | 2 s | 3 min | ffmpeg extract |
 | asr (+ diarization) | GPU | 13.5x | 2.9 min | 4.9 h | faster-whisper medium + pyannote, one camera per case. Measured while pose was running, so likely pessimistic |
 | elan | CPU | instant | <1 s | <1 min | |
+| prosody | CPU | 84x | 28 s | 47 min | Praat features + per-speaker summary, one camera per case. Measured with both pose workers running |
 | sync | CPU | ~1,900x | 3 s | 5 min | audio offsets + frame times |
 | views | CPU, 1 worker | 81x | 57 s | 1.6 h | must run as one worker |
 | **pose (2D)** | **GPU, 2 workers** | **2.19x combined** | **35 min** | **58 h** | 1.1x per worker; one worker alone ran 2.2x, so two workers give ~25% more. Detection is 80% of pose time |
@@ -51,6 +52,7 @@ The GPU is the bottleneck: pose and ASR can't usefully run at the same time.
 | Audio (16 kHz WAV) | 115 MB | 75 MB | 7.5 GB |
 | Pose (HALPE_26 `.npz`) | 13 MB | 17 MB | 1.7 GB |
 | Views (stretches + library) | 3 MB | 4 MB | 0.4 GB |
+| Prosody (frame features + speaker CSV) | 7 MB (of audio) | 5 MB | 0.5 GB |
 | Transcripts, diarization, ELAN, sync | | 2 MB | 0.2 GB |
 | **Total** | | **~0.56 GB** | **~56 GB** |
 
