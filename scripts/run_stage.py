@@ -27,7 +27,7 @@ the two cameras' frames by time. See `multidata.sync`.
 a `.txt` sibling for a quick read) — always word-level speaker-labeled
 regardless of engine, reusing `data/diarization/<case_id>/<camera>.rttm` if
 it's already there rather than re-running pyannote. Default engine is
-`faster_whisper` (`--model medium --language en`); `whisperx`/`suite` remain
+`faster_whisper` (`--model medium --language en`); `whisperx` remains
 available via `--engine` for testing/comparison.
 
 Logging: INFO-level progress (with timestamps) goes to both the console and
@@ -173,15 +173,12 @@ def stage_asr(row, args):
     wav = _abs(row["audio_path"]) if row["audio_path"] else _out("audio", row, ".wav")
     out = _out("transcripts", row, f"_{args.engine}_{args.model}.json")
 
-    # `suite` has no model-size selection (fixed remote server); the rest
-    # share `model_name`/`language`. Device kwargs only make sense for the
+    # Every engine takes `model_name`/`language`. Device kwargs only make sense for the
     # whisperx family -- ctranslate2 keeps the Whisper model itself on
     # `--device` (cpu/cuda only; left unset it auto-detects, see the flag's
     # help); `--accel-device` governs the torch-based alignment/diarization
     # steps and defaults to the fastest available.
-    engine_kwargs = {"language": args.language}
-    if args.engine != "suite":
-        engine_kwargs["model_name"] = args.model
+    engine_kwargs = {"language": args.language, "model_name": args.model}
     if args.engine in asr.TAKES_DIARIZE_DEVICE:
         if args.device is not None:
             engine_kwargs["device"] = args.device
@@ -419,8 +416,7 @@ def main():
     ap.add_argument("--manifest", default=str(ROOT / "manifest.sqlite"))
     ap.add_argument("--engine", default=asr_default(), help="asr/elan: which ASR engine")
     ap.add_argument("--model", default=asr_model_default(),
-                    help="asr/elan: model size (e.g. tiny/small/medium/large-v3); "
-                         "ignored for --engine suite")
+                    help="asr/elan: model size (e.g. tiny/small/medium/large-v3)")
     ap.add_argument("--language", default=asr_language_default(),
                     help="asr: language code, skips auto-detect")
     ap.add_argument("--loudnorm", action="store_true", help="audio: loudness-normalize")

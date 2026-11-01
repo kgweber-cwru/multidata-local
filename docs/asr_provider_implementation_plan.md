@@ -212,7 +212,7 @@ The shared layer, end to end, at zero marginal cost.
       Resist a base class until there are three implementations to generalize
       from. **Deliberately still not built**: today's `whisperx_disfluent`
       addition used the existing sibling-function pattern
-      (`transcribe_faster_whisper`/`transcribe_whisperx`/`transcribe_suite`)
+      (`transcribe_faster_whisper`/`transcribe_whisperx`; a `transcribe_suite` comparator existed until 2026-11-01)
       rather than introducing a protocol, per this exact "resist a base class"
       note. Revisit once a cloud adapter (Phase 4) needs shape enforcement
       that four sibling functions can no longer provide informally.
@@ -236,7 +236,7 @@ The shared layer, end to end, at zero marginal cost.
 - [x] **3.5 `whisperx` as a second registry entry** — done, and exceeded: the
       registry now has `whisperx` (hallucination-avoidance-tuned, unchanged
       behavior) **and** `whisperx_disfluent` (new) as separate entries sharing
-      `glossary_mechanism: initial_prompt`, plus `faster_whisper` and `suite`.
+      `glossary_mechanism: initial_prompt`, plus `faster_whisper` (and `suite`, removed 2026-11-01).
       `test_local_providers_match_asr_engines_exactly` proves the registry and
       `asr.ENGINES` agree on the full local set, not just this one pair.
 

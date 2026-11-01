@@ -16,7 +16,6 @@ dependencies:
       - pyannote.metrics      # DER for benchmarking
       - pympi-ling            # ELAN .eaf read/write
       - praat-parselmouth     # prosody stage: pitch/intensity/harmonicity/formants
-      - requests              # Transcription Suite HTTP client (asr engine "suite")
       - soundfile
       - librosa
       - numpy

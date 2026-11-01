@@ -183,7 +183,7 @@ def load_result(args, audio_sha256, cache_root=None):
         return result, engine, "cached", 0.0
 
     engine = args.engine or asr.DEFAULT_ENGINE
-    kwargs = {} if engine == "suite" else {"model_name": args.model}
+    kwargs = {"model_name": args.model}
 
     cache_params = dict(kwargs)
     key = bench_runs.cache_key(audio_sha256, engine, cache_params) if cache_root else None

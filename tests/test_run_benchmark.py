@@ -37,17 +37,6 @@ class TestLiveMode:
         assert source == "live"
         assert wall_s >= 0.0
 
-    def test_suite_engine_gets_no_model_kwarg(self, monkeypatch):
-        received = {}
-
-        def fake_transcribe(audio_path, engine, **kwargs):
-            received.update(kwargs)
-            return {"segments": []}
-
-        monkeypatch.setattr(run_benchmark.asr, "transcribe", fake_transcribe)
-        run_benchmark.load_result(_args(engine="suite"), "fakehash")
-        assert "model_name" not in received
-
 
 class TestCaching:
     """The engine should never run twice for the same (audio, engine, model)

@@ -135,9 +135,8 @@ by module** — know which is which before trusting a run:
 `tests/README.md` for what is and isn't covered. See pipeline doc §11 for the 1 → few → scale
 phasing.
 
-**ASR direction:** Whisper + pyannote run locally. Transcription Suite (the old
-machine's HTTP server) survives only as `--engine suite`, a benchmark comparator;
-delete it from `asr.py` if you'd rather it not be there.
+**ASR direction:** Whisper + pyannote run locally. The old Transcription
+Suite server comparator (`--engine suite`) was removed 2026-11-01.
 
 > ⚠️ **Identifiable human-subjects data.** Today's corpus is OSCE
 > simulated-patient encounters — the "patient" is an actor, so there is no

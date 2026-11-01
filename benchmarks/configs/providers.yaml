@@ -14,7 +14,7 @@
 # especially the AssemblyAI Medical Mode and ElevenLabs glossary rows, which
 # are the least certain.
 #
-# Local rows (faster_whisper / whisperx / whisperx_disfluent / suite) are
+# Local rows (faster_whisper / whisperx / whisperx_disfluent) are
 # marked verified — that's not a vendor claim, it's a fact read straight off
 # our own src/multidata/asr.py, so there's nothing external to check.
 
@@ -98,27 +98,6 @@ providers:
       whisperx that asr_options accepts initial_prompt/
       condition_on_previous_text -- re-check if whisperx is upgraded
       (env/speech.yml doesn't pin its version).
-
-  suite:
-    kind: local
-    diarizes_internally: true       # server-side (sortformer)
-    word_timings: true
-    glossary_mechanism: initial_prompt   # the server's own `prompt` request field
-    glossary_limit: null
-    disfluency_param: null
-    best_disfluency_config: null
-    speaker_hint_param: "expected_speakers (request field)"
-    formatting_off_param: null
-    long_audio: null
-    baa_available: null
-    no_train_flag: null
-    cost_per_minute: 0
-    verified: true
-    checked_on: "2026-08-26"
-    notes: >
-      Transcription Suite HTTP server (parakeet + sortformer) -- benchmark
-      comparator only, not the intended pipeline. Requires that server
-      running locally; not a cloud provider despite being a network call.
 
   deepgram:
     kind: cloud

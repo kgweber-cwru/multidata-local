@@ -26,11 +26,6 @@ Engines (doc §6: "keep those code paths behind a --engine flag"):
   project's policy (docs/transcription_standards.md §1) is to keep them and
   the default engines are tuned the opposite way (§6a). Experimental — its own
   docstring carries the caveats.
-- ``suite`` — Transcription Suite HTTP server (parakeet + sortformer), promoted
-  from `notebooks/transcription_suite.ipynb`. This is the *old machine's* path
-  and is **not** the intended pipeline; it is retained only as a benchmark
-  comparator, since it produced the transcripts we already have. Requires that
-  server to be running. Already diarizes itself (server-side), like whisperx.
 
 Default model is `medium` and default language is `en` (skip auto-detect —
 faster and safer for this fixed-language clinical corpus). Override either
@@ -43,8 +38,6 @@ from pathlib import Path
 
 log = logging.getLogger(__name__)
 
-SUITE_URL = "http://localhost:9786/api/"
-
 DEFAULT_MODEL = "medium"
 DEFAULT_LANGUAGE = "en"
 
@@ -56,26 +49,6 @@ DEFAULT_PROMPT = (
     "by feedback between the provider and their instructor. Formal medical "
     "terminology is used throughout."
 )
-
-
-def transcribe_suite(audio_path, base_url=SUITE_URL, expected_speakers=4,
-                     prompt=DEFAULT_PROMPT, language=DEFAULT_LANGUAGE):
-    """POST audio to a running Transcription Suite server -> result dict."""
-    import requests
-
-    data = {
-        "language": language,
-        "translation_enabled": "false",
-        "word_timestamps": "true",
-        "diarization": "true",
-        "expected_speakers": expected_speakers,
-        "prompt": prompt,
-    }
-    with open(audio_path, "rb") as f:
-        response = requests.post(base_url + "transcribe/audio",
-                                 data=data, files={"file": f})
-    response.raise_for_status()
-    return response.json()
 
 
 def transcribe_whisperx(audio_path, model_name=DEFAULT_MODEL, device=None, compute_type=None,
@@ -252,17 +225,14 @@ ENGINES = {
     "faster_whisper": transcribe_faster_whisper,
     "whisperx": transcribe_whisperx,
     "whisperx_disfluent": transcribe_whisperx_disfluent,
-    "suite": transcribe_suite,
 }
 
 # Engines that already return word-level `speaker` labels on their own;
 # everything else gets diarization merged in by `transcribe()`.
-DIARIZES_INTERNALLY = {"whisperx", "whisperx_disfluent", "suite"}
+DIARIZES_INTERNALLY = {"whisperx", "whisperx_disfluent"}
 
 # Engines whose function accepts `diarize_device` directly (the whisperx
-# family) rather than getting one merged in by `_diarize_and_merge` -- kept as
-# its own set rather than reusing DIARIZES_INTERNALLY because `suite` also
-# diarizes internally but takes no such parameter (it's server-side).
+# family) rather than getting one merged in by `_diarize_and_merge`.
 TAKES_DIARIZE_DEVICE = {"whisperx", "whisperx_disfluent"}
 
 DEFAULT_ENGINE = "faster_whisper"

@@ -446,12 +446,10 @@ Record sample rate, channels, and duration in the manifest.
 > model. `whisperx` remains available via `--engine` — its wav2vec2 forced
 > alignment is arguably higher-quality word timing than a CT2 model's native
 > timestamps, which is the reason to reach for it instead of the default.
-> `suite` is retained only as a benchmark comparator against the old
-> machine's transcripts; nothing in the pipeline depends on it.
 >
 > **Every engine's output is word-level speaker-labeled**
 > (`segments[].words[].speaker`), regardless of whether the engine diarizes
-> itself. `whisperx`/`suite` do it internally; `faster_whisper`'s transcript
+> itself. `whisperx` does it internally; `faster_whisper`'s transcript
 > gets one merged in afterward via whisperx's own (engine-agnostic)
 > `assign_word_speakers`, using a `diarize.diarize()` result — reusing
 > `data/diarization/<case_id>/<camera>.rttm` if it's already on disk instead
@@ -934,7 +932,7 @@ the engine — needed once model size became a real axis you switch (§6), not
 only the engine. A successful `asr` stage run also marks `diarize_status`
 `done` on the same row as a side effect: by the time `asr` finishes, a
 diarization result exists either way (reused/written RTTM for
-`faster_whisper`, or bundled internally for `whisperx`/`suite`) — the
+`faster_whisper`, or bundled internally for `whisperx`) — the
 standalone `diarize` stage remains available to force/refresh one
 independently (different speaker-count hints, or ahead of transcription).
 
