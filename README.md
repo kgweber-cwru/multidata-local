@@ -50,6 +50,7 @@ scripts/        run_stage.py — manifest-driven, resumable batch runner
                 bench_status.py — one-screen view of gold coverage + scores
                 render_two_view_overlay.py — side-by-side, time-synced pose overlay
                 fix_frame_times.py — line frame times up with pose where OpenCV skipped frames
+                review_views.py — contact sheets + spreadsheet for naming camera views (presets)
                 backup_to_raid.sh — tofino's nightly backup to /wddata (cron)
 benchmarks/     ASR benchmarking wing
                 configs/    providers.yaml, glossary.yaml — the capability/term registries
@@ -100,6 +101,7 @@ conda activate md-pose   && python scripts/run_stage.py pose
 conda activate md-speech && python scripts/run_stage.py prosody  # pitch, loudness, voice quality (after asr)
 conda activate md-speech && python scripts/run_stage.py sync     # camera offsets + frame times
 conda activate md-pose   && python scripts/run_stage.py views    # where cameras point, when they move
+conda activate md-pose   && python scripts/review_views.py sheets # then export / import: name views (pipeline doc §9a)
 conda activate md-pose   && python scripts/fix_frame_times.py --write   # after sync, if pose ran
 
 # tests -- every env has pytest; md-speech runs all but the pose I/O tests,

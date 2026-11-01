@@ -257,3 +257,21 @@ def usage(result):
             sec, n = u.get(s["view"], (0.0, 0))
             u[s["view"]] = (sec + s["dur_s"], n + 1)
     return u
+
+
+def pair_views(stretches_a, stretches_b):
+    """{(view_a, view_b): seconds} the two cameras of a case held at the same
+    time, on the reference clock. Inputs are the `stretches` lists of two
+    per-video results; stretches without a view or a reference time (no
+    sync offset) are skipped. A preset moves both cameras, so recurring pairs
+    are how presets show up."""
+    out = {}
+    a = [s for s in stretches_a if s["view"] and s["ref_t0"] is not None]
+    b = [s for s in stretches_b if s["view"] and s["ref_t0"] is not None]
+    for x in a:
+        for y in b:
+            overlap = min(x["ref_t1"], y["ref_t1"]) - max(x["ref_t0"], y["ref_t0"])
+            if overlap > 0:
+                key = (x["view"], y["view"])
+                out[key] = out.get(key, 0.0) + overlap
+    return out

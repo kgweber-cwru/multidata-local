@@ -76,3 +76,11 @@ def test_view_tables_and_preset_rule(tmp_path):
     assert not s["v2"]["is_preset"]
     with pytest.raises(KeyError):
         manifest.set_view_label("14", "v9", "sink", path=db)
+
+
+def test_pair_views_overlap_on_reference_clock():
+    a = [{"view": "v1", "ref_t0": 0, "ref_t1": 100}, {"view": "v2", "ref_t0": 100, "ref_t1": 200},
+         {"view": None, "ref_t0": 200, "ref_t1": 210}]
+    b = [{"view": "v7", "ref_t0": 0, "ref_t1": 150}, {"view": "v8", "ref_t0": 150, "ref_t1": 200},
+         {"view": "v9", "ref_t0": None, "ref_t1": None}]
+    assert views.pair_views(a, b) == {("v1", "v7"): 100, ("v2", "v7"): 50, ("v2", "v8"): 50}

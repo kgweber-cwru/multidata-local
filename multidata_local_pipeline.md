@@ -821,6 +821,50 @@ it, and only the latter is meant to be kept perfectly current day to day.
 
 ---
 
+## 9a. Camera views (`run_stage.py views`, md-pose) and naming presets
+
+The cameras are PTZ: operators move them 5-20 times an hour, mostly by
+recalling presets (Drew, 2026-11-01: Baseline, Chair (End of Exam Bed), Bed
+(Full Length of Exam Bed), Sink, PC, User). A 3D calibration only holds while
+a camera holds still, so `src/multidata/views.py` splits each video into
+**steady stretches** and gives each one a **view id** (`v1`, `v2`, ... per
+camera) by matching it against that camera's **view library** of sample
+frames. Ids never change once given. Run it after `sync` (so stretches get
+reference-clock times), as one worker; the runner goes oldest video first.
+
+| Output | Where |
+|---|---|
+| Stretches per video (times, view id, match quality, move from previous) | `data/views/<case_id>/<camera>.json` |
+| View library: 5 sample frames per view (`.npz`), same as a strip (`.png`) | `data/views/library/<camera>/v<n>.*` |
+| One row per view: `label`, `label_source` (`provisional`/`confirmed`), `notes` | manifest `camera_views` |
+| Seconds per video per view | manifest `video_views` |
+
+A view is **recurring** when it shows up in 2+ cases or 3+ separate times
+(`manifest.view_summary()`); recurring views are the presets. A preset moves
+both cameras of a room, so it shows up as a recurring *pair* of views
+(`views.pair_views()`).
+
+**Naming views** (`scripts/review_views.py`):
+
+1. `python scripts/review_views.py sheets` (md-pose) redraws
+   `data/views/sheets/`: `recurring_<n>.png` (every recurring view, tagged
+   `R<room> c<camera> v<n> <share>% <label>`, `*` = confirmed) and
+   `pairs_room<NN>.png` (what both cameras hold at the same time).
+2. `python scripts/review_views.py export` writes
+   `data/views/review/labels.csv`: one row per recurring or labelled view,
+   with the current label, its notes (who guessed it and how sure), and the
+   sample strip to look at.
+3. Fill in `confirmed_label` for the rows you've checked: a preset name
+   exactly as in `manifest.PRESETS`, or `none` for "not a preset"; blank
+   rows are skipped. `confirm_notes` is optional.
+4. `python scripts/review_views.py import` shows what would change;
+   `import --write` saves it and moves the sheet to `labels_imported.csv`.
+   Then run `sheets` again to see the result.
+
+After new cases go through `views`, repeat from step 1: new views appear with
+no label. The first 65 recurring views were labelled provisionally by eye on
+2026-11-01 (`scripts/label_views_2026-11-01.py`, confidence in each note).
+
 ## 10. The manifest — the spine of the whole thing
 
 A `sqlite3` database (`manifest.sqlite`), not a flat CSV, because the data
