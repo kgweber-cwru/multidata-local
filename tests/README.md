@@ -1,10 +1,12 @@
 # tests/
 
-`python -m pytest` from the repo root. Every env file lists `pytest` (added to
-all of them 2026-10-26). `md-speech` runs the whole suite except
-`test_pose_io.py`, which needs the pose stack (`cv2`, `onnxruntime`) and so runs
-in `md-pose`; each env `importorskip`s what it lacks, so between the two
-everything runs.
+`python -m pytest` from the repo root. Every env has `pytest`. Run the whole
+suite in `md-speech`, then `test_pose_io.py` and `test_views.py` in `md-pose`
+(they need OpenCV and onnxruntime); each env `importorskip`s what it lacks, so
+between the two everything runs:
+
+    conda run -n md-speech python -m pytest -q
+    conda run -n md-pose python -m pytest -q tests/test_pose_io.py tests/test_views.py
 
 `test_submit_checks.py` and `test_make_kit.py` cover what's left of the
 annotation package (`annotation/`, see its README — the cloud delivery

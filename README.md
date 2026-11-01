@@ -1,152 +1,106 @@
 # multidata-local
 
-Clean-room prototype of the multidata pipeline: from raw clinical-interaction
-video → **speech transcripts, timing, diarization, ELAN, pose estimation**,
-plus an **ASR benchmarking** wing. Built on the CWRU Mac mini (Apple Silicon);
-since 2026-10-26 everything runs on **`tofino`** (Linux, RTX 5080), the only
-machine that holds the data and writes the manifest — see
-[docs/current_status.md](docs/current_status.md).
+Turns video of clinical teaching encounters into research data. The
+recordings are OSCE sessions: a learner, a simulated patient (an actor) and
+sometimes a preceptor, filmed by two pan/tilt/zoom cameras per exam room
+with one shared microphone feed. From each case the pipeline produces:
 
-Deliberately *not* a fork of the thrashed `multidata` repo — only known-good code
-is carried over.
+- **transcripts** with word timing and who spoke (Whisper + pyannote), and
+  ELAN files for annotators;
+- **prosody**: pitch, loudness and voice quality per speaker;
+- **camera sync**, and **camera views** (when each camera moves, and which
+  operator preset it's on);
+- **2D body pose** per camera, heading toward 3D.
 
-## Start here
+There's also an **ASR benchmarking** wing, scoring speech engines against
+hand-made gold transcripts. Everything runs on **tofino** (Linux, RTX 5080).
 
-0. **[docs/current_status.md](docs/current_status.md)** — picking this up
-   cold (new session, new contributor)? Read this one first: what's real vs.
-   built-but-unproven, active threads, and what IRB clearance did and didn't unblock.
-1. **[multidata_local_pipeline.md](multidata_local_pipeline.md)** — the full
-   build & run guide (machine prep, envs, every stage, scaling to 300–400 videos).
-2. **[docs/transcription_standards.md](docs/transcription_standards.md)** — the
-   conventions every gold reference obeys (policy; versioned).
-3. **[docs/annotator_guide.md](docs/annotator_guide.md)** — step-by-step ELAN
-   walkthrough for producing one gold transcript.
-4. **[docs/asr_provider_spec.md](docs/asr_provider_spec.md)** — how local and
-   cloud ASR providers plug in, and how the selection bake-off is scored.
-5. **[docs/asr_provider_implementation_plan.md](docs/asr_provider_implementation_plan.md)**
-   — the build checklist for the spec above: what's done, what's deliberately
-   deferred, and why.
-6. **[docs/cost_estimate.md](docs/cost_estimate.md)** — measured compute and
-   storage per case, for planning how many cases to ingest.
-7. **[docs/running_job_notes.md](docs/running_job_notes.md)** — PIDs, log
-   paths, and check-in commands for jobs on tofino, plus the nightly backup to
-   `/wddata` (checking it, restoring from it). Pose as a research direction is
-   **parked**, though the stage still runs on newly ingested video;
-   **[docs/pose_parked.md](docs/pose_parked.md)** is the resumption note — where
-   the work got to, what blocks it, and what to do first when it comes back.
+> ⚠️ **Identifiable human-subjects data.** The patient is an actor, but
+> learners and preceptors are real people who say their names, so
+> transcripts and the manifest's `cases` table carry real names. Never print
+> names in shared output, and nothing goes to a third-party ASR service
+> without `cases.cloud_release`, a check that is **not enforced in code
+> yet** ([docs/status.md](docs/status.md)).
+
+## Where to read next
+
+| If you want to... | Read |
+|---|---|
+| know where the project stands and what's decided | [docs/status.md](docs/status.md) |
+| learn the pipeline hands-on | [notebooks/ingest_walkthrough.ipynb](notebooks/ingest_walkthrough.ipynb) |
+| understand a stage (inputs, outputs, why) | [docs/pipeline.md](docs/pipeline.md) |
+| run, watch or stop a long job; backups | [docs/operations.md](docs/operations.md) |
+| know what processing costs per case | [docs/cost_estimate.md](docs/cost_estimate.md) |
+| work on pose / 3D | [docs/pose_3d.md](docs/pose_3d.md) |
+| annotate a gold transcript | [docs/annotator_guide.md](docs/annotator_guide.md), [docs/transcription_standards.md](docs/transcription_standards.md), [annotation/README.md](annotation/README.md) |
+| work on ASR benchmarking | [docs/asr_provider_spec.md](docs/asr_provider_spec.md), [docs/asr_provider_implementation_plan.md](docs/asr_provider_implementation_plan.md) |
+| run or write tests | [tests/README.md](tests/README.md) |
+
+## Words used throughout
+
+| Term | Meaning |
+|---|---|
+| **case** | one recorded encounter, from the source system's export; `case_id` is its id |
+| **camera / video** | each case has (usually) two camera files; outputs are keyed `(case_id, camera)` |
+| **manifest** | `manifest.sqlite`: every case and video, and each stage's status per video ([docs/pipeline.md](docs/pipeline.md) §10) |
+| **stage** | one processing step (`audio`, `asr`, `pose`, ...), run by `scripts/run_stage.py <stage>` over every video still `pending` for it |
+| **audio camera** | the one camera per case whose file the audio stages use; both carry the same sound |
+| **reference clock** | the audio camera's timeline; `sync` gives the other camera's offset from it |
+| **stretch / view / preset** | a stretch is a period a camera holds still; a view is where it's pointing; recurring views are the operators' presets |
+| **slot** | one detected person in one frame of pose output; *not* the same person across frames |
+| **gold** | a hand-made, adjudicated reference transcript for scoring ASR |
 
 ## Layout
 
 ```
-env/            conda envs — speech (ASR) and pose, kept separate on purpose;
-                pose has two variants (pose.yml Mac / pose-nvidia.yml Linux+CUDA)
-                that both build the same md-pose env name -- see Quick start
-src/multidata/  stages: manifest, ingest, audio, asr, diarize, elan, prosody, pose, sync, views
-                helpers: speaker_traits (vocal register), device (GPU/CPU choice)
-                ASR benchmark wing: normalize, redact, records, providers,
-                glossary, bench_runs (see docs/asr_provider_spec.md)
-scripts/        run_stage.py — manifest-driven, resumable batch runner
-                eaf_to_gold.py — hand-annotated .eaf -> a scoreable gold reference
-                bench_status.py — one-screen view of gold coverage + scores
-                demo_clip.py — one-line demo video of a case: both cameras, pose, faces blurred
-                fix_frame_times.py — line frame times up with pose where OpenCV skipped frames
-                review_views.py — contact sheets + spreadsheet for naming camera views (presets)
-                ingest_raw.py — register new raw videos (dry run, then --write)
-                backup_to_raid.sh — tofino's nightly backup to /wddata (cron)
-benchmarks/     ASR benchmarking wing
-                configs/    providers.yaml, glossary.yaml — the capability/term registries
-                references/ tracked gold references (<case_id>.gold.txt/.rttm)
-                results/    tracked runs.csv (append-only provenance ledger)
-                runs/, cache/  GITIGNORED — per-run detail + response cache (see spec §7/§9)
-annotation/     hand-annotation workflow (kits via Box, pass 1 -> pass 2 -> gold)
-                and assignments.csv, who has which pass -- see annotation/README.md
-elan/           template.etf — the versioned annotation template
-docs/           guides
-notebooks/      ingest_walkthrough.ipynb — step-by-step ingest + processing (start here
-                to learn the pipeline); the other notebooks are personal scratch
-tests/          pytest — see tests/README.md for what is/isn't covered
-data/           GITIGNORED — raw video + derived artifacts (see pipeline doc §2)
-logs/           GITIGNORED — run_stage.py's structured log + nohup/PID files
-                for whatever's running now (see docs/running_job_notes.md)
+src/multidata/  the package: one module per stage plus helpers (see its __init__.py)
+scripts/        run_stage.py       run any stage over the manifest
+                ingest_raw.py      register new raw videos
+                review_views.py    contact sheets + spreadsheet to name camera views
+                demo_clip.py       demo video of a case: both cameras, pose, faces blurred
+                sample_pose_overlays.py   pose drawn on whole videos, for quality checks
+                test_detect_every.py      does detecting every Nth frame change pose?
+                eaf_to_gold.py     annotated .eaf -> gold reference
+                bench_status.py    gold coverage and scores at a glance
+                label_views_2026-11-01.py one-off: the first provisional view labels
+                backup_to_raid.sh  nightly backup (cron)
+notebooks/      ingest_walkthrough.ipynb (start here); the others are personal scratch
+benchmarks/     ASR benchmarking: run_benchmark.py, configs/, references/ (gold),
+                results/ (runs.csv); runs/ and cache/ are gitignored
+annotation/     gold-annotation kits (via Box) and who has which pass
+elan/           the versioned ELAN template for gold annotation
+db_seed/        git-tracked copy of the hand-verified camera -> room table
+env/            conda environments (see below)
+docs/           the guides above
+tests/          pytest
+data/, logs/, manifest.sqlite   GITIGNORED: video, every output, logs, the registry
 ```
 
-## Quick start
+## Getting started
 
 ```bash
-# environments (see pipeline doc §3)
-conda env create -f env/utility.yml    # md-utility: manifest, Excel import, notebooks
-conda env create -f env/speech.yml     # md-speech:  audio, asr, diarize, elan, benchmarks
-
-# md-pose builds differently depending on the box -- same env name, different
-# onnxruntime backend, because there's no single onnxruntime wheel that covers
-# both CoreML (Mac) and CUDA (Linux/Nvidia). Pick ONE of these two, matching
-# the machine you're on:
-conda env create -f env/pose.yml         # Mac (Apple Silicon):  onnxruntime, CoreML EP
-conda env create -f env/pose-nvidia.yml  # Linux (Nvidia/CUDA):  onnxruntime-gpu[cuda,cudnn]
-
-# Linux/CUDA only, REQUIRED after the pose-nvidia.yml create: rtmlib hard-
-# depends on plain (CPU) onnxruntime regardless of what's requested above, and
-# it silently wins the shared onnxruntime/ install path more often than not.
-# See the comment at the top of env/pose-nvidia.yml before assuming CUDA works.
+# environments: speech and pose stacks are kept apart on purpose
+conda env create -f env/utility.yml        # md-utility: notebooks, Excel import, ingest
+conda env create -f env/speech.yml         # md-speech:  audio, asr, elan, prosody, sync, benchmarks
+conda env create -f env/pose-nvidia.yml    # md-pose:    pose, views, demo clips (Linux/CUDA;
+                                           #             env/pose.yml on a Mac)
 conda activate md-pose && pip install --force-reinstall --no-deps "onnxruntime-gpu[cuda,cudnn]"
+                                           # Linux only, required: see top of env/pose-nvidia.yml
+for e in md-utility md-speech md-pose; do conda run -n $e pip install -e .; done
+huggingface-cli login                      # pyannote is gated; accept its model terms
 
-huggingface-cli login                  # pyannote is gated — accept model terms
+# new videos -> processed cases (or follow the walkthrough notebook)
+python scripts/ingest_raw.py --write                                 # md-utility
+conda activate md-speech
+for s in audio asr elan prosody sync; do python scripts/run_stage.py $s; done
+conda activate md-pose
+python scripts/run_stage.py views
+python scripts/run_stage.py pose --accel-device cuda                 # hours: see docs/operations.md
 
-# install the multidata package into each env (once per env — see pipeline doc §3)
-conda activate md-utility && pip install -e .
-conda activate md-speech  && pip install -e .
-conda activate md-pose    && pip install -e .
+# a demo for someone
+python scripts/demo_clip.py 261498                                   # md-pose
 
-# run a stage across all pending manifest rows
-conda activate md-speech && python scripts/run_stage.py audio
-conda activate md-speech && python scripts/run_stage.py asr      # --engine whisperx
-conda activate md-pose   && python scripts/run_stage.py pose
-conda activate md-speech && python scripts/run_stage.py prosody  # pitch, loudness, voice quality (after asr)
-conda activate md-speech && python scripts/run_stage.py sync     # camera offsets + frame times
-conda activate md-pose   && python scripts/run_stage.py views    # where cameras point, when they move
-conda activate md-pose   && python scripts/review_views.py sheets # then export / import: name views (pipeline doc §9a)
-conda activate md-pose   && python scripts/fix_frame_times.py --write   # after sync, if pose ran
-
-# tests -- every env has pytest; md-speech runs all but the pose I/O tests,
-# which need the pose stack and run in md-pose (see tests/README.md)
-conda activate md-speech && python -m pytest -q
-conda activate md-pose   && python -m pytest -q tests/test_pose_io.py
-
-# once you have a gold .eaf: export it, then score an engine against it
-conda activate md-speech && python scripts/eaf_to_gold.py --eaf <path.eaf> --case <case_id>
-conda activate md-speech && python benchmarks/run_benchmark.py --case <case_id> \
-    --audio data/audio/<case_id>/<camera>.wav --engine whisperx_disfluent --model medium
-conda activate md-speech && python scripts/bench_status.py   # what's scored, what's missing
+# tests
+conda run -n md-speech python -m pytest -q
+conda run -n md-pose python -m pytest -q tests/test_pose_io.py tests/test_views.py
 ```
-
-## Status
-
-Every module the pipeline doc calls for now exists, but **maturity varies a lot
-by module** — know which is which before trusting a run:
-
-| Module | State |
-|---|---|
-| `pose.py` | **Restarted 2026-10-30 for 3D:** rtmlib HALPE_26 (26 keypoints, 5 on the face), up to 8 people per frame, detector boxes and per-frame times saved, on `tofino` (CUDA, ~1.5x realtime). Every stage's cost goes to the manifest's `stage_runs` table. 3D pilot is small rooms only (`--all-rooms` to override). See `docs/pose_parked.md` |
-| `elan.py` | Promoted from `transcription_suite.ipynb`; **ran on real transcripts**, any engine |
-| `prosody.py` | **Stage since 2026-11-01** (md-speech, CPU, ~80x realtime): Praat pitch, intensity, harmonicity and formants every 10 ms, plus a per-speaker summary from the diarization (overlapping speech left out) in the manifest's `speaker_prosody` table. Replaces the notebook-only `acoustics.py`/`speaker_traits` workflow; see pipeline doc §6b |
-| `ingest.py`, `audio.py`, `manifest.py`, `run_stage.py` | **Ran end-to-end on real cases** — ingest, audio, asr, elan stages all exercised |
-| `asr.py`, `diarize.py` | **Ran end-to-end on real cases.** Default engine is `faster_whisper` (`medium`, `language=en`); every engine's output is word-level speaker-labeled, diarization reused via cached RTTM rather than recomputed. `whisperx` (hallucination-avoidance-tuned) and `whisperx_disfluent` (tuned to *keep* disfluencies — see [asr_provider_spec.md](docs/asr_provider_spec.md)) available via `--engine`. |
-| `eaf_to_gold.py`, `run_benchmark.py`, `bench_status.py` | **Ran end-to-end on a real case** (261456) — export, live/cached/cache-hit scoring, excerpt-span filtering, and the status view all exercised, not just sketched. First real comparison already in: `whisperx_disfluent` (WER .29) beat `whisperx` (WER .41) on that one case — one data point, not yet a pattern. |
-| `normalize.py`, `redact.py`, `records.py`, `providers.py`, `glossary.py`, `bench_runs.py` | New this round, pure/tested modules underlying the above — see [asr_provider_spec.md](docs/asr_provider_spec.md) |
-
-**236 tests pass** in `md-speech`, plus 6 pose I/O tests in `md-pose` — see
-`tests/README.md` for what is and isn't covered. See pipeline doc §11 for the 1 → few → scale
-phasing.
-
-**ASR direction:** Whisper + pyannote run locally. The old Transcription
-Suite server comparator (`--engine suite`) was removed 2026-11-01.
-
-> ⚠️ **Identifiable human-subjects data.** Today's corpus is OSCE
-> simulated-patient encounters — the "patient" is an actor, so there is no
-> patient PHI — but the learner and preceptor are real people, and they
-> self-identify verbally, so transcripts carry real names. Nothing leaves this
-> machine for a third-party ASR provider without `cases.cloud_release` — a
-> column that exists but is **not yet enforced in code** (see
-> [current_status.md](docs/current_status.md)). See
-> pipeline doc §11, [transcription_standards.md](docs/transcription_standards.md) §8,
-> and [asr_provider_spec.md](docs/asr_provider_spec.md) §9.

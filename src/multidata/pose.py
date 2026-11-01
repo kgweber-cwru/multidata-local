@@ -19,7 +19,7 @@ Output per camera: `data/pose/<case_id>/<camera>.npz` (`save()`/`load()`):
   bbox            (M, T, 4)      detector box x0 y0 x1 y1, float16
   frame_ms        (T,)           OpenCV's time for each frame it returned,
                                  float64 -- which file frames pose saw (see
-                                 `sync.snap_to_pts`); OpenCV skips some
+                                 `sync.pose_reference_times`); OpenCV skips some
   plus metadata: frame_dir, total_frames, img_shape, keypoint_set, models,
   mode, detect_every, max_persons, rtmlib_version.
 

@@ -15,8 +15,8 @@ needs and nothing else:
 Runs on the private side (needs the manifest and the raw media).
 
 STATUS (2026-09-23): the cloud remote-desktop delivery mechanism this was
-built for has been torn out -- see docs/current_status.md's "Annotation
-environment abandoned" section. This module is kept because the problem it
+built for has been torn out -- see docs/status.md, "Why the cloud annotation
+desktop was abandoned". This module is kept because the problem it
 solves (ELAN opens with no "locate media" dialog, no matter which machine the
 annotator ends up working on) is independent of *how* the kit gets to that
 machine. Nothing here assumes a VM specifically. It does assume some machine
@@ -230,7 +230,7 @@ def main():
     size_mb = sum(f.stat().st_size for f in kit.rglob("*") if f.is_file()) / 1e6
     print(f"\nkit ready: {kit}  ({size_mb:.0f} MB)")
     print("  no delivery mechanism is wired up right now -- see "
-          "docs/current_status.md")
+          "docs/status.md")
 
 
 if __name__ == "__main__":

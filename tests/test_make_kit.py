@@ -4,7 +4,7 @@ That one property is what stops ELAN showing a "locate media" dialog on a
 machine that isn't the one the file was made on -- see annotation/README.md
 and make_kit.py's own docstring for the current state of what uses this
 (the cloud environment this was originally built for was torn out 2026-09-23,
-see docs/current_status.md). If these tests fail, annotators are back to
+see docs/status.md). If these tests fail, annotators are back to
 hand-locating media.
 """
 import sys

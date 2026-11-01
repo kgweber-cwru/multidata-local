@@ -1,7 +1,7 @@
 """Stage: sync — put a case's camera files on one clock, for triangulation.
 
-Two facts about the raw files make this necessary (measured 2026-10-29, see
-docs/pose_parked.md "Syncing cameras"):
+Two facts about the raw files make this necessary (measured 2026-10-29; see
+docs/pipeline.md §9b):
 
 1. **The two files of a case start up to ~1 s apart, by a fixed amount.**
    Both carry the same audio feed (see `manifest.ensure_audio_camera`), so
@@ -19,7 +19,9 @@ Together: a frame `i` of camera `c` happened at reference time
     frame_time_s[i] + sync_offset_s[c]
 
 on the clock of the case's reference camera (`cases.audio_camera`, whose own
-offset is 0). `reference_times()` does that sum.
+offset is 0). `reference_times()` does that sum. For pose, use
+`pose_reference_times()`: pose stores the time of every frame it read
+(`frame_ms`), which stays right where OpenCV skipped frames the file has.
 
 Outputs:
   - `videos.sync_offset_s`   seconds to add to this file's own time to get
@@ -207,6 +209,19 @@ def reference_times(frame_time_s, sync_offset_s, n_frames=None):
     if n_frames is not None and n_frames != len(frame_time_s):
         raise ValueError(f"{n_frames} data frames but {len(frame_time_s)} video frames")
     return np.asarray(frame_time_s) + sync_offset_s
+
+
+def pose_reference_times(frame_ms, sync_offset_s, pts=None):
+    """Reference-clock time of every frame of a pose file.
+
+    `frame_ms` is the pose entry's per-frame OpenCV time. With `pts` (this
+    camera's `load_frame_times()`), each time is snapped to the file's exact
+    presentation timestamp (`snap_to_pts`); without, OpenCV's own value is
+    used (it can be off by a frame where OpenCV repeats a value)."""
+    t = np.asarray(frame_ms, dtype=np.float64) / 1000.0
+    if pts is not None:
+        t = snap_to_pts(t, pts)
+    return reference_times(t, sync_offset_s)
 
 
 def nearest_frames(ref_times_a, ref_times_b, max_gap_s=None):

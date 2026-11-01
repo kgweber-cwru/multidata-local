@@ -1,7 +1,7 @@
 """multidata-local: clinical-encounter video -> transcripts, prosody, 2D pose.
 
 Modules, by role (stages run through `scripts/run_stage.py <stage>`; the
-conda env each needs is in brackets; details in multidata_local_pipeline.md):
+conda env each needs is in brackets; details in docs/pipeline.md):
 
 Bookkeeping
   manifest     the SQLite registry every stage reads and updates   [any env]

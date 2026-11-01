@@ -69,6 +69,12 @@ class TestFrameTimes:
         with pytest.raises(ValueError, match="no sync offset"):
             sync.reference_times(np.arange(5.0), None)
 
+    def test_pose_reference_times(self):
+        ms = np.array([0.0, 33.4, 66.6, 133.3])            # OpenCV skipped a frame
+        pts = np.array([0.0, 1/30, 2/30, 3/30, 4/30])
+        assert np.allclose(sync.pose_reference_times(ms, 0.5), ms / 1000 + 0.5)
+        assert np.allclose(sync.pose_reference_times(ms, 0.5, pts), pts[[0, 1, 2, 4]] + 0.5)
+
     def test_reference_times_refuses_frame_count_mismatch(self):
         with pytest.raises(ValueError, match="data frames"):
             sync.reference_times(np.arange(5.0), 0.0, n_frames=6)

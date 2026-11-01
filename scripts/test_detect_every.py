@@ -24,8 +24,9 @@ Design (fixed 2026-11-01, before any results):
       95th percentile shift  <= P95_PX_MAX
       missed people          <= MISS_MAX of reference person-frames
       extra people           <= EXTRA_MAX of reference person-frames
-    For scale: two GPU backends on identical frames differed by a median of
-    1.0 px and a 95th percentile of 4.1 px (docs/pose_parked.md).
+    For scale: the same video run on a Mac (CoreML) and on tofino (CUDA)
+    differed by a median of 1.0 px and a 95th percentile of 4.1 px on
+    confident keypoints (260656/23, 2026-10-26): backend numerics alone.
 
 Writes docs/detect_every_test.md (the report) and
 logs/detect_every_test.json (all numbers).
