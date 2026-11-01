@@ -77,3 +77,43 @@ def test_manifest_rows_and_export(two_speakers, tmp_path):
     manifest.set_speaker_prosody("c1", "20", rows, db)       # re-run replaces
     assert manifest.export_speaker_prosody(tmp_path / "all.csv", db) == 2
     assert "median_f0_hz" in (tmp_path / "all.csv").read_text().splitlines()[0]
+
+
+def test_praat_files_open_in_praat(two_speakers, tmp_path):
+    from parselmouth.praat import call
+    _, f = two_speakers
+    pitch, inten, tg = prosody.export_praat(
+        f, [(0.0, 2.0, "A"), (2.0, 4.0, "B"), (1.5, 2.5, "A")], tmp_path / "20.npz")
+    pt = parselmouth.read(str(pitch))
+    n_voiced = int((~np.isnan(f["f0_hz"])).sum())
+    assert call(pt, "Get number of points") == n_voiced
+    assert abs(call(pt, "Get value at time", 1.0) - 120) < 2
+    assert call(parselmouth.read(str(inten)), "Get number of points") > 300
+    grid = parselmouth.read(str(tg))
+    assert call(grid, "Get number of tiers") == 2
+    assert call(grid, "Get tier name", 1) == "A"
+    # A's two overlapping turns merged into one interval, 0-2.5 s
+    i = call(grid, "Get interval at time", 1, 1.0)
+    assert call(grid, "Get label of interval", 1, i) == "A"
+    assert abs(call(grid, "Get end time of interval", 1, i) - 2.5) < 1e-6
+
+
+def test_voiced_stretches(two_speakers):
+    _, f = two_speakers
+    st = prosody.voiced_stretches(f)
+    assert len(st) >= 1 and all(t1 > t0 for t0, t1, _ in st)
+    meds = [hz for _, _, hz in st]
+    assert any(abs(m - 120) < 3 for m in meds) and any(abs(m - 220) < 3 for m in meds)
+    assert all(t0 < 4.1 for t0, _, _ in st)           # nothing in the silent last second
+
+
+def test_elan_pitch_tier(two_speakers, tmp_path):
+    pympi = pytest.importorskip("pympi")
+    from multidata import elan
+    _, f = two_speakers
+    words = {"segments": [{"words": [{"word": "hello", "start": 0.2, "end": 0.6, "speaker": "SPEAKER_00"}]}]}
+    out = tmp_path / "x.eaf"
+    elan.build_eaf(words, "data/raw/x.mp4", out, pitch=prosody.voiced_stretches(f))
+    eaf = pympi.Elan.Eaf(str(out))
+    anns = eaf.get_annotation_data_for_tier(elan.PITCH_TIER)
+    assert anns and {a[2] for a in anns} >= {"120", "220"}

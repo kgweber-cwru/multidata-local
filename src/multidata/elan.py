@@ -68,7 +68,10 @@ def words_of(transcription_data):
     return words
 
 
-def build_eaf(transcription_data, mp4_path, output_eaf_path, wav_path=None):
+PITCH_TIER = "PITCH_HZ"
+
+
+def build_eaf(transcription_data, mp4_path, output_eaf_path, wav_path=None, pitch=None):
     """Write an .eaf with one tier per speaker and one annotation per word.
 
     :param transcription_data: dict, loaded JSON transcription (or a path to it)
@@ -78,6 +81,9 @@ def build_eaf(transcription_data, mp4_path, output_eaf_path, wav_path=None):
     :param wav_path: str, optional path to the isolated audio -- linked
         *alongside* the video (not instead of it) so ELAN shows a waveform
         view without giving up the video. Skipped if not given.
+    :param pitch: optional [(start_s, end_s, median_hz)] stretches of voicing
+        (`prosody.voiced_stretches`), written to a PITCH_HZ tier. Comes from
+        the audio alone, so it's the same whichever ASR made the words.
     """
     if isinstance(transcription_data, (str, bytes)) or hasattr(transcription_data, "__fspath__"):
         with open(transcription_data) as f:
@@ -117,6 +123,13 @@ def build_eaf(transcription_data, mp4_path, output_eaf_path, wav_path=None):
                 value=word_str,
             )
             added_count += 1
+
+    if pitch:
+        eaf.add_tier(PITCH_TIER)
+        for t0, t1, hz in pitch:
+            a, b = int(round(t0 * 1000)), int(round(t1 * 1000))
+            if b > a:
+                eaf.add_annotation(id_tier=PITCH_TIER, start=a, end=b, value=f"{hz:.0f}")
 
     eaf.to_file(str(output_eaf_path))
     log.info("wrote %s  (%d words, tiers=%s)",

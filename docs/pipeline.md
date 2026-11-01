@@ -1,7 +1,8 @@
 # Pipeline reference
 
 How each stage works, what it reads and writes, and why it is built the way
-it is. For running jobs day to day see [operations.md](operations.md); for
+it is. The exact layout of every output file is in
+[data_formats.md](data_formats.md). For running jobs day to day see [operations.md](operations.md); for
 where the project stands, [status.md](status.md). Section numbers are stable:
 code docstrings cite them ("doc §10").
 
@@ -185,6 +186,8 @@ Per case, on the audio camera, after `asr` (it needs the diarization).
   `f0_hz` (pitch; NaN unvoiced), `intensity_db` (uncalibrated: compare within
   a recording), `hnr_db` (voice quality; NaN in silence), `f1_hz`..`f4_hz`
   (formants). Praat defaults (pitch 75-600 Hz); versions stored in the file.
+- **Praat files** beside it: `<camera>.PitchTier`, `.IntensityTier` and a
+  `.TextGrid` of speaker turns, to open with the WAV in Praat.
 - **Per-speaker summary** -> manifest `speaker_prosody` and
   `data/prosody/<case>/<camera>_speakers.csv`: turns, speaking, overlap and
   voiced time, median pitch, 10th/90th percentile, range and spread in
@@ -202,7 +205,10 @@ writes all cases' speaker rows to one CSV.
 
 `elan.py` builds one `.eaf` per case from the transcript: word-level, one
 tier per speaker, linked to the audio camera's video (so the picture matches
-the audio). Output: `data/elan/<case>/<camera>.eaf`.
+the audio). Output: `data/elan/<case>/<camera>.eaf`. If prosody has run, a
+`PITCH_HZ` tier shows the median pitch of each stretch of voicing; it comes
+from the audio alone, so re-running ASR (then `elan`) leaves it unchanged.
+Run `prosody` before `elan`.
 
 **Gold annotation does not start from this draft** (settled 2026-08-26):
 correcting a machine draft biases the reference toward that machine. Gold is
@@ -426,8 +432,8 @@ python scripts/ingest_raw.py --write
 conda activate md-speech
 python scripts/run_stage.py audio
 python scripts/run_stage.py asr         # --engine whisperx --model large-v3 to vary
+python scripts/run_stage.py prosody     # before elan: the ELAN file gets its pitch tier
 python scripts/run_stage.py elan
-python scripts/run_stage.py prosody
 python scripts/run_stage.py sync
 conda activate md-pose
 python scripts/run_stage.py views       # one worker

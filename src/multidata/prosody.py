@@ -24,8 +24,13 @@ Two outputs:
    register compare fairly. `pitch_bucket` is the rough vocal-register label
    from `speaker_traits` -- for sampling, never a statement about a person.
 
+3. **Praat files** beside the features: `<camera>.PitchTier`,
+   `.IntensityTier` and a `.TextGrid` of speaker turns (`export_praat`).
+   `voiced_stretches()` feeds the ELAN pitch tier (`elan.PITCH_TIER`).
+
 Diarization speaker labels (SPEAKER_00, ...) are per case: the same label in
-two cases is not the same person.
+two cases is not the same person. Field-by-field reference:
+docs/data_formats.md.
 """
 import csv
 import json
@@ -152,3 +157,111 @@ def write_speakers_csv(rows, out_path):
         w.writeheader()
         w.writerows(rows)
     return out_path
+
+
+# --- Praat and ELAN exports ------------------------------------------------
+#
+# Written next to the frame features by the prosody stage, for opening the
+# case in Praat together with its WAV (data/audio/<case_id>/<camera>.wav):
+#   <camera>.PitchTier      pitch (Hz) at every voiced frame
+#   <camera>.IntensityTier  loudness (dB) at every frame
+#   <camera>.TextGrid       one interval tier per diarized speaker (who spoke when)
+# All three are Praat's own text format, on the same clock as the WAV. They
+# depend on the audio and the diarization only, never on the transcript.
+
+def _q(s):
+    return '"' + str(s).replace('"', '""') + '"'
+
+
+def _tier_header(cls, xmax, n):
+    return (f'File type = "ooTextFile"\nObject class = "{cls}"\n\n'
+            f"xmin = 0 \nxmax = {xmax!r} \npoints: size = {n} \n")
+
+
+def write_point_tier(cls, times, values, xmax, out_path):
+    """A Praat PitchTier / IntensityTier text file (NaN values skipped)."""
+    keep = ~np.isnan(values)
+    t, v = np.asarray(times)[keep], np.asarray(values)[keep]
+    lines = [_tier_header(cls, float(xmax), len(t))]
+    for i, (a, b) in enumerate(zip(t, v), 1):
+        lines.append(f"points [{i}]:\n    number = {float(a)!r} \n    value = {float(b)!r} \n")
+    Path(out_path).write_text("".join(lines))
+    return out_path
+
+
+def write_textgrid(turns, xmax, out_path):
+    """A Praat TextGrid with one interval tier per speaker: the speaker's
+    name over each of their turns (overlapping turns merged), empty
+    intervals between, covering 0..xmax as Praat requires."""
+    speakers = sorted({s for _, _, s in turns})
+    out = [f'File type = "ooTextFile"\nObject class = "TextGrid"\n\n'
+           f"xmin = 0 \nxmax = {float(xmax)!r} \ntiers? <exists> \nsize = {len(speakers)} \nitem []: \n"]
+    for k, spk in enumerate(speakers, 1):
+        merged = []
+        for b, e, _ in sorted(t for t in turns if t[2] == spk):
+            b, e = max(0.0, b), min(float(xmax), e)
+            if e <= b:
+                continue
+            if merged and b <= merged[-1][1]:
+                merged[-1][1] = max(merged[-1][1], e)
+            else:
+                merged.append([b, e])
+        intervals, cur = [], 0.0
+        for b, e in merged:
+            if b > cur:
+                intervals.append((cur, b, ""))
+            intervals.append((b, e, spk))
+            cur = e
+        if cur < xmax:
+            intervals.append((cur, float(xmax), ""))
+        out.append(f"    item [{k}]:\n        class = \"IntervalTier\" \n        name = {_q(spk)} \n"
+                   f"        xmin = 0 \n        xmax = {float(xmax)!r} \n"
+                   f"        intervals: size = {len(intervals)} \n")
+        for i, (b, e, text) in enumerate(intervals, 1):
+            out.append(f"        intervals [{i}]:\n            xmin = {b!r} \n"
+                       f"            xmax = {e!r} \n            text = {_q(text)} \n")
+    Path(out_path).write_text("".join(out))
+    return out_path
+
+
+def export_praat(feats, turns, base_path):
+    """Write <base>.PitchTier, <base>.IntensityTier and <base>.TextGrid."""
+    base = Path(base_path)
+    xmax = feats["params"]["duration_s"]
+    return [write_point_tier("PitchTier", feats["time_s"], feats["f0_hz"], xmax,
+                             base.with_suffix(".PitchTier")),
+            write_point_tier("IntensityTier", feats["time_s"], feats["intensity_db"], xmax,
+                             base.with_suffix(".IntensityTier")),
+            write_textgrid(turns, xmax, base.with_suffix(".TextGrid"))]
+
+
+def voiced_stretches(feats, min_s=0.1, max_gap_s=0.03, max_jump_st=3.0):
+    """[(start_s, end_s, median_f0_hz)] for each stretch of continuous voicing
+    (gaps up to `max_gap_s` bridged, stretches shorter than `min_s` dropped).
+    A stretch also ends where pitch jumps more than `max_jump_st` semitones
+    from one frame to the next: intonation doesn't move that fast in 10 ms,
+    but a change of voice (one speaker cutting in on another) does.
+    This is what the ELAN pitch tier shows: one value per stretch, built from
+    the audio alone, so re-running ASR never changes it."""
+    t, f0 = feats["time_s"], feats["f0_hz"]
+    if len(t) < 2:
+        return []
+    step = float(np.median(np.diff(t)))
+    voiced = ~np.isnan(f0)
+    out, start, last = [], None, None
+    for i in np.flatnonzero(voiced):
+        if start is not None and (t[i] - t[last] > max_gap_s + step
+                                  or abs(12 * np.log2(f0[i] / f0[last])) > max_jump_st):
+            out.append((start, last))
+            start = None
+        if start is None:
+            start = i
+        last = i
+    if start is not None:
+        out.append((start, last))
+    res = []
+    for a, b in out:
+        t0, t1 = float(t[a] - step / 2), float(t[b] + step / 2)
+        if t1 - t0 >= min_s:
+            res.append((t0, t1, float(np.nanmedian(f0[a:b + 1]))))
+    return res

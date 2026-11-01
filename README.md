@@ -1,7 +1,7 @@
 # multidata-local
 
 Turns video of clinical teaching encounters into research data. The
-recordings are OSCE sessions: a learner, a simulated patient (an actor) and
+recordings are simulated sessions: a learner, a simulated patient (an actor) and
 sometimes a preceptor, filmed by two pan/tilt/zoom cameras per exam room
 with one shared microphone feed. From each case the pipeline produces:
 
@@ -13,7 +13,7 @@ with one shared microphone feed. From each case the pipeline produces:
 - **2D body pose** per camera, heading toward 3D.
 
 There's also an **ASR benchmarking** wing, scoring speech engines against
-hand-made gold transcripts. Everything runs on **tofino** (Linux, RTX 5080).
+hand-made gold transcripts. Everything is currently designed to run on an Ubuntu Linux machine with an RTX 5080 on board. (`tofino`)
 
 > ⚠️ **Identifiable human-subjects data.** The patient is an actor, but
 > learners and preceptors are real people who say their names, so
@@ -29,6 +29,7 @@ hand-made gold transcripts. Everything runs on **tofino** (Linux, RTX 5080).
 | know where the project stands and what's decided | [docs/status.md](docs/status.md) |
 | learn the pipeline hands-on | [notebooks/ingest_walkthrough.ipynb](notebooks/ingest_walkthrough.ipynb) |
 | understand a stage (inputs, outputs, why) | [docs/pipeline.md](docs/pipeline.md) |
+| use an output file (fields, units, clocks, how to read it) | [docs/data_formats.md](docs/data_formats.md) |
 | run, watch or stop a long job; backups | [docs/operations.md](docs/operations.md) |
 | know what processing costs per case | [docs/cost_estimate.md](docs/cost_estimate.md) |
 | work on pose / 3D | [docs/pose_3d.md](docs/pose_3d.md) |
@@ -92,7 +93,7 @@ huggingface-cli login                      # pyannote is gated; accept its model
 # new videos -> processed cases (or follow the walkthrough notebook)
 python scripts/ingest_raw.py --write                                 # md-utility
 conda activate md-speech
-for s in audio asr elan prosody sync; do python scripts/run_stage.py $s; done
+for s in audio asr prosody elan sync; do python scripts/run_stage.py $s; done
 conda activate md-pose
 python scripts/run_stage.py views
 python scripts/run_stage.py pose --accel-device cuda                 # hours: see docs/operations.md

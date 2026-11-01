@@ -226,9 +226,20 @@ def stage_elan(row, args):
     # Both media links in the .eaf are repo-relative, like the manifest, so
     # they survive the tree being mounted at a different absolute path.
     wav_rel = wav.relative_to(ROOT)
+    # Pitch tier from the prosody stage when it has run (audio-only, so it is
+    # the same whichever ASR produced the words). Run prosody before elan.
+    pitch = None
+    pros = _out("prosody", row, ".npz")
+    if pros.exists():
+        from multidata import prosody
+        pitch = prosody.voiced_stretches(prosody.load(pros))
+    else:
+        log.warning("no prosody for %s/%s yet: ELAN file gets no pitch tier "
+                    "(run prosody, then elan again)", row["case_id"], row["camera"])
     log.info("building ELAN file: %s/%s", row["case_id"], row["camera"])
-    elan.build_eaf(transcript, row["filepath"], _out("elan", row, ".eaf"), wav_path=wav_rel)
-    return {}
+    elan.build_eaf(transcript, row["filepath"], _out("elan", row, ".eaf"), wav_path=wav_rel,
+                   pitch=pitch)
+    return {"_details": {"pitch_stretches": len(pitch) if pitch else 0}}
 
 
 def stage_pose(row, args):
@@ -304,6 +315,7 @@ def stage_prosody(row, args):
     prosody.save(feats, _out("prosody", row, ".npz"))
     rows = prosody.speaker_summary(feats, prosody.read_rttm(rttm))
     prosody.write_speakers_csv(rows, _out("prosody", row, "_speakers.csv"))
+    prosody.export_praat(feats, prosody.read_rttm(rttm), _out("prosody", row, ".npz"))
     manifest.set_speaker_prosody(row["case_id"], row["camera"], rows, args.manifest)
     voiced = sum(1 for x in feats["f0_hz"] if x == x) / max(len(feats["f0_hz"]), 1)  # x == x: not NaN
     return {"_details": {"frames": len(feats["time_s"]), "speakers": len(rows),
