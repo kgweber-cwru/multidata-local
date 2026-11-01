@@ -11,7 +11,7 @@ Stage modules (see multidata_local_pipeline.md):
 
 Analysis helpers (not manifest stages):
   kinematics -> rule-based pose features: torso angle, hand velocity
-  acoustics  -> Praat/parselmouth pitch, intensity, harmonicity, formants
+  prosody    -> Praat pitch, intensity, harmonicity, formants + per-speaker summary (§6b)
 
 Env split: `pose` and `kinematics` need md-pose; everything else md-speech.
 `manifest` is stdlib-only so it imports in both.

@@ -25,7 +25,7 @@ available` rather than needing real GPU hardware; that file `importorskip`s
 it. `test_pose_io.py` is the other exception: it round-trips synthetic
 HALPE_26 arrays through `pose.save()`/`pose.load()` (float16 `.npz`)
 and needs the md-pose imports, but still no model, GPU or real video.
-`test_views.py` (md-pose) runs `multidata.views` on synthetic panned footage and checks the view tables; no real video. `test_sync.py` needs numpy (it `importorskip`s it) and uses synthetic noise, not real audio. Everything else is stdlib or pyyaml. That's a deliberate boundary, not an
+`test_prosody.py` (md-speech) checks `multidata.prosody` on synthetic voices of known pitch (120 and 220 Hz), including that overlapping speech is left out. `test_views.py` (md-pose) runs `multidata.views` on synthetic panned footage and checks the view tables; no real video. `test_sync.py` needs numpy (it `importorskip`s it) and uses synthetic noise, not real audio. Everything else is stdlib or pyyaml. That's a deliberate boundary, not an
 oversight:
 
 - The modules under test in Phase 1

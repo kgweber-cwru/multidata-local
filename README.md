@@ -41,8 +41,8 @@ is carried over.
 env/            conda envs — speech (ASR) and pose, kept separate on purpose;
                 pose has two variants (pose.yml Mac / pose-nvidia.yml Linux+CUDA)
                 that both build the same md-pose env name -- see Quick start
-src/multidata/  stages: manifest, ingest, audio, asr, diarize, elan, pose, sync, views
-                helpers: kinematics (pose features), acoustics (Praat features)
+src/multidata/  stages: manifest, ingest, audio, asr, diarize, elan, prosody, pose, sync, views
+                helpers: kinematics (pose features), speaker_traits (vocal register)
                 ASR benchmark wing: normalize, redact, records, providers,
                 glossary, bench_runs (see docs/asr_provider_spec.md)
 scripts/        run_stage.py — manifest-driven, resumable batch runner
@@ -97,6 +97,7 @@ conda activate md-pose    && pip install -e .
 conda activate md-speech && python scripts/run_stage.py audio
 conda activate md-speech && python scripts/run_stage.py asr      # --engine whisperx
 conda activate md-pose   && python scripts/run_stage.py pose
+conda activate md-speech && python scripts/run_stage.py prosody  # pitch, loudness, voice quality (after asr)
 conda activate md-speech && python scripts/run_stage.py sync     # camera offsets + frame times
 conda activate md-pose   && python scripts/run_stage.py views    # where cameras point, when they move
 conda activate md-pose   && python scripts/fix_frame_times.py --write   # after sync, if pose ran
@@ -122,13 +123,13 @@ by module** — know which is which before trusting a run:
 |---|---|
 | `pose.py`, `kinematics.py` | **Restarted 2026-10-30 for 3D:** rtmlib HALPE_26 (26 keypoints, 5 on the face), up to 8 people per frame, detector boxes and per-frame times saved, on `tofino` (CUDA, ~1.5x realtime). Every stage's cost goes to the manifest's `stage_runs` table. 3D pilot is small rooms only (`--all-rooms` to override). See `docs/pose_parked.md` |
 | `elan.py` | Promoted from `transcription_suite.ipynb`; **ran on real transcripts**, any engine |
-| `acoustics.py` | Promoted from `praat_maker.ipynb`; **ran on real audio** |
+| `prosody.py` | **Stage since 2026-11-01** (md-speech, CPU, ~80x realtime): Praat pitch, intensity, harmonicity and formants every 10 ms, plus a per-speaker summary from the diarization (overlapping speech left out) in the manifest's `speaker_prosody` table. Replaces the notebook-only `acoustics.py`/`speaker_traits` workflow; see pipeline doc §6b |
 | `ingest.py`, `audio.py`, `manifest.py`, `run_stage.py` | **Ran end-to-end on real cases** — ingest, audio, asr, elan stages all exercised |
 | `asr.py`, `diarize.py` | **Ran end-to-end on real cases.** Default engine is `faster_whisper` (`medium`, `language=en`); every engine's output is word-level speaker-labeled, diarization reused via cached RTTM rather than recomputed. `whisperx` (hallucination-avoidance-tuned) and `whisperx_disfluent` (tuned to *keep* disfluencies — see [asr_provider_spec.md](docs/asr_provider_spec.md)) available via `--engine`. |
 | `eaf_to_gold.py`, `run_benchmark.py`, `bench_status.py` | **Ran end-to-end on a real case** (261456) — export, live/cached/cache-hit scoring, excerpt-span filtering, and the status view all exercised, not just sketched. First real comparison already in: `whisperx_disfluent` (WER .29) beat `whisperx` (WER .41) on that one case — one data point, not yet a pattern. |
 | `normalize.py`, `redact.py`, `records.py`, `providers.py`, `glossary.py`, `bench_runs.py` | New this round, pure/tested modules underlying the above — see [asr_provider_spec.md](docs/asr_provider_spec.md) |
 
-**231 tests pass** in `md-speech`, plus 6 pose I/O tests in `md-pose` — see
+**236 tests pass** in `md-speech`, plus 6 pose I/O tests in `md-pose` — see
 `tests/README.md` for what is and isn't covered. See pipeline doc §11 for the 1 → few → scale
 phasing.
 

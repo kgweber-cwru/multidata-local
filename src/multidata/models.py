@@ -132,6 +132,7 @@ class Video:
     pose_status: str = "pending"
     sync_status: str = "pending"
     views_status: str = "pending"
+    prosody_status: str = "pending"
     sync_offset_s: Optional[float] = None
     sync_agreement: Optional[float] = None
     asr_model: str = ""
@@ -140,7 +141,7 @@ class Video:
 
     STATUS_FIELDS = (
         "audio_status", "asr_status", "diarize_status", "elan_status", "pose_status",
-        "sync_status", "views_status",
+        "sync_status", "views_status", "prosody_status",
     )
 
     @classmethod

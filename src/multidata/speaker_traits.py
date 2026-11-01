@@ -10,8 +10,9 @@ registers for gold annotation (docs/transcription_standards.md §3) — treat th
 bucket labels as a rough stratification knob, never as a fact recorded about
 a real person.
 
-Runs in **md-speech** (needs `praat-parselmouth`, already a dependency via
-`acoustics.py`).
+Runs in **md-speech** (needs `praat-parselmouth`). The `prosody` stage
+(`multidata.prosody`) now computes these figures for every case and labels
+each speaker with `pitch_bucket()`.
 """
 
 # Bucket edges in Hz, chosen from the typical adult clustering above.

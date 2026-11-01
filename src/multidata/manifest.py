@@ -72,6 +72,7 @@ CREATE TABLE IF NOT EXISTS videos (
     pose_status TEXT NOT NULL DEFAULT 'pending',
     sync_status TEXT NOT NULL DEFAULT 'pending',
     views_status TEXT NOT NULL DEFAULT 'pending',
+    prosody_status TEXT NOT NULL DEFAULT 'pending',
     sync_offset_s REAL,
     sync_agreement REAL,
     asr_model TEXT NOT NULL DEFAULT '',
@@ -141,6 +142,28 @@ CREATE TABLE IF NOT EXISTS video_views (
     seconds REAL NOT NULL,
     stretches INTEGER NOT NULL,
     PRIMARY KEY (case_id, camera, view_id)
+);
+
+-- Per-speaker prosody (multidata.prosody): one row per diarized speaker in
+-- a case's audio. Speaker labels are per case, not people across cases.
+-- pitch_bucket is a rough vocal-register label for sampling only.
+CREATE TABLE IF NOT EXISTS speaker_prosody (
+    case_id TEXT NOT NULL,
+    camera TEXT NOT NULL,
+    speaker TEXT NOT NULL,
+    turns INTEGER,
+    speaking_s REAL,
+    overlap_s REAL,
+    voiced_s REAL,
+    median_f0_hz REAL,
+    f0_p10_hz REAL,
+    f0_p90_hz REAL,
+    f0_range_st REAL,
+    f0_sd_st REAL,
+    mean_intensity_db REAL,
+    median_hnr_db REAL,
+    pitch_bucket TEXT,
+    PRIMARY KEY (case_id, camera, speaker)
 );
 
 -- One row per stage run on one video row: what it cost, so the pilot's
@@ -215,6 +238,8 @@ def _migrate(conn):
         conn.execute("ALTER TABLE videos ADD COLUMN sync_agreement REAL")
     if "views_status" not in vcols:
         conn.execute("ALTER TABLE videos ADD COLUMN views_status TEXT NOT NULL DEFAULT 'pending'")
+    if "prosody_status" not in vcols:
+        conn.execute("ALTER TABLE videos ADD COLUMN prosody_status TEXT NOT NULL DEFAULT 'pending'")
 
     _seed_cameras_once(conn)
 
@@ -621,6 +646,36 @@ def view_summary(path=DEFAULT_PATH, min_cases=2, min_stretches=3):
     for r in out:
         r["is_preset"] = r["cases"] >= min_cases or r["stretches"] >= min_stretches
     return out
+
+
+def set_speaker_prosody(case_id, camera, rows, path=DEFAULT_PATH):
+    """Replace one case's per-speaker prosody rows (`prosody.speaker_summary`)."""
+    from multidata.prosody import SPEAKER_COLUMNS
+
+    cols = ("case_id", "camera") + SPEAKER_COLUMNS
+    with closing(connect(path)) as conn, conn:
+        conn.execute("DELETE FROM speaker_prosody WHERE case_id = ? AND camera = ?",
+                     (case_id, str(camera)))
+        conn.executemany(
+            f"INSERT INTO speaker_prosody ({', '.join(cols)}) "
+            f"VALUES ({', '.join('?' * len(cols))})",
+            [(case_id, str(camera)) + tuple(r[c] for c in SPEAKER_COLUMNS) for r in rows])
+
+
+def export_speaker_prosody(csv_path, path=DEFAULT_PATH):
+    """Every case's per-speaker prosody as one CSV (what
+    data/speaker_pitch_stats.csv used to be, from a notebook)."""
+    import csv
+
+    with closing(connect(path)) as conn:
+        cur = conn.execute("SELECT * FROM speaker_prosody ORDER BY case_id, speaker")
+        names = [d[0] for d in cur.description]
+        rows = cur.fetchall()
+    with open(csv_path, "w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(names)
+        w.writerows(rows)
+    return len(rows)
 
 
 def save_match(filename, status, camera, video_date, video_time, path=DEFAULT_PATH,

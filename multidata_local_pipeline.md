@@ -100,7 +100,9 @@ multidata-local/
 │   ├── elan.py                         # §7  build .eaf
 │   ├── pose.py                         # §9  rtmlib pose extraction
 │   ├── kinematics.py                   #     rule-based pose features
-│   └── acoustics.py                    #     Praat/parselmouth features
+│   ├── prosody.py                      # §6b pitch, loudness, voice quality
+│   ├── speaker_traits.py               #     vocal-register bucket (sampling only)
+│   └── acoustics.py                    #     old CSV export, wraps prosody.py
 ├── scripts/
 │   └── run_stage.py                    # CLI: run one stage over the manifest
 ├── benchmarks/                         # §8  ASR benchmarking wing
@@ -117,7 +119,7 @@ multidata-local/
 │   ├── transcripts/<case_id>/
 │   ├── diarization/<case_id>/       # RTTM, for DER scoring (§8b)
 │   ├── elan/<case_id>/
-│   ├── praat/<case_id>/
+│   ├── prosody/<case_id>/              # §6b frame features + per-speaker CSV
 │   └── pose/<case_id>/
 ├── logs/                               # GITIGNORED — run_stage.py failure traces
 ├── manifest.sqlite                     # cases + videos, sqlite3 (§10)
@@ -528,6 +530,33 @@ for the Apple-Silicon path. Keep those code paths in `asr.py` behind a
 `--engine` flag.
 
 ---
+
+### 6b. Prosody (`run_stage.py prosody`, md-speech, CPU)
+
+Per case, on the audio camera (the other camera is `skipped`), after `asr`
+(which writes the diarization RTTM it needs). `src/multidata/prosody.py`:
+
+- **Frame features** → `data/prosody/<case_id>/<camera>.npz`: every 10 ms,
+  `f0_hz` (pitch; NaN unvoiced), `intensity_db` (loudness, uncalibrated:
+  compare within a recording), `hnr_db` (harmonics-to-noise ratio, voice
+  quality; NaN in silence), `f1_hz`..`f4_hz` (formants). Praat defaults
+  (pitch floor 75 Hz, ceiling 600 Hz), same extraction as the earlier
+  notebook work; versions and settings stored in the file.
+- **Per-speaker summary** → manifest `speaker_prosody` table and
+  `data/prosody/<case_id>/<camera>_speakers.csv`: turns, speaking time,
+  overlap time, voiced time, median pitch, 10th/90th percentile, pitch range
+  and spread in semitones, mean loudness and median HNR while voiced, and
+  `pitch_bucket`. Frames where diarized speakers overlap are left out of
+  every speaker's figures.
+
+Cautions: speaker labels (`SPEAKER_00`...) are per case, not people across
+cases, and are only as good as the diarization. `pitch_bucket` is a rough
+vocal-register label for picking annotation samples, never a statement about
+a person's sex or gender (`speaker_traits.py`). Loudness depends on distance
+to the microphone, so compare it within a case, not across rooms.
+`manifest.export_speaker_prosody("data/speaker_prosody.csv")` writes every
+case's speaker rows to one CSV (this replaces the notebook-made
+`data/speaker_pitch_stats.csv`).
 
 ## 7. Build the ELAN (.eaf) file
 

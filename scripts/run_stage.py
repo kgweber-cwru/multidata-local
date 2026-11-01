@@ -289,6 +289,30 @@ def stage_sync(row, args):
     return {"sync_offset_s": round(offset, 6), "sync_agreement": m["agreement"]}
 
 
+def stage_prosody(row, args):
+    """Pitch, loudness and voice quality (multidata.prosody): frame features
+    plus a per-speaker summary from the diarization. Per case, audio camera
+    only; needs the audio and asr (or diarize) stages first."""
+    from multidata import prosody
+
+    skip = _skip_if_not_audio_camera(row, args, "prosody")
+    if skip is not None:
+        return skip
+    wav = _abs(row["audio_path"]) if row["audio_path"] else _out("audio", row, ".wav")
+    rttm = _out("diarization", row, ".rttm")
+    if not rttm.exists():
+        raise FileNotFoundError(f"{rttm} -- run asr (or diarize) first")
+    log.info("prosody: %s/%s", row["case_id"], row["camera"])
+    feats = prosody.frame_features(wav)
+    prosody.save(feats, _out("prosody", row, ".npz"))
+    rows = prosody.speaker_summary(feats, prosody.read_rttm(rttm))
+    prosody.write_speakers_csv(rows, _out("prosody", row, "_speakers.csv"))
+    manifest.set_speaker_prosody(row["case_id"], row["camera"], rows, args.manifest)
+    voiced = sum(1 for x in feats["f0_hz"] if x == x) / max(len(feats["f0_hz"]), 1)  # x == x: not NaN
+    return {"_details": {"frames": len(feats["time_s"]), "speakers": len(rows),
+                         "voiced_frac": round(voiced, 3), **feats["params"]}}
+
+
 _view_libraries = {}
 
 
@@ -325,6 +349,7 @@ STAGES = {
     "pose": stage_pose,
     "sync": stage_sync,
     "views": stage_views,
+    "prosody": stage_prosody,
 }
 
 
@@ -336,7 +361,7 @@ PILOT_SMALL_ROOMS = {"pose", "sync", "views"}
 # The module each stage needs, imported once up front: run in the wrong conda
 # env, a stage should stop with one clear message, not fail every row.
 STAGE_MODULES = {"audio": "audio", "asr": "asr", "diarize": "diarize", "elan": "elan",
-                 "pose": "pose", "sync": "sync", "views": "views"}
+                 "pose": "pose", "sync": "sync", "views": "views", "prosody": "prosody"}
 STAGE_ENVS = {"pose": "md-pose", "views": "md-pose"}
 
 
@@ -378,6 +403,7 @@ STAGE_PARAMS = {
     "pose": ("accel_device", "detect_every"),
     "sync": (),
     "views": (),
+    "prosody": (),
 }
 
 
