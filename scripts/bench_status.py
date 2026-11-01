@@ -22,7 +22,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
-from multidata import asr, manifest  # noqa: E402
+from multidata import asr, manifest, seeding  # noqa: E402
 
 REFERENCES = ROOT / "benchmarks" / "references"
 RESULTS = ROOT / "benchmarks" / "results" / "runs.csv"
@@ -104,8 +104,9 @@ def print_gold_section(gold_status_rows):
         for row in entry["manifest_rows"]:
             span = (f"  [{row['span_start']:.0f}s-{row['span_end']:.0f}s]"
                     if row["span_start"] is not None else "  [whole encounter]")
+            kind = seeding.describe(seeding.read_gold_meta(entry["case_id"], REFERENCES))
             print(f"  {entry['case_id']:<12}{span}  gold_at={row['gold_at'] or '?'}"
-                  f"  annotator={row['annotator'] or '?'}{flag}")
+                  f"  annotator={row['annotator'] or '?'}  pass 1: {kind}{flag}")
     print()
 
 
@@ -114,9 +115,17 @@ def print_runs_section(latest):
     if not latest:
         print("  (no runs yet)")
         return
-    for (case_id, engine, model), row in sorted(latest.items()):
-        print(f"  {case_id:<12}{engine:<20}{model:<12}"
-              f"WER {row['wer']:<8}CER {row['cer']:<8}({row['source']})")
+    # blind and seeded gold are reported apart: seeded gold leans toward its
+    # seed engine (standards §9), so the two must not be averaged together
+    for kind in ("blind", "seeded"):
+        rows = [(k, r) for k, r in sorted(latest.items())
+                if (r.get("gold_pass1") or "blind") == kind]
+        if not rows:
+            continue
+        print(f"  -- against {kind} gold --")
+        for (case_id, engine, model), row in rows:
+            print(f"  {case_id:<12}{engine:<20}{model:<12}"
+                  f"WER {row['wer']:<8}CER {row['cer']:<8}({row['source']})")
     print()
 
 

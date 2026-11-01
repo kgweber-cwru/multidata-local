@@ -14,3 +14,15 @@ def which(name):
         raise RuntimeError(f"{name} not found on PATH or in this env "
                            f"({Path(sys.executable).parent}) -- install ffmpeg into this env")
     return path
+
+
+def put_env_on_path():
+    """Prepend this Python's env folder (its bin/) to PATH, for libraries
+    that call programs by bare name (whisperx runs "ffmpeg"). Same effect as
+    `conda activate` for programs; harmless if it's already there."""
+    import os
+
+    bindir = str(Path(sys.executable).parent)
+    parts = os.environ.get("PATH", "").split(os.pathsep)
+    if bindir not in parts:
+        os.environ["PATH"] = os.pathsep.join([bindir] + parts)

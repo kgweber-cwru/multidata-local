@@ -49,7 +49,7 @@ hand-made gold transcripts. Everything is currently designed to run on an Ubuntu
 | **reference clock** | the audio camera's timeline; `sync` gives the other camera's offset from it |
 | **stretch / view / preset** | a stretch is a period a camera holds still; a view is where it's pointing; recurring views are the operators' presets |
 | **slot** | one detected person in one frame of pose output; *not* the same person across frames |
-| **gold** | a hand-made, adjudicated reference transcript for scoring ASR |
+| **gold** | a hand-made, adjudicated reference transcript for scoring ASR; pass 1 is either *blind* or *seeded* from a fixed machine draft |
 
 ## Layout
 

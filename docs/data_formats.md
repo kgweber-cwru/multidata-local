@@ -75,14 +75,27 @@ text.
 This is the machine draft, not gold. Open in ELAN; read with `pympi`
 (`pympi.Elan.Eaf(path)`).
 
-## Gold references: `benchmarks/references/<case>.gold.txt` and `.gold.rttm`
+## Gold references: `benchmarks/references/<case>.gold.*`
 
-In git. `.gold.txt`: the adjudicated transcript of the encounter as one line
-of text, names replaced by tags like `[LEARNER_NAME]`
-([transcription_standards.md](transcription_standards.md)). `.gold.rttm`:
-RTTM of the annotated turns, with role names as speakers (`LEARNER`,
-`PATIENT`, `ANNOUNCEMENT`, ...). Made by `scripts/eaf_to_gold.py` from the
-`.eaf` in `data/gold/<case>/`.
+In git. Made by `scripts/eaf_to_gold.py` from the `.eaf` in
+`data/gold/<case>/`.
+
+- `.gold.txt`: the adjudicated transcript of the encounter as one line of
+  text, names replaced by tags like `[LEARNER_NAME]`
+  ([transcription_standards.md](transcription_standards.md)).
+- `.gold.rttm`: RTTM of the annotated turns, with role names as speakers
+  (`LEARNER`, `PATIENT`, `ANNOUNCEMENT`, ...).
+- `.gold.json`: how pass 1 was made. `pass1_source` is `blind` or `seeded`;
+  seeded gold adds `seed_engine`, `seed_model`, `seed_transcript`,
+  `seed_sha256` (of the exact transcript) and `roles` (the speaker -> role
+  map). Also `standards_version`, `gold_at`, `span`. A reference without this
+  file predates it and is blind. Read with
+  `multidata.seeding.read_gold_meta(case, "benchmarks/references")`.
+  **Never score the seed engine against seeded gold**, and report seeded and
+  blind results separately (standards §9).
+
+The manifest's `gold` table holds the same provenance per gold row
+(`pass1_source`, `seed_engine`, `seed_model`, `seed_sha256`).
 
 ## Prosody: `data/prosody/<case>/<camera>.*`
 
@@ -197,8 +210,10 @@ copy with `sqlite3 manifest.sqlite ".backup copy.sqlite"`.
 ## Benchmark results: `benchmarks/results/runs.csv`
 
 In git, append-only, one row per scored run: `timestamp, case_id, engine,
-model, audio_sha256, wer, cer, wall_s, source, git_commit, machine, notes`
-(`source`: `live` = engine ran, `cache_hit` / `cached` = it didn't). Detail
+model, audio_sha256, wer, cer, wall_s, source, git_commit, machine, notes,
+gold_pass1` (`source`: `live` = engine ran, `cache_hit` / `cached` = it
+didn't; `gold_pass1`: `blind` or `seeded`, empty on rows from before the
+column existed, which are blind). Detail
 per run in `benchmarks/runs/<run_id>/` (gitignored).
 
 ---

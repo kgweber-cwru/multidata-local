@@ -20,8 +20,12 @@ Six tiers, matching
 | `OUTSIDE_ROOM` | intelligible hallway bleed |
 | `NOTES` | sparse annotator observations |
 
-Usage is **File → New**, adding both media files and selecting this template —
-see [../docs/annotator_guide.md](../docs/annotator_guide.md) §1.
+Annotators don't use it directly: `annotation/make_kit.py` builds each
+pass-1 file from it (empty for a blind pass, pre-filled with a machine draft
+for a seeded one; [transcription_standards.md](../docs/transcription_standards.md) §9),
+with the media already linked. A seeded file may carry a seventh, temporary
+`UNASSIGNED` tier, which must be empty before hand-in and never reaches gold.
+See [../docs/annotator_guide.md](../docs/annotator_guide.md), Step 1.
 
-> **Changing the tier set is a standards change**, not a file edit. Bump
+> **Changing the tier set is a standards change**. Bump
 > `transcription_standards.md` §12 and say what it invalidates.

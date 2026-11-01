@@ -42,7 +42,7 @@ import jiwer
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
-from multidata import asr, bench_runs  # noqa: E402
+from multidata import asr, bench_runs, seeding  # noqa: E402
 from multidata.elan import words_of  # noqa: E402
 
 RESULTS = ROOT / "benchmarks" / "results" / "runs.csv"
@@ -59,7 +59,12 @@ CACHE_ROOT = ROOT / "benchmarks" / "cache"
 #   cached    -- an externally supplied --transcript file was scored; some
 #                other process (a notebook, run_stage.py) produced it
 FIELDS = ["timestamp", "case_id", "engine", "model", "audio_sha256",
-          "wer", "cer", "wall_s", "source", "git_commit", "machine", "notes"]
+          "wer", "cer", "wall_s", "source", "git_commit", "machine", "notes",
+          "gold_pass1"]
+# gold_pass1: how the reference's pass 1 was made -- "blind", or "seeded"
+# from a machine draft (standards §9). Rows from before the column existed
+# are blind. Seeded and blind results are reported separately, and the seed
+# engine is never scored against gold it seeded (see main()).
 
 # Scoring normalization: casing and punctuation are not what we're measuring.
 _NORMALIZE = jiwer.Compose([jiwer.ToLowerCase(), jiwer.RemovePunctuation(),
@@ -122,12 +127,40 @@ def record(row, results_path=RESULTS):
     """
     results_path = Path(results_path)
     results_path.parent.mkdir(parents=True, exist_ok=True)
+    _upgrade_header(results_path)
     is_new = not results_path.exists()
     with open(results_path, "a", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=FIELDS)
         if is_new:
             writer.writeheader()
         writer.writerow(row)
+
+
+def _upgrade_header(results_path):
+    """Rewrite an existing ledger whose header predates a column in FIELDS:
+    same rows, the new column left empty. Append-only in spirit: no value
+    changes, only the header widens."""
+    if not results_path.exists():
+        return
+    with open(results_path, newline="") as f:
+        rows = list(csv.DictReader(f))
+        header = rows[0].keys() if rows else None
+    if header is None or list(header) == FIELDS:
+        return
+    with open(results_path, "w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=FIELDS)
+        w.writeheader()
+        for r in rows:
+            w.writerow({k: r.get(k, "") for k in FIELDS})
+
+
+def refuse_seed_engine(engine, meta):
+    """Exit if `engine` seeded this gold: scoring it would flatter it."""
+    if meta.get("pass1_source") == "seeded" and engine == meta.get("seed_engine"):
+        sys.exit(f"Refusing: case {meta['case_id']}'s gold was seeded from {engine} "
+                 f"({meta.get('seed_model')}), so scoring {engine} against it would be "
+                 "biased in its favour (docs/transcription_standards.md §9). Score it on "
+                 "blind gold, or on gold seeded by another engine.")
 
 
 def load_result(args, audio_sha256, cache_root=None):
@@ -252,9 +285,13 @@ def main():
     if not reference_path.exists():
         sys.exit(f"No gold reference at {reference_path} — see docs/transcription_standards.md")
     ref = reference_path.read_text()
+    meta = seeding.read_gold_meta(args.case, reference_path.parent)
+    if not args.transcript:
+        refuse_seed_engine(args.engine or asr.DEFAULT_ENGINE, meta)   # before any GPU time
 
     audio_sha256 = sha256(args.audio)
     result, engine, source, wall_s = load_result(args, audio_sha256, cache_root=cache_root)
+    refuse_seed_engine(engine, meta)
 
     hyp = hypothesis_text(result, span=span)
     ref_n, hyp_n = _NORMALIZE(ref), _NORMALIZE(hyp)
@@ -275,6 +312,7 @@ def main():
         "git_commit": subprocess.getoutput("git rev-parse --short HEAD"),
         "machine": platform.platform(),
         "notes": args.notes,
+        "gold_pass1": meta.get("pass1_source", "blind"),
     }
     record(row, results_path=args.results)
 
@@ -287,7 +325,7 @@ def main():
     run_dir = bench_runs.write_run(args.out_root, run_id, run_config, result,
                                     {"wer": wer, "cer": cer})
 
-    print(f"WER {wer}  CER {cer}  ({row['wall_s']}s, {source})")
+    print(f"WER {wer}  CER {cer}  ({row['wall_s']}s, {source}; gold: {seeding.describe(meta)})")
     print(f"  ledger: {args.results}")
     print(f"  run:    {run_dir}")
 

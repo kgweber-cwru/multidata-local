@@ -320,30 +320,79 @@ be regenerated; and annotators just transcribe.
 
 ---
 
-## 9. Process — blind first
+## 9. Process — two routes to gold
 
-Annotation is **from scratch**. No machine draft is corrected, ever.
+Every gold reference is two human passes: **pass 1** makes the transcript,
+**pass 2** adjudicates it, by a different person. What differs is where
+pass 1 starts.
 
-Correcting a Whisper draft biases gold *toward Whisper*: annotators accept
-plausible-looking errors, flattering the very engine under test. The bias is
-invisible in the output and fatal to the benchmark's purpose.
+| | Route A: blind (the default) | Route B: draft-seeded (the fallback) |
+|---|---|---|
+| Pass 1 starts from | the empty template and the audio | a fixed machine transcript, cut into utterances on the template's tiers |
+| Use when | annotators are available | there aren't enough annotators for blind gold |
+| Bias | none toward any engine | leans toward the seed engine |
+| Scored against | every engine | every engine **except the seed engine**, reported separately |
 
-### Pass 1 — blind
+**Why blind is the default.** Correcting a machine draft biases gold *toward
+that machine*: annotators accept plausible-looking errors, flattering the
+engine under test, and the bias is invisible in the output. Route B accepts
+that bias knowingly, confines it to one engine, and records it, so it can
+never be mistaken for blind gold.
 
-The annotator works from the template and the audio alone. No draft, no existing
-transcript, no other annotator's work. Output is `<case_id>.pass1.eaf`, which is
-**frozen and immutable** on completion.
+### Pass 1, route A — blind
 
-### Pass 2 — adjudication
+The annotator works from the template and the audio alone. No draft, no
+existing transcript, no other annotator's work. Output is
+`<case_id>.pass1.eaf`, **frozen and immutable** on completion.
 
-Only after pass 1 is frozen may the machine draft be consulted. Divergences flag
+### Pass 1, route B — draft-seeded
+
+The kit's `.eaf` already holds the **seed**: the transcript of the one fixed
+seed engine and model (`multidata.seeding.SEED_ENGINE` / `SEED_MODEL`,
+currently `whisperx_disfluent` / `large-v3`), split into utterances (one
+speaker, no pause over 0.6 s, at most 20 s) and placed on role tiers by a
+role map that someone decided before the kit was built. Speakers with no role
+land on an extra `UNASSIGNED` tier.
+
+The annotator **corrects every line against the audio**: boundaries, words,
+speaker, and all of §6's markup, which the machine doesn't produce. Nothing
+in the draft is trusted; a line left unchanged must be one the annotator
+listened to and found right. `UNASSIGNED` must end empty (moved or deleted).
+Output is `<case_id>.pass1.eaf`, frozen like route A's.
+
+Rules that keep route B reproducible:
+
+1. **One seed engine and model**, never per case. Changing it is a standards
+   change (§12); gold seeded by different engines is never pooled without
+   saying so.
+2. **The seed doesn't change once used**: its file is never regenerated, and
+   its SHA-256 is recorded with the kit and the gold.
+3. **The conversion is mechanical** (`annotation/make_kit.py --seed`): the
+   same seed file and role map always give the same pass-1 file.
+4. **Provenance travels**: kit.json, the `.eaf` header, the manifest's `gold`
+   row and the tracked `<case_id>.gold.json` all say how pass 1 was made.
+
+### Pass 2 — adjudication (both routes)
+
+Only after pass 1 is frozen may a machine draft be consulted. Divergences flag
 spots to **re-listen** — never to accept. The reviewer's job is to decide what
 the audio actually contains, not to reconcile two documents. Output is
-`<case_id>.gold.eaf`.
+`<case_id>.gold.eaf`. In route B the reviewer should consult a draft *other*
+than the seed (the pipeline's own transcript), since the seed already shaped
+pass 1.
 
 Because pass 1 is preserved, the human-vs-machine divergence rate is a free
 signal: a systematic pattern in it usually means either a convention gap (§12) or
 a genuine engine weakness worth reporting.
+
+### Using seeded gold in benchmarks
+
+- The seed engine is **never scored** against gold it seeded, at any model
+  size (`run_benchmark.py` refuses).
+- Results against seeded gold are reported **separately** from results
+  against blind gold (`bench_status.py`, and `runs.csv`'s `gold_pass1`
+  column), never averaged together.
+- Engine rankings rest on blind gold. Seeded gold adds cases, not authority.
 
 **Never let a pipeline re-run overwrite human work.** Gold files carry distinct
 names and are treated as immutable.
@@ -353,7 +402,9 @@ names and are treated as immutable.
 ## 10. Quality control
 
 **Double-annotate a subset** (target ~20%) fully independently — two blind pass 1s
-on the same case, neither annotator seeing the other's work.
+on the same case, neither annotator seeing the other's work. Agreement comes
+from **blind** passes only: two corrections of the same seed agree partly
+because they started from the same text, which would overstate agreement.
 
 Measure agreement: WER *between annotators* for transcript, DER between their
 speaker labels. Report at both L0 and L1 — L0 disagreement concentrated in
@@ -387,8 +438,11 @@ the report, and it belongs next to them.
 elan/
 └── template.etf                        # the versioned annotation template
 
+annotation/kits/<case_id>/<annotator>/  # GITIGNORED — each pass as built and returned
+├── <case_id>.pass1.eaf                 # frozen pass 1 (blind or seeded)
+└── kit.json                            # what the kit is, incl. how pass 1 was made
+
 data/gold/<case_id>/                    # GITIGNORED — Layer 1, real names
-├── <case_id>.pass1.eaf                 # frozen blind pass
 └── <case_id>.gold.eaf                  # adjudicated
 
 benchmarks/
@@ -397,7 +451,8 @@ benchmarks/
 │   └── providers.yaml                  # capability registry
 ├── references/                         # TRACKED — Layer 2, de-identified
 │   ├── <case_id>.gold.txt
-│   └── <case_id>.gold.rttm
+│   ├── <case_id>.gold.rttm
+│   └── <case_id>.gold.json             # how pass 1 was made (blind/seeded + seed), version, span
 ├── runs/                               # GITIGNORED — per-run outputs
 └── results/
     └── runs.csv                        # TRACKED — append-only, provenance-stamped
@@ -415,10 +470,6 @@ benchmarks/
 
 ### Current gaps
 
-- **No `.eaf → gold` exporter exists.** Under the from-scratch workflow this is
-  no longer optional — it's the only path from annotator output to
-  `gold.txt` + `gold.rttm`. It must apply tier exclusion (§4), merge adjacent
-  same-tier segments (§5), and redact from the manifest (§8).
 - **DER scoring is not implemented** in `run_benchmark.py` — it computes WER/CER
   only. Collecting the RTTM layer is not wasted (§5 produces exactly what DER
   needs), but don't expect a DER number until that path exists.
@@ -442,3 +493,4 @@ the affected subset.
 | Version | Date | Change |
 |---|---|---|
 | 1.0 | 2026-08-26 | Initial standard. From-scratch blind annotation, utterance-level segmentation, L0/L1/L2 levels, verbatim names with mechanical redaction. Supersedes `gold_annotation_guide.md`. |
+| 1.1 | 2026-11-01 | §9: adds route B, draft-seeded pass 1, as a fallback when annotators are scarce (fixed seed engine `whisperx_disfluent`/`large-v3`; provenance recorded; seed engine never scored against its own seeded gold; seeded results reported separately). §6/§7 unchanged, so 1.0 gold stays valid and comparable. |

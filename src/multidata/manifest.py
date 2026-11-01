@@ -113,7 +113,11 @@ CREATE TABLE IF NOT EXISTS gold (
     standards_version TEXT NOT NULL DEFAULT '',
     span_start REAL,
     span_end REAL,
-    notes TEXT NOT NULL DEFAULT ''
+    notes TEXT NOT NULL DEFAULT '',
+    pass1_source TEXT NOT NULL DEFAULT 'blind',
+    seed_engine TEXT NOT NULL DEFAULT '',
+    seed_model TEXT NOT NULL DEFAULT '',
+    seed_sha256 TEXT NOT NULL DEFAULT ''
 );
 
 -- Camera views (multidata.views): one row per view a camera has been seen
@@ -238,6 +242,14 @@ def _migrate(conn):
         conn.execute("ALTER TABLE videos ADD COLUMN sync_agreement REAL")
     if "views_status" not in vcols:
         conn.execute("ALTER TABLE videos ADD COLUMN views_status TEXT NOT NULL DEFAULT 'pending'")
+    # How pass 1 was made (standards §9): blind, or seeded from a machine draft.
+    gcols = {row["name"] for row in conn.execute("PRAGMA table_info(gold)")}
+    for col, decl in (("pass1_source", "TEXT NOT NULL DEFAULT 'blind'"),
+                      ("seed_engine", "TEXT NOT NULL DEFAULT ''"),
+                      ("seed_model", "TEXT NOT NULL DEFAULT ''"),
+                      ("seed_sha256", "TEXT NOT NULL DEFAULT ''")):
+        if col not in gcols:
+            conn.execute(f"ALTER TABLE gold ADD COLUMN {col} {decl}")
     if "prosody_status" not in vcols:
         conn.execute("ALTER TABLE videos ADD COLUMN prosody_status TEXT NOT NULL DEFAULT 'pending'")
 
@@ -327,7 +339,7 @@ def names_for_case(case_id, path=DEFAULT_PATH):
 
 def record_gold(case_id, annotator="", pass1_frozen_at="", gold_at="",
                  standards_version="", span_start=None, span_end=None, notes="",
-                 path=DEFAULT_PATH):
+                 seed=None, path=DEFAULT_PATH):
     """Insert one gold-reference row (implementation plan Phase 2.4). Returns
     the new row's `id`. Never updates an existing row -- annotation is a
     sequence of events (pass 1 frozen, then adjudicated), and each call here
@@ -338,14 +350,21 @@ def record_gold(case_id, annotator="", pass1_frozen_at="", gold_at="",
     record the excerpt's bounds when only part of the encounter was
     annotated (standards §3) -- required for a scorer to know what portion
     of the audio the reference actually covers.
+
+    `seed` is the seed provenance dict for draft-seeded gold
+    (`seeding.provenance`); None means pass 1 was blind.
     """
+    seed = seed or {}
     with closing(connect(path)) as conn, conn:
         cursor = conn.execute(
             "INSERT INTO gold (case_id, annotator, pass1_frozen_at, gold_at, "
-            "standards_version, span_start, span_end, notes) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "standards_version, span_start, span_end, notes, pass1_source, "
+            "seed_engine, seed_model, seed_sha256) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (case_id, annotator, pass1_frozen_at, gold_at, standards_version,
-             span_start, span_end, notes),
+             span_start, span_end, notes, seed.get("pass1_source", "blind"),
+             seed.get("seed_engine", ""), seed.get("seed_model", ""),
+             seed.get("seed_sha256", "")),
         )
         return cursor.lastrowid
 

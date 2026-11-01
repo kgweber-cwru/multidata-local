@@ -7,9 +7,16 @@ This guide tells you **what to do**. For *why* any rule exists, see
 throughout. When this guide and the standards disagree, the standards win; tell
 whoever maintains them.
 
-> **You work blind.** No machine transcript, no other annotator's file, no
-> existing draft. If someone offers you one, decline — it biases the result in a
-> way that can't be detected afterward. **[S§9]**
+> **Which kind of kit do you have?** The first line of your kit's `README.txt`
+> says.
+>
+> - **Blind pass 1** (most kits): your file opens with empty tiers. **You work
+>   blind.** No machine transcript, no other annotator's file, no existing
+>   draft. If someone offers you one, decline — it biases the result in a way
+>   that can't be detected afterward. Follow Steps 1–7.
+> - **Seeded pass 1**: your file opens with a machine transcript already on
+>   the tiers. Do Step 1 (open the file: never make a new one, or you lose the draft), then [Correcting a seeded draft](#correcting-a-seeded-draft-seeded-kits-only)
+>   instead of Steps 2–4, then Steps 5–7. **[S§9]**
 
 ---
 
@@ -18,8 +25,10 @@ whoever maintains them.
 You need:
 
 - **ELAN 7.x** installed
-- **`elan/template.etf`** — the project template
-- Your assigned case's **video** (`.mp4`) and **audio** (`.wav`)
+- Your **kit** for the case: a folder holding `<case_id>.pass1.eaf`, a
+  `media/` folder with the video (`.mp4`) and audio (`.wav`), and a
+  `README.txt` saying which kind of pass it is. Keep the folder whole: the
+  file finds its media through `media/`.
 - **Headphones.** Not laptop speakers. You will be distinguishing `uh-huh` from
   `uh-uh`, and that decision changes a patient's answer from yes to no.
 - The **cheat sheet** at the bottom of this page, printed or on a second screen
@@ -29,22 +38,20 @@ most of a day. That's normal and it is not a sign you're doing it wrong.
 
 ---
 
-## Step 1 — Create the file from the template
+## Step 1 — Open your file
 
-**File → New.**
+Your kit already contains the file: open **`<case_id>.pass1.eaf`** from the
+kit folder in ELAN. It was made from the project template with the video and
+audio linked, so ELAN shouldn't ask where the media is. You should see the
+template's six tiers: `LEARNER`, `PATIENT`, `PRECEPTOR`, `ANNOUNCEMENT`,
+`OUTSIDE_ROOM`, `NOTES` (plus `UNASSIGNED` in some seeded kits). **[S§4]**
+They're empty in a blind kit and hold the draft in a seeded one.
 
-In the dialog:
-1. Add **both** media files — the `.mp4` *and* the `.wav`. The video shows you
-   who is speaking; the `.wav` gives you a real waveform instead of a
-   video-derived guess.
-2. Select **`elan/template.etf`** as the template.
-3. OK.
+Save in place (same name, same folder), and save often.
 
-You should see six empty tiers: `LEARNER`, `PATIENT`, `PRECEPTOR`,
-`ANNOUNCEMENT`, `OUTSIDE_ROOM`, `NOTES`. **[S§4]**
-
-**Save immediately** as `<case_id>.pass1.eaf` in the case's gold folder. Save
-often after that.
+*Without a kit:* **File → New**, add **both** media files (the `.mp4` shows
+who is speaking; the `.wav` gives a real waveform), select
+**`elan/template.etf`** as the template, and save as `<case_id>.pass1.eaf`.
 
 > **Never create a tier** unless someone genuinely present fits none of the five
 > speaker tiers. If that happens, stop and ask — it usually means something about
@@ -149,6 +156,41 @@ Nothing in the file records these bites; it's just how to pace the work.
 
 ---
 
+## Correcting a seeded draft (seeded kits only)
+
+Your tiers already hold a machine transcript: one annotation per utterance,
+put on the tier of the person the machine *thinks* spoke. Some speech may sit
+on an extra **`UNASSIGNED`** tier, where the machine couldn't tell who it
+was. The result must be exactly what a blind pass would have produced, so
+**treat every line as a guess to check, never as a starting answer**. A
+line you leave unchanged must be one you listened to and found right.
+
+1. **Listen through once**, as in Step 2, before changing anything.
+2. **Fix who speaks.** Work one tier at a time. Every annotation must sit on
+   the tier of the person actually speaking. To move one: right-click it >
+   *Copy Annotation*, right-click the right tier at the same time > *Paste
+   Annotation Here*, then delete the original (or delete it and segment it
+   afresh). **Empty `UNASSIGNED` completely**: move each annotation to its
+   speaker's tier, or delete it if it isn't speech you'd transcribe. The
+   hand-in check refuses a file with anything left there.
+3. **Fix the boundaries**, by the rules in Step 3's *What counts as one
+   segment* and *How precise?*: split where a speaker pauses or changes
+   topic, merge where the machine cut one utterance in two, trim or extend
+   edges to the speech.
+4. **Add what the machine missed.** It drops quiet speech, overlapped speech
+   and, above all, **backchannels** (`mm-hm`, `uh-huh`) and **filled pauses**
+   (`um`, `uh`). Go through each tier listening for them, and segment them as
+   in Step 3.
+5. **Correct every word**, in ~30-second bites as in Step 4, applying all the
+   rules while typing and the cheat sheet. The machine writes standard
+   spelling and punctuation and none of our markup: you add prolongations,
+   fragments, uncertainty marks and the rest.
+
+Seeded correction is usually quicker than a blind pass, but budget for it
+as if it weren't: the listening is the same.
+
+---
+
 ## Step 5 — When you're not sure
 
 **Never guess.** A flagged unknown is recoverable; a confident error is not.
@@ -193,6 +235,7 @@ Don't use NOTES for transcription content.
 
 1. **Check every tier.** Any segment still empty? Either transcribe it or delete
    it — empty segments become phantom turns in the diarization reference.
+   In a seeded kit, `UNASSIGNED` must be completely empty.
 2. **Spot-check five random segments** against the audio.
 3. **Save** as `<case_id>.pass1.eaf`.
 4. **Tell the project lead it's done.**
@@ -268,6 +311,7 @@ how the list grows.
 | Guessing a term instead of flagging | Turns a free non-answer into a counted error |
 | Chasing exact word boundaries | Nothing uses that precision |
 | Reopening a frozen pass 1 | Destroys the blind-pass property |
+| Leaving a seeded line unchanged without listening to it | Copies the machine's errors into gold, where they flatter that machine |
 
 ---
 

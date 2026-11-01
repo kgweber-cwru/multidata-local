@@ -464,6 +464,8 @@ def main():
     args = ap.parse_args()
 
     _setup_logging(args.verbose)
+    from multidata.tools import put_env_on_path
+    put_env_on_path()            # libraries that call ffmpeg by name find this env's
     _check_env(args.stage)
 
     rows = manifest.pending(args.stage, args.manifest)

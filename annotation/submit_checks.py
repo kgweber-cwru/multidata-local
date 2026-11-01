@@ -6,13 +6,17 @@
 Exit 0 = fine to submit (warnings may still be printed).
 Exit 1 = do not submit; the message says what to fix.
 
-Two checks, deliberately. The annotator guide's §7 hand-off list has more items
-than this, but the rest need a human ear -- these two are the ones a machine can
+Three checks, deliberately. The annotator guide's hand-off list has more items
+than this, but the rest need a human ear -- these are the ones a machine can
 decide, so they are the ones a machine does.
 
   REFUSE  an annotation with no text. The guide already says an empty segment
           must be transcribed or deleted, because it becomes a phantom turn in
           the diarization reference.
+  REFUSE  anything left on the UNASSIGNED tier. A seeded pass 1 (one started
+          from a machine draft, standards §9 route B) puts speech whose
+          speaker had no role there; every one must be moved to a role tier
+          or deleted before the file counts as done.
   WARN    annotations outside the excerpt window, when the case has one. A
           warning and not a refusal: the window is guidance to the annotator,
           and .eaf-level excerpt slicing is deliberately unbuilt, so refusing
@@ -31,6 +35,7 @@ import xml.etree.ElementTree as ET
 # both gold.txt and gold.rttm. It also carries the excerpt-window marker a kit
 # puts there, so the window check must skip it or it would flag itself.
 NOTES_TIER = "NOTES"
+UNASSIGNED_TIER = "UNASSIGNED"   # seeded kits only; must end empty
 
 
 def read_annotations(eaf_path):
@@ -66,6 +71,9 @@ def check(annotations, span=None):
     for tier, start, end, text in annotations:
         if not text:
             problems.append(f"empty segment on {tier} at {ts(start)}-{ts(end)}")
+        elif tier == UNASSIGNED_TIER:
+            problems.append(f"speech still on {UNASSIGNED_TIER} at {ts(start)}-{ts(end)}: "
+                            "move it to the right speaker's tier, or delete it")
 
     if span:
         start_ms, end_ms = int(span[0] * 1000), int(span[1] * 1000)
@@ -113,8 +121,7 @@ def main():
 
     if problems:
         show(problems, "PROBLEM")
-        print("\nNot submitted. Transcribe or delete the empty segments, "
-              "then try again.")
+        print("\nNot submitted. Fix the problems above, then try again.")
         return 1
 
     print("\nChecks passed.")

@@ -210,12 +210,13 @@ the audio). Output: `data/elan/<case>/<camera>.eaf`. If prosody has run, a
 from the audio alone, so re-running ASR (then `elan`) leaves it unchanged.
 Run `prosody` before `elan`.
 
-**Gold annotation does not start from this draft** (settled 2026-08-26):
-correcting a machine draft biases the reference toward that machine. Gold is
-made blind, from scratch, in ELAN from `elan/template.etf`; the draft is used
-only in the adjudication pass. See
-[transcription_standards.md](transcription_standards.md) §9 and
-[annotator_guide.md](annotator_guide.md). Gold files live under
+**Gold annotation never starts from this draft.** Gold pass 1 is either
+blind (empty template) or, when annotators are scarce, seeded from a
+*separate*, fixed machine transcript (`whisperx_disfluent` / `large-v3`)
+whose bias is recorded and kept out of benchmarking
+([transcription_standards.md](transcription_standards.md) §9). This draft is
+for browsing and for the adjudication pass. Procedure:
+[annotation/README.md](../annotation/README.md). Gold files live under
 `data/gold/<case>/` and are never overwritten by a re-run.
 
 ---
@@ -235,9 +236,15 @@ speech, multi-party rooms): that gap is a finding; report it.
 
 Gold is the expensive, essential part:
 `benchmarks/references/<case>.gold.txt` (and `.gold.rttm`), exported from an
-adjudicated `.eaf` by `scripts/eaf_to_gold.py`, never typed by hand. The
-audio a benchmark scores must never change; its hash is recorded with every
-run.
+adjudicated `.eaf` by `scripts/eaf_to_gold.py`, never typed by hand, with a
+`.gold.json` saying how its pass 1 was made. **Blind** gold (route A) can
+score any engine. **Seeded** gold (route B: pass 1 corrected from the
+`whisperx_disfluent`/`large-v3` transcript; `multidata.seeding`) leans toward
+that engine, so `run_benchmark.py` refuses to score it there, every ledger
+row records which kind of gold it used (`gold_pass1`), and
+`bench_status.py` reports the two kinds separately
+([transcription_standards.md](transcription_standards.md) §9). The audio a
+benchmark scores must never change; its hash is recorded with every run.
 
 ### 8b. Metrics
 

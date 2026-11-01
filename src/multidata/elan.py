@@ -7,13 +7,12 @@ Granularity is **word-level**: one annotation per word, one tier per speaker.
 That's what the working notebook produced, and it no longer needs to match the
 gold workflow — gold is utterance-level and hand-segmented (see below).
 
-The generated .eaf is the *machine draft*, and since 2026-08-26 it is **not an
-annotation starting point**. Gold references are produced blind and from
-scratch against `elan/template.etf`, because correcting a Whisper draft biases
-the reference toward Whisper in a way that can't be detected afterward
-(docs/transcription_standards.md §9). This draft's remaining jobs are to be a
-browsable artifact for the production pipeline and the comparison document for
-pass-2 adjudication.
+The generated .eaf is the *machine draft*, and it is **not an annotation
+starting point**. Gold pass 1 is either blind (empty template) or seeded from
+a separate, fixed seed transcript (`multidata.seeding`,
+docs/transcription_standards.md §9), never from this file. This draft's jobs
+are to be a browsable artifact for the production pipeline and the
+comparison document for pass-2 adjudication.
 
 Never write a draft over hand-labelled work: gold lives under
 `data/gold/<case_id>/` with distinct names and is treated as immutable.
@@ -38,10 +37,10 @@ _ORPHAN_PUNCT = [".", ",", "?", "!"]
 # can be read side by side in pass-2 adjudication
 # (docs/transcription_standards.md §4/§9).
 #
-# NOTE: these no longer exist for anyone to *move* words into. Gold is now
-# annotated blind and from scratch against the template, not by correcting this
-# draft, so nothing reattributes the diarizer's raw SPEAKER_NN tiers here any
-# more. They're kept for naming consistency and side-by-side reading; if that
+# NOTE: these no longer exist for anyone to *move* words into. Gold is made
+# from the template (blind, or seeded via make_kit.py --seed), never by
+# correcting this draft, so nothing reattributes the diarizer's raw SPEAKER_NN
+# tiers here any more. They're kept for naming consistency and side-by-side reading; if that
 # stops earning its keep, dropping them is safe. The template's NOTES tier is
 # deliberately *not* mirrored — it's for human observations, and a machine
 # draft has none.

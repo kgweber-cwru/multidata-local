@@ -56,6 +56,8 @@ empty cells), then more gold.
 **Annotation** runs through Box: kits built on tofino
 (`annotation/make_kit.py`), shared per annotator, returned to tofino; who has
 which pass is in `annotation/assignments.csv` ([../annotation/README.md](../annotation/README.md)).
+Annotators are scarce, so pass 1 can now start from a machine draft (route B,
+standards §9): seeded gold adds cases, but engine rankings rest on blind gold.
 
 **Cloud ASR providers:** IRB cleared sending audio to vendors for inference
 (2026-09-10). Provider research lives in `benchmarks/configs/providers.yaml`.
@@ -121,6 +123,7 @@ Newest first. One line each; the reasoning is in the linked doc.
 
 | Date | Decision |
 |---|---|
+| 2026-11-01 | Draft-seeded gold (standards 1.1, route B) as a fallback when annotators are scarce: pass 1 corrects a fixed `whisperx_disfluent`/`large-v3` transcript, provenance recorded, seed engine never scored against its own seeded gold. |
 | 2026-11-01 | Prosody is a pipeline stage (was notebook-only). Transcription Suite engine removed. Operators' preset names from Drew; recurring views labelled provisionally. Large rooms allowed again for transcription/2D; the 3D pilot stays small-room. No video trimming before pose. |
 | 2026-10-30 | Pose restarted for 3D: HALPE_26, 8 slots, WholeBody files deleted; large-room data deleted; own 3D module with Pose2Sim as reference ([pose_3d.md](pose_3d.md)); every stage's cost recorded in `stage_runs`. |
 | 2026-10-29 | Camera sync from the shared audio feed + per-frame timestamps; offsets never guessed. |

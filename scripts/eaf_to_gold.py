@@ -22,16 +22,25 @@ manifest's `gold` table (implementation plan Phase 2.4) -- --annotator/
 --gold-at/etc. are optional metadata for that row, not required for the
 export itself. Skipped automatically under --allow-unredacted, since there's
 no manifest row to attach it to.
+
+Also writes `<case>.gold.json` beside the text and RTTM: how pass 1 was made
+(`blind`, or `seeded` with the seed engine, model and transcript hash --
+standards §9), the standards version and the span. `run_benchmark.py` reads
+it to refuse scoring the seed engine against its own seeded gold. Pass
+`--kit annotation/kits/<case>/<pass-1 annotator>` so the seed provenance is
+taken from the kit; the .eaf's header carries a copy, and the two are
+cross-checked.
 """
 import argparse
 import datetime
+import json
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
-from multidata import elan, manifest  # noqa: E402
+from multidata import elan, manifest, seeding  # noqa: E402
 
 REFERENCES = ROOT / "benchmarks" / "references"
 
@@ -39,7 +48,7 @@ REFERENCES = ROOT / "benchmarks" / "references"
 # changelog). Not auto-read from the doc -- parsing a markdown table for one
 # string is more fragile than it's worth. Bump this default by hand if you
 # add a --standards-version yourself and the doc's changelog moves past 1.0.
-CURRENT_STANDARDS_VERSION = "1.0"
+CURRENT_STANDARDS_VERSION = "1.1"
 
 
 def main():
@@ -71,7 +80,13 @@ def main():
                           "whole-encounter gold")
     ap.add_argument("--span-end", type=float, default=None)
     ap.add_argument("--gold-notes", default="", help="free text for the manifest's gold table")
+    ap.add_argument("--kit", default=None,
+                     help="the pass-1 kit folder (annotation/kits/<case>/<annotator>): "
+                          "its kit.json says whether pass 1 was blind or seeded")
     args = ap.parse_args()
+
+    seed = pass1_provenance(args.eaf, args.kit)
+    print(f"pass 1: {seeding.describe(seed)}")
 
     try:
         names = manifest.names_for_case(args.case, args.manifest)
@@ -90,6 +105,7 @@ def main():
             )
         print(f"WARNING: {msg} Writing anyway (--allow-unredacted).", file=sys.stderr)
 
+    out_dir.mkdir(parents=True, exist_ok=True)
     out_txt = out_dir / f"{args.case}.gold.txt"
     out_rttm = out_dir / f"{args.case}.gold.rttm"
 
@@ -103,18 +119,51 @@ def main():
         counted = ", ".join(f"{s['role']}->{s['tag']}" for s in substitutions)
         print(f"redacted {len(substitutions)} name occurrence(s): {counted}")
 
+    gold_at = args.gold_at or datetime.date.today().isoformat()
+    meta = {"case_id": args.case, "pass1_source": seed.get("pass1_source", "blind"),
+            **{k: seed[k] for k in ("seed_engine", "seed_model", "seed_transcript",
+                                     "seed_sha256", "roles") if k in seed},
+            "standards_version": args.standards_version, "gold_at": gold_at,
+            "span": [args.span_start, args.span_end] if args.span_start is not None else None}
+    print(f"wrote {seeding.write_gold_meta(args.case, out_dir, meta)}")
+
     if names is None:
         print("skipped gold-table row: no manifest row for this case", file=sys.stderr)
         return
 
-    gold_at = args.gold_at or datetime.date.today().isoformat()
     row_id = manifest.record_gold(
         args.case, annotator=args.annotator, pass1_frozen_at=args.pass1_frozen_at,
         gold_at=gold_at, standards_version=args.standards_version,
         span_start=args.span_start, span_end=args.span_end, notes=args.gold_notes,
-        path=args.manifest,
+        seed=seed if seed.get("pass1_source") == "seeded" else None, path=args.manifest,
     )
     print(f"recorded gold row id={row_id} in {args.manifest} (gold_at={gold_at})")
+
+
+def pass1_provenance(eaf, kit):
+    """How pass 1 was made, from the kit's kit.json and the .eaf header,
+    cross-checked. Refuses when they contradict each other."""
+    from_eaf = seeding.eaf_provenance(eaf)
+    from_kit = {}
+    if kit:
+        kj = Path(kit) / "kit.json"
+        if not kj.exists():
+            sys.exit(f"--kit {kit}: no kit.json there")
+        from_kit = json.loads(kj.read_text())
+    eaf_seeded = from_eaf.get("pass1_source") == "seeded"
+    kit_seeded = from_kit.get("pass1_source") == "seeded"
+    if eaf_seeded and kit and not kit_seeded:
+        sys.exit("the .eaf says pass 1 was seeded but the kit says blind -- wrong --kit?")
+    if eaf_seeded and kit_seeded and from_eaf.get("seed_sha256") != from_kit.get("seed_sha256"):
+        sys.exit("the .eaf and the kit name different seed transcripts -- wrong --kit?")
+    if kit_seeded:
+        return from_kit
+    if eaf_seeded:
+        print("note: seed provenance taken from the .eaf header (no --kit given)")
+        return from_eaf
+    if not kit:
+        print("note: no --kit given and no seed in the .eaf: recorded as blind")
+    return {"pass1_source": "blind"}
 
 
 if __name__ == "__main__":
