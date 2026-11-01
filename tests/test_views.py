@@ -69,7 +69,7 @@ def test_view_tables_and_preset_rule(tmp_path):
     manifest.set_video_views("c1", "14", {"v1": (600.0, 1), "v2": (40.0, 1)}, db)
     manifest.set_video_views("c2", "14", {"v1": (300.0, 2)}, db)
     manifest.set_video_views("c2", "14", {"v1": (310.0, 2)}, db)   # re-run replaces
-    manifest.set_view_label("14", "v1", "exam table", "confirmed", db)
+    manifest.set_view_label("14", "v1", "exam table", "confirmed", path=db)
     s = {r["view_id"]: r for r in manifest.view_summary(db)}
     assert s["v1"]["seconds"] == 910.0 and s["v1"]["cases"] == 2 and s["v1"]["is_preset"]
     assert s["v1"]["label"] == "exam table"

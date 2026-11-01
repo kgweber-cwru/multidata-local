@@ -26,7 +26,9 @@ is carried over.
 5. **[docs/asr_provider_implementation_plan.md](docs/asr_provider_implementation_plan.md)**
    — the build checklist for the spec above: what's done, what's deliberately
    deferred, and why.
-6. **[docs/running_job_notes.md](docs/running_job_notes.md)** — PIDs, log
+6. **[docs/cost_estimate.md](docs/cost_estimate.md)** — measured compute and
+   storage per case, for planning how many cases to ingest.
+7. **[docs/running_job_notes.md](docs/running_job_notes.md)** — PIDs, log
    paths, and check-in commands for jobs on tofino, plus the nightly backup to
    `/wddata` (checking it, restoring from it). Pose as a research direction is
    **parked**, though the stage still runs on newly ingested video;

@@ -572,12 +572,25 @@ def add_camera_view(camera, view_id, first_case_id, samples, path=DEFAULT_PATH):
              datetime.now().isoformat(timespec="seconds")))
 
 
-def set_view_label(camera, view_id, label, source="confirmed", path=DEFAULT_PATH):
-    """Name a view, e.g. with the operator's preset name."""
+# The operators' preset names (from Drew, 2026-11-01). A view's label is one
+# of these when it matches a preset; "User" is an operator-defined preset.
+PRESETS = ("Baseline", "Chair (End of Exam Bed)", "Bed (Full Length of Exam Bed)",
+           "Sink", "PC", "User")
+
+
+def set_view_label(camera, view_id, label, source="confirmed", notes=None,
+                   path=DEFAULT_PATH):
+    """Name a view, e.g. with the operator's preset name (`PRESETS`).
+    `source` is 'provisional' for a guess, 'confirmed' once someone who
+    knows has checked it. `notes` (optional) replaces the view's notes."""
+    sql = "UPDATE camera_views SET label = ?, label_source = ?"
+    args = [label, source]
+    if notes is not None:
+        sql += ", notes = ?"
+        args.append(notes)
     with closing(connect(path)) as conn, conn:
-        n = conn.execute("UPDATE camera_views SET label = ?, label_source = ? "
-                         "WHERE camera = ? AND view_id = ?",
-                         (label, source, str(camera), view_id)).rowcount
+        n = conn.execute(sql + " WHERE camera = ? AND view_id = ?",
+                         (*args, str(camera), view_id)).rowcount
     if not n:
         raise KeyError(f"no view {view_id} on camera {camera}")
 

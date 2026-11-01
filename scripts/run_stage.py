@@ -333,6 +333,23 @@ STAGES = {
 PILOT_SMALL_ROOMS = {"pose", "sync", "views"}
 
 
+# The module each stage needs, imported once up front: run in the wrong conda
+# env, a stage should stop with one clear message, not fail every row.
+STAGE_MODULES = {"audio": "audio", "asr": "asr", "diarize": "diarize", "elan": "elan",
+                 "pose": "pose", "sync": "sync", "views": "views"}
+STAGE_ENVS = {"pose": "md-pose", "views": "md-pose"}
+
+
+def _check_env(stage):
+    import importlib
+
+    try:
+        importlib.import_module(f"multidata.{STAGE_MODULES[stage]}")
+    except ImportError as exc:
+        sys.exit(f"{stage}: can't import its module here ({exc}). "
+                 f"Run it in the {STAGE_ENVS.get(stage, 'md-speech')} env.")
+
+
 def _run_env():
     """Where and on what code a batch ran -- recorded with every stage run."""
     import platform
@@ -413,6 +430,7 @@ def main():
     args = ap.parse_args()
 
     _setup_logging(args.verbose)
+    _check_env(args.stage)
 
     rows = manifest.pending(args.stage, args.manifest)
     if args.stage in PILOT_SMALL_ROOMS and not args.all_rooms:

@@ -178,6 +178,19 @@ names it, e.g. from Drew's preset list -- `manifest.set_view_label()`) and
 as cases arrive. Run it as one worker, oldest videos first (the runner does).
 The original survey outputs are kept in `data/views/survey_2026-10-30/`.
 
+**Presets (Drew, 2026-11-01):** Baseline, Chair (End of Exam Bed), Bed (Full
+Length of Exam Bed), Sink, PC, and User (operator-defined). Two or three
+operators run the cameras; the system does not record pan/tilt/zoom values
+(Drew), and the LearningSpace team has the remaining technical questions. A
+preset moves both cameras of a room together, so a preset is a *pair* of
+views; the sink-side camera often stays wide while the bed-side one moves.
+All 65 recurring views got provisional labels by eye on 2026-11-01
+(`scripts/label_views_2026-11-01.py`, confidence in each view's notes):
+footage is 28% Baseline, 14% PC, 10% Bed, 3% Chair, 1% Sink, 44% unmatched
+(operator-steered, or presets on cameras with too few cases to recur).
+Contact sheets: `data/views/sheets/`. Confirm with
+`manifest.set_view_label(camera, view_id, label, "confirmed")`.
+
 ---
 
 ## What to do when you come back, in order
