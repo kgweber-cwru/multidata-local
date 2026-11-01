@@ -42,7 +42,7 @@ env/            conda envs — speech (ASR) and pose, kept separate on purpose;
                 pose has two variants (pose.yml Mac / pose-nvidia.yml Linux+CUDA)
                 that both build the same md-pose env name -- see Quick start
 src/multidata/  stages: manifest, ingest, audio, asr, diarize, elan, prosody, pose, sync, views
-                helpers: kinematics (pose features), speaker_traits (vocal register)
+                helpers: speaker_traits (vocal register), device (GPU/CPU choice)
                 ASR benchmark wing: normalize, redact, records, providers,
                 glossary, bench_runs (see docs/asr_provider_spec.md)
 scripts/        run_stage.py — manifest-driven, resumable batch runner
@@ -123,7 +123,7 @@ by module** — know which is which before trusting a run:
 
 | Module | State |
 |---|---|
-| `pose.py`, `kinematics.py` | **Restarted 2026-10-30 for 3D:** rtmlib HALPE_26 (26 keypoints, 5 on the face), up to 8 people per frame, detector boxes and per-frame times saved, on `tofino` (CUDA, ~1.5x realtime). Every stage's cost goes to the manifest's `stage_runs` table. 3D pilot is small rooms only (`--all-rooms` to override). See `docs/pose_parked.md` |
+| `pose.py` | **Restarted 2026-10-30 for 3D:** rtmlib HALPE_26 (26 keypoints, 5 on the face), up to 8 people per frame, detector boxes and per-frame times saved, on `tofino` (CUDA, ~1.5x realtime). Every stage's cost goes to the manifest's `stage_runs` table. 3D pilot is small rooms only (`--all-rooms` to override). See `docs/pose_parked.md` |
 | `elan.py` | Promoted from `transcription_suite.ipynb`; **ran on real transcripts**, any engine |
 | `prosody.py` | **Stage since 2026-11-01** (md-speech, CPU, ~80x realtime): Praat pitch, intensity, harmonicity and formants every 10 ms, plus a per-speaker summary from the diarization (overlapping speech left out) in the manifest's `speaker_prosody` table. Replaces the notebook-only `acoustics.py`/`speaker_traits` workflow; see pipeline doc §6b |
 | `ingest.py`, `audio.py`, `manifest.py`, `run_stage.py` | **Ran end-to-end on real cases** — ingest, audio, asr, elan stages all exercised |

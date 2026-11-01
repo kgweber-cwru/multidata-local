@@ -16,6 +16,7 @@ benchmarks/cache/
 *.npz
 .env
 __pycache__/
+*.egg-info/
 *.eaf.bak
 
 # Personal working notes — travels by scp/rsync, not by clone

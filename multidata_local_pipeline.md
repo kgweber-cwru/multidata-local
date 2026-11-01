@@ -99,7 +99,6 @@ multidata-local/
 │   ├── diarize.py                      # §6  pyannote diarization -> RTTM
 │   ├── elan.py                         # §7  build .eaf
 │   ├── pose.py                         # §9  rtmlib pose extraction
-│   ├── kinematics.py                   #     rule-based pose features
 │   ├── prosody.py                      # §6b pitch, loudness, voice quality
 │   ├── speaker_traits.py               #     vocal-register bucket (sampling only)
 │   └── acoustics.py                    #     old CSV export, wraps prosody.py
@@ -716,8 +715,8 @@ points (`pose.KEYPOINTS`). Only five face points, deliberately. Per camera →
 `data/pose/<case_id>/<camera>.npz`: keypoints `(M, T, 26, 2)`, scores, detector
 boxes (all float16; up to 0.5 px coordinate error inside a 1920-wide frame),
 OpenCV's per-frame time `frame_ms`, and the model/settings used. M = 8 slots
-(mirror reflections count as people). `kinematics.py` reads only the COCO-17
-prefix, so it is unchanged. The earlier 133-keypoint WholeBody files were
+(mirror reflections count as people). Analyses written for COCO-17 can read
+the first 17 keypoints unchanged. The earlier 133-keypoint WholeBody files were
 deleted 2026-10-30 (see `docs/pose_parked.md`).
 
 Every run of every stage records its cost (wall time, realtime factor, GPU,

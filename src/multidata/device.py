@@ -10,13 +10,11 @@ machine that has a GPU:
 - **plain torch** (the wav2vec2 aligner and pyannote diarizer) supports mps on
   Apple Silicon in addition to cuda/cpu. `best_torch_device` is for this.
 
-The point of splitting these is portability, not just correctness today: on
-this Mac, `best_ct2_device()` returns "cpu" (there's no cuda here), so nothing
-about current behavior changes. Drop the exact same code onto an NVIDIA box
-and `best_ct2_device()` starts returning "cuda" with a matching
-`best_ct2_compute_type("cuda") == "float16"` -- no code edit, no `--device`
-flag hunting. That's the whole ask: port by moving the process, not by
-patching device strings.
+The point of splitting these is portability: on a Mac `best_ct2_device()`
+returns "cpu", on tofino (NVIDIA) "cuda" with `best_ct2_compute_type("cuda")
+== "float16"` -- same code, no `--device` flag hunting. The pose and views
+stages don't use this module: they run on onnxruntime/OpenCV
+(`pose.default_device()`).
 """
 
 
