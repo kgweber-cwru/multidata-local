@@ -48,7 +48,7 @@ src/multidata/  stages: manifest, ingest, audio, asr, diarize, elan, prosody, po
 scripts/        run_stage.py — manifest-driven, resumable batch runner
                 eaf_to_gold.py — hand-annotated .eaf -> a scoreable gold reference
                 bench_status.py — one-screen view of gold coverage + scores
-                render_two_view_overlay.py — side-by-side, time-synced pose overlay
+                demo_clip.py — one-line demo video of a case: both cameras, pose, faces blurred
                 fix_frame_times.py — line frame times up with pose where OpenCV skipped frames
                 review_views.py — contact sheets + spreadsheet for naming camera views (presets)
                 ingest_raw.py — register new raw videos (dry run, then --write)
