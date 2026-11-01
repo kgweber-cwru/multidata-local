@@ -104,7 +104,7 @@ def _dist_version(name):
 
 
 def extract(video_path, out_path=None, max_persons=MAX_PERSONS, mode="balanced",
-            device=None, detect_every=1, profile=False):
+            device=None, detect_every=1, profile=False, start_frame=0, max_frames=None):
     """Run detection + HALPE_26 pose over every frame of one video.
 
     Returns `(entry, details)`: the entry dict described in the module
@@ -120,6 +120,10 @@ def extract(video_path, out_path=None, max_persons=MAX_PERSONS, mode="balanced",
     ~60% of the time on the RTX 5080, so this is the speed lever; a reused box
     lags a fast mover, so check an overlay before using it for a batch.
     `profile` only adds a log line -- timings are always collected.
+
+    `start_frame` / `max_frames` process one clip (for tests): frames before
+    `start_frame` are decoded and skipped, so frame k of the clip is frame
+    `start_frame + k` of a full run.
     """
     det, pose_model, info = load_models(mode, device)
 
@@ -127,6 +131,11 @@ def extract(video_path, out_path=None, max_persons=MAX_PERSONS, mode="balanced",
     width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or None
+    for _ in range(start_frame):
+        if not cap.grab():
+            break
+    if max_frames is not None:
+        total = max_frames
 
     frames, frame_ms = [], []      # per frame: (keypoints, scores, bboxes)
     timings = {"decode_s": 0.0, "detect_s": 0.0, "pose_s": 0.0}
@@ -134,7 +143,7 @@ def extract(video_path, out_path=None, max_persons=MAX_PERSONS, mode="balanced",
     i = 0
     t_start = time.perf_counter()
     with tqdm(total=total, unit="frame", disable=None) as pbar:
-        while True:
+        while max_frames is None or i < max_frames:
             t0 = time.perf_counter()
             ok, frame = cap.read()
             if not ok:

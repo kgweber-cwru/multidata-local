@@ -180,8 +180,10 @@ The original survey outputs are kept in `data/views/survey_2026-10-30/`.
 
 **Presets (Drew, 2026-11-01):** Baseline, Chair (End of Exam Bed), Bed (Full
 Length of Exam Bed), Sink, PC, and User (operator-defined). Two or three
-operators run the cameras; the system does not record pan/tilt/zoom values
-(Drew), and the LearningSpace team has the remaining technical questions. A
+operators run the cameras. Operators don't see pan/tilt/zoom values (Drew),
+but the system may still record them: that question is with the LearningSpace
+team, along with the other technical ones. Until they answer, plan as if
+off-preset views must be located from the video. A
 preset moves both cameras of a room together, so a preset is a *pair* of
 views; the sink-side camera often stays wide while the bed-side one moves.
 All 65 recurring views got provisional labels by eye on 2026-11-01
