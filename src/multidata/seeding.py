@@ -42,10 +42,25 @@ def seed_transcript_path(case_id, camera, data_dir):
     return Path(data_dir) / "transcripts" / str(case_id) / f"{camera}_{SEED_ENGINE}_{SEED_MODEL}.json"
 
 
+def kit_seed_transcripts(kits_dir, data_dir):
+    """Every transcript a seeded kit was built from, as resolved paths. These
+    are frozen: re-running ASR must not overwrite one (the kit's seed_sha256
+    would no longer match the file)."""
+    used = set()
+    for kit in Path(kits_dir).glob("*/*/kit.json"):
+        k = json.loads(kit.read_text())
+        if k.get("pass1_source") == "seeded" and k.get("seed_transcript"):
+            used.add((Path(data_dir) / "transcripts" / str(k["case_id"])
+                      / k["seed_transcript"]).resolve())
+    return used
+
+
 def make_seed_transcript(wav, out_path, rttm=None, device="cuda"):
     """Run the seed engine on a case's WAV (GPU, a few minutes per 20 min of
-    audio). Skips if `out_path` already exists: the seed must not change
-    under a kit once it's been used."""
+    audio), taking speakers from `rttm` (the diarize stage's output, made
+    first if missing). Skips if `out_path` already exists: the seed must not
+    change under a kit once it's been used. Normally the asr stage has
+    already made this file, since the pipeline engine is the seed engine."""
     out_path = Path(out_path)
     if out_path.exists():
         return out_path
@@ -92,7 +107,7 @@ def utterances(data, max_gap_s=MAX_GAP_S, max_len_s=MAX_UTTERANCE_S):
 def speaker_overview(utts, n_examples=3):
     """{speaker: {"talk_s", "utterances", "first", "examples"}} to help decide
     which role each diarized speaker is. Contains transcript text (possibly
-    names): print it on tofino, don't share it."""
+    names)."""
     out = {}
     for spk, a, b, text in utts:
         s = out.setdefault(spk, {"talk_s": 0.0, "utterances": 0, "first": a, "examples": []})

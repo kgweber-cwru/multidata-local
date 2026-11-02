@@ -19,30 +19,32 @@ logistics for both.
 
 | Place | Holds | Role |
 |---|---|---|
-| **tofino** `annotation/kits/<case>/<annotator>/` | every kit as built, and every finished pass once it's back | the master copy, backed up nightly |
-| **tofino** `data/gold/<case>/` | `<case>.gold.eaf`, the adjudicated file `eaf_to_gold.py` exports | gold only |
+| **processing host** `annotation/kits/<case>/<annotator>/` | every kit as built, and every finished pass once it's back | the master copy, backed up nightly |
+| **processing host** `data/gold/<case>/` | `<case>.gold.eaf`, the adjudicated file `eaf_to_gold.py` exports | gold only |
 | **Box** `Audio and Labeling/<annotator folder>/<case>/<annotator>/` | kits that are out for work, including Kate's own | the courier, and where work in progress lives |
-| **laptop** | Box Drive, ELAN, the git checkout | where Kate works; holds nothing that isn't also in Box or on tofino |
+| **laptop** | Box Drive, ELAN, the git checkout | where Kate works; holds nothing that isn't also in Box or on the processing host |
 | **git** `annotation/assignments.csv` | who has which pass, and where it is | the tracker -- edit it at every step |
 
 Everything with real names (kits, `data/gold/`) is gitignored and stays on
-tofino and Box. Only the de-identified export in `benchmarks/references/`
+the processing host and Box. Only the de-identified export in `benchmarks/references/`
 goes into git.
 
 ## The steps
 
 `<C>` is the case, `<A>` the pass-1 annotator, `<B>` the pass-2 annotator
 (never the same person), `$BOX` is
-`~/Library/CloudStorage/Box-Box/Audio and Labeling`.
+`~/Library/CloudStorage/Box-Box/Audio and Labeling`, and `$HOST` is the
+processing host's ssh name (during the pilot, `tofino`).
 
-1. **Build the kit** (tofino, md-speech). Add `--span-start/--span-end` for
+1. **Build the kit** (processing host, md-speech). Add `--span-start/--span-end` for
    an excerpt, either route.
    - **Route A:** `python annotation/make_kit.py --case <C> --annotator <A>`
    - **Route B:** three moves.
      1. `python annotation/make_kit.py --case <C> --annotator <A> --seed`
-        makes the seed transcript if the case doesn't have one yet (GPU, a
-        few minutes; it is never regenerated afterwards) and lists the
-        draft's speakers: talk time and sample lines.
+        lists the draft's speakers: talk time and sample lines. The seed is
+        the case's pipeline transcript (the asr stage's engine is the seed
+        engine); if the case has none yet, this makes it (GPU, about a
+        minute). Once a kit uses it, it is never regenerated.
      2. Decide each speaker's role (`LEARNER`, `PATIENT`, `PRECEPTOR`,
         `ANNOUNCEMENT`, `OUTSIDE_ROOM`) from the samples, the video if
         needed. Leave out a speaker you can't place: their speech goes on an
@@ -52,8 +54,8 @@ goes into git.
         role map.
 
 2. **Send it** (laptop):
-   `mkdir -p "$BOX/<A's folder>/<C>" && scp -r tofino:projects/multidata-local/annotation/kits/<C>/<A> "$BOX/<A's folder>/<C>/"`
-   Box then mirrors tofino: `<folder>/<C>/<A>/` is `kits/<C>/<A>/`, and the
+   `mkdir -p "$BOX/<A's folder>/<C>" && scp -r $HOST:projects/multidata-local/annotation/kits/<C>/<A> "$BOX/<A's folder>/<C>/"`
+   Box then mirrors the host: `<folder>/<C>/<A>/` is `kits/<C>/<A>/`, and the
    file name says which pass it is. Keep the folder whole -- the `.eaf` finds its media through the `media/`
    folder beside it. Add a row to `assignments.csv`: `assigned`.
 
@@ -61,12 +63,12 @@ goes into git.
    tells Kate when they're done.
 
 4. **Bring pass 1 back** (laptop):
-   `scp "$BOX/<A's folder>/<C>/<A>/<C>.pass1.eaf" tofino:projects/multidata-local/annotation/kits/<C>/<A>/`
-   then on tofino, `python annotation/submit_checks.py annotation/kits/<C>/<A>/<C>.pass1.eaf`.
+   `scp "$BOX/<A's folder>/<C>/<A>/<C>.pass1.eaf" $HOST:projects/multidata-local/annotation/kits/<C>/<A>/`
+   then on the host, `python annotation/submit_checks.py annotation/kits/<C>/<A>/<C>.pass1.eaf`.
    It refuses empty segments and, in a seeded file, anything left on
    `UNASSIGNED`. From now on that copy is frozen: nobody edits it. `returned`.
 
-5. **Make the pass-2 kit** (tofino) -- A's kit, same media, with the
+5. **Make the pass-2 kit** (processing host) -- A's kit, same media, with the
    returned pass-1 file renamed (`make_kit.py` only builds pass-1 kits):
    ```bash
    cd annotation/kits/<C>
@@ -76,12 +78,12 @@ goes into git.
    ```
    Then edit `<B>/README.txt` to say it's pass 2. Send it as in step 2, to
    `"$BOX/<B's folder>/<C>/"`. New row: pass 2, `assigned`. If B is Kate,
-   her Box folder is `kate`. For a seeded case, B compares against the
-   pipeline's own draft (`data/elan/<C>/`), not the seed, which already
-   shaped pass 1.
+   her Box folder is `kate`. For a seeded case, B works from pass 1 and the
+   media only: the pipeline's draft (`data/elan/<C>/`) comes from the same
+   engine as the seed, so it adds no independent second opinion.
 
 6. **Bring pass 2 back** as in step 4 (`<C>.pass2.eaf`, into
-   `kits/<C>/<B>/`), check it, then make it gold (tofino):
+   `kits/<C>/<B>/`), check it, then make it gold (processing host):
    ```bash
    mkdir -p data/gold/<C>
    cp annotation/kits/<C>/<B>/<C>.pass2.eaf data/gold/<C>/<C>.gold.eaf
@@ -93,7 +95,7 @@ goes into git.
    `gold`.
 
 When something is done, tidy its Box folder away (a `complete/` folder is
-fine). Box is a courier, not an archive -- tofino has the copy that counts.
+fine). Box is a courier, not an archive -- the processing host has the copy that counts.
 
 ## assignments.csv
 
@@ -103,10 +105,10 @@ One row per pass per annotator.
 |---|---|
 | `pass` | `1` = making the transcript, `2` = adjudication |
 | `route` | `blind` or `seeded`: how the case's pass 1 started (same on both of its rows) |
-| `status` | `assigned` → `in_progress` → `returned` (on tofino, checked) → `gold` (pass 2 only: exported) |
+| `status` | `assigned` → `in_progress` → `returned` (on the host, checked) → `gold` (pass 2 only: exported) |
 | `duration_min` | length of the case's video. An excerpt says so in `notes` |
 | `assigned_on`, `returned_on` | `YYYY-MM-DD` |
-| `file` | where the master copy is, on tofino |
+| `file` | where the master copy is, on the processing host |
 
 Two pass-1 rows for one case is a double annotation (standards §10).
 

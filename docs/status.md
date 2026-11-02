@@ -11,7 +11,7 @@ rot. History lives in git and in the decision log at the end.
 The pipeline takes clinical-encounter video (OSCE simulated-patient
 sessions, two PTZ cameras per exam room) to word-level transcripts with
 speakers, ELAN files, prosody, camera sync, camera-view segmentation and 2D
-body pose, all on **tofino**. 57 cases (114 videos, ~75 h) are ingested,
+body pose, all on the pilot's processing host (`tofino`). 57 cases (114 videos, ~75 h) are ingested,
 all in the small exam rooms. Two threads are active: **validating
 transcription** (gold annotation and an ASR bake-off) and **moving pose to
 3D** (waiting on a room calibration session; see [pose_3d.md](pose_3d.md)).
@@ -23,7 +23,7 @@ transcription** (gold annotation and an ASR bake-off) and **moving pose to
 | Area | State |
 |---|---|
 | Ingest (`ingest_raw.py`, walkthrough notebook) | Working on real files; 2026-11-01 run added 4 cameras |
-| audio, asr, diarize, elan | Run on every case; default `faster_whisper medium` |
+| audio, asr, diarize, elan | Run on every case. Re-run 2026-11-02 with `whisperx_disfluent large-v3` (keeps disfluencies) on pyannote community-1 diarization |
 | prosody | Stage since 2026-11-01; run on all 57 cases (246 speakers) |
 | sync | Every video; 5 rows fail (room 11's camera 31, 261041/41, a 2-min clip) and get no offset |
 | views + preset names | Every video; 65 recurring views provisionally named, awaiting confirmation |
@@ -53,8 +53,8 @@ yet, and its settings are a first guess, never swept. **Next:** score all
 local engines against 261498 (`python scripts/bench_status.py` shows the
 empty cells), then more gold.
 
-**Annotation** runs through Box: kits built on tofino
-(`annotation/make_kit.py`), shared per annotator, returned to tofino; who has
+**Annotation** runs through Box: kits built on the processing host
+(`annotation/make_kit.py`), shared per annotator, returned there; who has
 which pass is in `annotation/assignments.csv` ([../annotation/README.md](../annotation/README.md)).
 Annotators are scarce, so pass 1 can now start from a machine draft (route B,
 standards §9): seeded gold adds cases, but engine rankings rest on blind gold.

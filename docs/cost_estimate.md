@@ -6,10 +6,11 @@ the small exam rooms. Blank lines (`________`) mark costs we can't measure yet,
 mostly the 3D stages on the [roadmap](https://claude.ai/artifact/QTY1PoyKCDDb8qeX1Lxn1m).
 
 **Bottom line:** compute is about **0.65 machine-hours per case**, and 2D pose
-is 90% of it. Every 100 cases is about 2.7 days of tofino running nonstop.
+is 90% of it. Every 100 cases is about 2.7 days of the pilot workstation running nonstop
+(a cluster changes the wall-clock time, not the GPU-hours).
 Storage is about **0.56 GB per case**, almost all raw video. The full
 small-room catalogue (1,281 cases) would take about a month of compute and
-**more disk than tofino's main drive has free**.
+**more disk than the pilot workstation's main drive has free**.
 
 ## What an average case is
 
@@ -62,7 +63,7 @@ the same again on `/wddata`.
 
 ## Scenarios
 
-| Scenario | Cases | Compute (tofino nonstop) | Storage (+ same again in backup) |
+| Scenario | Cases | Compute (pilot workstation nonstop) | Storage (+ same again in backup) |
 |---|---|---|---|
 | Now | 57 | done | 32 GB |
 | Fill thin rooms: 3 more cases in each of 15 rooms | +45 | ~1.2 days | +25 GB |

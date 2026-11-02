@@ -7,7 +7,7 @@ diarizes internally:
    (doc §8b); this stage is what produces the hypothesis side of that.
 2. It lets you pair diarization with an ASR engine that has none (`faster_whisper`).
 
-Gated model — accept the terms for `pyannote/speaker-diarization-3.1` on
+Gated model — accept the terms for `pyannote/speaker-diarization-community-1` on
 huggingface.co and put a token in `.env` as `HF_TOKEN` first (see
 `multidata.hf_auth`), or `from_pretrained` returns None.
 """
@@ -18,7 +18,10 @@ from multidata.hf_auth import hf_token
 
 log = logging.getLogger(__name__)
 
-MODEL = "pyannote/speaker-diarization-3.1"
+# community-1 replaced 3.1 on 2026-11-02: on four human-annotated cases it
+# cut speaker confusion (right speech, wrong speaker) from 2-8% to 2-4% of
+# speech, with the same missed speech. It is also what whisperx uses itself.
+MODEL = "pyannote/speaker-diarization-community-1"
 
 
 def diarize(audio_path, out_rttm=None, num_speakers=None,

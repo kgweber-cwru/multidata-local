@@ -234,9 +234,10 @@ def main():
     ap.add_argument("--seed", action="store_true",
                     help=f"draft-seeded pass 1 (standards §9 route B): pre-fill the tiers "
                          f"from the {seeding.SEED_ENGINE}/{seeding.SEED_MODEL} transcript")
-    ap.add_argument("--roles", default=None,
-                    help="with --seed: SPEAKER_00=PATIENT,SPEAKER_01=LEARNER,... "
-                         "(run --seed without it first to see the speakers)")
+    ap.add_argument("--roles", default=None, nargs="+",
+                    help="with --seed: SPEAKER_00=PATIENT,SPEAKER_01=LEARNER,... -- commas, "
+                         "spaces or both between pairs (run --seed without it first to see "
+                         "the speakers)")
     args = ap.parse_args()
     if args.roles and not args.seed:
         raise SystemExit("--roles only goes with --seed")
@@ -265,11 +266,12 @@ def main():
         if not seed.exists():
             print(f"making the seed transcript ({seeding.SEED_ENGINE}/{seeding.SEED_MODEL}, "
                   "GPU, a few minutes)")
-            seeding.make_seed_transcript(wav, seed)
+            seeding.make_seed_transcript(
+                wav, seed, rttm=ROOT / "data" / "diarization" / str(args.case) / f"{camera}.rttm")
         utts = seeding.utterances(json.loads(seed.read_text()))
         if not args.roles:
             print(f"\nSpeakers in the seed transcript of {args.case} "
-                  "(contains real speech: keep on tofino):\n")
+                  "(contains real speech: keep on secure storage):\n")
             for spk, s in seeding.speaker_overview(utts).items():
                 print(f"{spk}: {s['talk_s'] / 60:.1f} min in {s['utterances']} utterances, "
                       f"first at {s['first'] / 60:.1f} min")
@@ -280,7 +282,7 @@ def main():
                   f"(roles: {', '.join(seeding.ROLE_TIERS)}; leave a speaker out to "
                   "send their speech to UNASSIGNED for the annotator to sort).")
             return
-        roles = seeding.parse_roles(args.roles)
+        roles = seeding.parse_roles(",".join(args.roles))
         unknown = set(roles) - {u[0] for u in utts}
         if unknown:
             raise SystemExit(f"--roles names speakers not in the seed transcript: {sorted(unknown)}")

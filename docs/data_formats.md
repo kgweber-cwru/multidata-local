@@ -39,18 +39,20 @@ anything (Praat, Audacity, `soundfile`, `tuneR`).
 
 ## Transcripts: `data/transcripts/<case>/<camera>_<engine>_<model>.json`
 
-JSON, one file per engine and model (e.g. `20_faster_whisper_medium.json`).
+JSON, one file per engine and model (e.g. `20_whisperx_disfluent_large-v3.json`,
+the pipeline default; older `20_faster_whisper_medium.json` files sit beside it).
 Whisper-style, not a formal standard:
 
 ```
-{ "language": "en", "engine": "faster_whisper",
+{ "language": "en", "engine": "whisperx_disfluent",
   "segments": [ { "start": 2.14, "end": 3.26, "text": "...", "speaker": "SPEAKER_02",
                   "words": [ { "word": "Fifteen", "start": 2.14, "end": 2.6,
                                "score": 0.91, "speaker": "SPEAKER_02" }, ... ] }, ... ] }
 ```
 
 `start`/`end` in seconds, reference clock; `score` is the engine's word
-confidence (0-1); `speaker` from diarization. A `.txt` beside it is a
+confidence (0-1); `speaker` from the diarize stage's RTTM, so the labels match
+the RTTM and prosody files. A `.txt` beside it is a
 readable rendering (`[hh:mm:ss] SPEAKER: text`), not for parsing. Read with
 `json.load`; `multidata.elan.words_of(data)` flattens the words.
 

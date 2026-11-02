@@ -25,10 +25,12 @@ the two cameras' frames by time. See `multidata.sync`.
 
 `asr` writes `data/transcripts/<case_id>/<camera>_<engine>_<model>.json` (plus
 a `.txt` sibling for a quick read) — always word-level speaker-labeled
-regardless of engine, reusing `data/diarization/<case_id>/<camera>.rttm` if
-it's already there rather than re-running pyannote. Default engine is
-`faster_whisper` (`--model medium --language en`); `whisperx` remains
-available via `--engine` for testing/comparison.
+regardless of engine, taking speakers from
+`data/diarization/<case_id>/<camera>.rttm` (run `diarize` first; asr makes it
+if missing). Default engine is `whisperx_disfluent` (`--model large-v3
+--language en`), which keeps disfluencies; others via `--engine` for
+comparison. It never overwrites a transcript a seeded annotation kit was
+built from.
 
 Logging: INFO-level progress (with timestamps) goes to both the console and
 `logs/run_stage.log` — one line per row started, plus whatever the stage
@@ -185,11 +187,16 @@ def stage_asr(row, args):
         if args.accel_device is not None:
             engine_kwargs["align_device"] = args.accel_device
 
+    from multidata import seeding
+    if out.resolve() in seeding.kit_seed_transcripts(ROOT / "annotation" / "kits", ROOT / "data"):
+        log.info("keeping %s: a seeded annotation kit was built from it", out.relative_to(ROOT))
+        return {"asr_model": f"{args.engine}/{args.model}"}
+
     log.info("transcribing (%s/%s): %s/%s",
              args.engine, args.model, row["case_id"], row["camera"])
 
-    # `diarize_rttm` lets non-self-diarizing engines (faster_whisper) reuse an
-    # already-computed diarization instead of paying for pyannote twice.
+    # Every engine takes speakers from the diarize stage's RTTM (made here if
+    # missing), so transcript, RTTM and prosody agree on speaker labels.
     asr.transcribe(wav, out, engine=args.engine,
                    diarize_rttm=_out("diarization", row, ".rttm"),
                    diarize_device=args.accel_device,

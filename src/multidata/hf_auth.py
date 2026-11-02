@@ -13,12 +13,18 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# pyannote.audio 4 reports each file's duration and speaker count to
+# otel.pyannote.ai unless told not to. Every pyannote caller here loads the
+# token through this module first, so switching it off here covers them all
+# (pyannote re-reads the variable on every call).
+os.environ["PYANNOTE_METRICS_ENABLED"] = "false"
+
 
 def hf_token() -> str:
     token = os.environ.get("HF_TOKEN")
     if not token:
         raise RuntimeError(
             "HF_TOKEN not set — add it to .env after accepting the "
-            "pyannote/speaker-diarization-3.1 terms on huggingface.co"
+            "pyannote/speaker-diarization-community-1 terms on huggingface.co"
         )
     return token

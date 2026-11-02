@@ -9,7 +9,7 @@ reads word-level `word/start/end/speaker`) and §8 (benchmarking).
 
 Engines (doc §6: "keep those code paths behind a --engine flag"):
 
-- ``faster_whisper`` — **the default**: CT2 backend, fast CPU int8, with the
+- ``faster_whisper`` — CT2 backend, fast CPU int8, with the
   §6a anti-hallucination decoding hygiene applied. Doesn't diarize on its
   own — `transcribe()` below merges in a `diarize.diarize()` result (reusing
   an existing RTTM if one's already on disk, writing one otherwise) via
@@ -24,10 +24,14 @@ Engines (doc §6: "keep those code paths behind a --engine flag"):
   disfluencies instead of suppressing hallucination
   (docs/asr_provider_implementation_plan.md Phase 0.3/3.3), since this
   project's policy (docs/transcription_standards.md §1) is to keep them and
-  the default engines are tuned the opposite way (§6a). Experimental — its own
-  docstring carries the caveats.
+  the other engines are tuned the opposite way (§6a). **The default** since
+  2026-11-02, with `large-v3`; also the seed engine for draft-seeded gold
+  (`multidata.seeding`). Its own docstring carries the caveats.
 
-Default model is `medium` and default language is `en` (skip auto-detect —
+In the pipeline every engine takes its speaker labels from the diarize
+stage's RTTM (`transcribe(diarize_rttm=...)`), not from its own diarizer.
+
+Default model is `large-v3` and default language is `en` (skip auto-detect —
 faster and safer for this fixed-language clinical corpus). Override either
 via `run_stage.py --model/--language` for testing.
 """
@@ -38,7 +42,7 @@ from pathlib import Path
 
 log = logging.getLogger(__name__)
 
-DEFAULT_MODEL = "medium"
+DEFAULT_MODEL = "large-v3"
 DEFAULT_LANGUAGE = "en"
 
 # Seeded domain terms soften the "nurse -> nerds" substitution class (doc §6a).
@@ -53,7 +57,7 @@ DEFAULT_PROMPT = (
 
 def transcribe_whisperx(audio_path, model_name=DEFAULT_MODEL, device=None, compute_type=None,
                          align_device=None, diarize_device=None, batch_size=8,
-                         language=DEFAULT_LANGUAGE):
+                         language=DEFAULT_LANGUAGE, diarize=True):
     """Whisper + word alignment + diarization in one pass (doc §6 sketch).
 
     `device`/`compute_type` govern the Whisper model's own decode step
@@ -94,8 +98,9 @@ def transcribe_whisperx(audio_path, model_name=DEFAULT_MODEL, device=None, compu
     align_model, meta = whisperx.load_align_model(result["language"], align_device)
     result = whisperx.align(result["segments"], align_model, meta, audio, align_device)
 
-    dia = whisperx.diarize.DiarizationPipeline(token=hf_token(), device=diarize_device)
-    result = whisperx.assign_word_speakers(dia(str(audio_path)), result)
+    if diarize:   # off when transcribe() merges in the pipeline's own diarization
+        dia = whisperx.diarize.DiarizationPipeline(token=hf_token(), device=diarize_device)
+        result = whisperx.assign_word_speakers(dia(str(audio_path)), result)
 
     return result
 
@@ -116,7 +121,8 @@ DISFLUENCY_PROMPT = (
 def transcribe_whisperx_disfluent(audio_path, model_name=DEFAULT_MODEL, device=None,
                                    compute_type=None, align_device=None, diarize_device=None,
                                    batch_size=8, language=DEFAULT_LANGUAGE,
-                                   prompt=DISFLUENCY_PROMPT, condition_on_previous_text=True):
+                                   prompt=DISFLUENCY_PROMPT, condition_on_previous_text=True,
+                                   diarize=True):
     """`transcribe_whisperx`, but decode-tuned to *keep* disfluencies instead
     of suppressing hallucination (implementation plan Phase 0.3 / 3.3) -- the
     alternate provider this project's disfluency-preservation policy
@@ -168,8 +174,9 @@ def transcribe_whisperx_disfluent(audio_path, model_name=DEFAULT_MODEL, device=N
     align_model, meta = whisperx.load_align_model(result["language"], align_device)
     result = whisperx.align(result["segments"], align_model, meta, audio, align_device)
 
-    dia = whisperx.diarize.DiarizationPipeline(token=hf_token(), device=diarize_device)
-    result = whisperx.assign_word_speakers(dia(str(audio_path)), result)
+    if diarize:   # off when transcribe() merges in the pipeline's own diarization
+        dia = whisperx.diarize.DiarizationPipeline(token=hf_token(), device=diarize_device)
+        result = whisperx.assign_word_speakers(dia(str(audio_path)), result)
 
     return result
 
@@ -235,7 +242,10 @@ DIARIZES_INTERNALLY = {"whisperx", "whisperx_disfluent"}
 # family) rather than getting one merged in by `_diarize_and_merge`.
 TAKES_DIARIZE_DEVICE = {"whisperx", "whisperx_disfluent"}
 
-DEFAULT_ENGINE = "faster_whisper"
+# The pipeline's engine: the standards keep disfluencies (§1), and this is
+# also the seed engine for draft-seeded gold (`seeding.SEED_ENGINE`), so a
+# case's pipeline transcript and its seed transcript are the same file.
+DEFAULT_ENGINE = "whisperx_disfluent"
 
 
 def _diarize_and_merge(result, audio_path, rttm_path=None, device=None,
@@ -305,21 +315,22 @@ def transcribe(audio_path, out_path=None, engine=DEFAULT_ENGINE,
 
     `diarize_rttm`, if given, is read if it already exists (reuse) or written
     fresh otherwise (cache for next time / for DER scoring) -- see
-    `diarize.diarize`. Ignored for engines in `DIARIZES_INTERNALLY`, which
-    still take `diarize_device` themselves (forwarded via `kwargs` for the
-    whisperx family, `TAKES_DIARIZE_DEVICE`).
+    `diarize.diarize` -- for every engine: the whisperx family then skips its
+    own diarization, so transcript, RTTM and prosody share one set of speaker
+    labels. Without it, engines in `DIARIZES_INTERNALLY` diarize themselves.
     """
     if engine not in ENGINES:
         raise ValueError(f"Unknown engine {engine!r}; pick one of {sorted(ENGINES)}")
 
-    if engine in TAKES_DIARIZE_DEVICE:
+    if engine in DIARIZES_INTERNALLY and diarize_rttm is None:
         kwargs.setdefault("diarize_device", diarize_device)
         result = ENGINES[engine](audio_path, **kwargs)
     else:
+        if engine in DIARIZES_INTERNALLY:
+            kwargs["diarize"] = False
         result = ENGINES[engine](audio_path, **kwargs)
-        if engine not in DIARIZES_INTERNALLY:
-            result = _diarize_and_merge(result, audio_path, diarize_rttm, diarize_device,
-                                        num_speakers, min_speakers, max_speakers)
+        result = _diarize_and_merge(result, audio_path, diarize_rttm, diarize_device,
+                                    num_speakers, min_speakers, max_speakers)
 
     result.setdefault("engine", engine)
 

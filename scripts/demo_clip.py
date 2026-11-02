@@ -22,7 +22,7 @@ Privacy, please read before sharing a clip:
   - Faces are blurred by default, from each person's head keypoints. It's
     best effort: a face the pose model missed in a frame is NOT blurred, and
     faces seen in the window/mirror often aren't detected at all. Watch the
-    clip before it leaves tofino. `--no-blur` turns it off.
+    clip before it leaves secure storage. `--no-blur` turns it off.
   - Sound is off unless you pass `--audio`: learners say their names.
   - Mirror reflections can show up as extra people.
 

@@ -13,7 +13,8 @@ with one shared microphone feed. From each case the pipeline produces:
 - **2D body pose** per camera, heading toward 3D.
 
 There's also an **ASR benchmarking** wing, scoring speech engines against
-hand-made gold transcripts. Everything is currently designed to run on an Ubuntu Linux machine with an RTX 5080 on board. (`tofino`)
+hand-made gold transcripts. During the pilot everything runs on one Linux workstation with an RTX 5080
+(`tofino`); afterwards it moves to a high-performance cluster.
 
 > ⚠️ **Identifiable human-subjects data.** The patient is an actor, but
 > learners and preceptors are real people who say their names, so

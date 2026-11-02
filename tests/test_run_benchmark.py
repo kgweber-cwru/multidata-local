@@ -33,7 +33,7 @@ class TestLiveMode:
         monkeypatch.setattr(run_benchmark.asr, "transcribe", fake_transcribe)
         result, engine, source, wall_s = run_benchmark.load_result(_args(), "fakehash")
         assert result == {"segments": [{"text": "hello"}]}
-        assert engine == "faster_whisper"
+        assert engine == run_benchmark.asr.DEFAULT_ENGINE
         assert source == "live"
         assert wall_s >= 0.0
 

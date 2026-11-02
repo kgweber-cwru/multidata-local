@@ -1,8 +1,9 @@
-# Operations: running jobs on tofino
+# Operations: running jobs on the processing host
 
 How to start long jobs so they survive logging out, check on them, stop
-them, and look after the backups. Everything runs on **tofino**, from
-`~/projects/multidata-local`. How the stages themselves work is in
+them, and look after the backups. Everything runs on the processing host
+(during the pilot, the workstation `tofino`), from
+`~/projects/multidata-local`; the backup section is specific to tofino. How the stages themselves work is in
 [pipeline.md](pipeline.md).
 
 ---

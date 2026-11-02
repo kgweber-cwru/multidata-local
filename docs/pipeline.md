@@ -6,8 +6,10 @@ it is. The exact layout of every output file is in
 where the project stands, [status.md](status.md). Section numbers are stable:
 code docstrings cite them ("doc §10").
 
-Everything runs on **tofino** (Linux, RTX 5080), the only machine that holds
-`data/` and writes `manifest.sqlite`.
+Everything runs on one **processing host**, the only machine that holds
+`data/` and writes `manifest.sqlite`. During the pilot that is `tofino`, a
+Linux workstation with an RTX 5080; after the pilot the work moves to a
+high-performance cluster, so nothing here should depend on tofino itself.
 
 ---
 
@@ -22,7 +24,7 @@ Everything runs on **tofino** (Linux, RTX 5080), the only machine that holds
    pyannote) and pose (rtmlib, onnxruntime) never share an env (§3).
 4. **Everything is provenanced.** Model, version, settings and input hash go
    with each output; every stage run's cost is recorded (`stage_runs`, §10).
-5. **One writer.** Only tofino writes the manifest (§10).
+5. **One writer.** Only the processing host writes the manifest (§10).
 
 ---
 
@@ -30,7 +32,7 @@ Everything runs on **tofino** (Linux, RTX 5080), the only machine that holds
 
 | Machine | Role |
 |---|---|
-| **tofino** (Linux, RTX 5080, 48 cores), `~/projects/multidata-local` | Everything: all stages, ingest, benchmarks, the only manifest writer. Nightly backup to its `/wddata` array ([operations.md](operations.md)). |
+| **Processing host**, during the pilot `tofino` (Linux, RTX 5080, 48 cores), `~/projects/multidata-local` | Everything: all stages, ingest, benchmarks, the only manifest writer. On tofino, nightly backup to its `/wddata` array ([operations.md](operations.md)). |
 | Kate's MacBook Air | Development; code moves through GitHub. Its `data/` is an old copy. |
 
 Setting up a new Linux machine: install miniforge/miniconda, clone the repo,
@@ -100,8 +102,11 @@ files).
   rtmlib pulls in the CPU-only `onnxruntime`, which can silently win; the top
   of `env/pose-nvidia.yml` explains and shows how to check.
 - **pyannote is gated:** `huggingface-cli login` once, accept the terms for
-  `pyannote/speaker-diarization-3.1` and `pyannote/segmentation-3.0`, and keep
-  the token in `.env` (gitignored).
+  `pyannote/speaker-diarization-community-1`, and keep the token in `.env`
+  (gitignored). `multidata.hf_auth` also switches off pyannote 4's usage
+  telemetry (file durations and speaker counts sent to pyannote.ai);
+  `set_telemetry_metrics(False, save_choice_as_default=True)` has been run in
+  md-speech as well, and should be on any new machine.
 - Scripts find `ffmpeg`/`ffprobe` in the env they run from even when it isn't
   activated (`multidata.tools.which`), and `run_stage.py` stops with one clear
   message if a stage is run in the wrong env.
@@ -145,18 +150,31 @@ you'd be measuring the denoiser.
 
 ## 6. Speech: transcription and diarization
 
-Default: **`faster_whisper`, model `medium`, language `en`** (settled
-2026-07-29: with a separate diarization merge it ran ~11% faster than
-whisperx's bundled pipeline at the same model size). Other engines via
-`--engine`: `whisperx` (wav2vec2 forced alignment, arguably better word
-timing) and `whisperx_disfluent` (tuned to keep disfluencies; experimental).
+Default: **`whisperx_disfluent`, model `large-v3`, language `en`** (since
+2026-11-02). The standards keep disfluencies (transcription standards §1), and
+this engine is decode-tuned to keep them; it is also the fixed seed engine for
+draft-seeded gold (§8a), so a case's pipeline transcript *is* its seed
+transcript. Other engines via `--engine`, for comparison: `faster_whisper`
+(the default until 2026-11-02, tuned to drop disfluencies) and `whisperx`.
+
+**Diarization** is `pyannote/speaker-diarization-community-1` (since
+2026-11-02; was `3.1`). Run `diarize` before `asr`: every engine, whisperx
+included, takes its speaker labels from the diarize stage's
+`data/diarization/<case>/<camera>.rttm` (`asr._diarize_and_merge`), so the
+transcript, the RTTM and prosody all use the same `SPEAKER_nn` labels. If the
+RTTM is missing, `asr` makes it. On four human-annotated cases community-1
+cut speaker confusion (right speech, wrong speaker) from 2-8% of speech to
+2-4%, with missed speech unchanged (~8-20%, mostly backchannels and overlap).
+Neither model separates two similar voices reliably: on 261411 both put the
+learner and the patient on one speaker.
 
 Every engine's output is **word-level and speaker-labelled**
-(`segments[].words[]` with `start, end, word, score, speaker`). Engines that
-don't diarize get pyannote's result merged in (`asr._diarize_and_merge`),
-reusing `data/diarization/<case>/<camera>.rttm` if it exists. The `asr` stage
-therefore also marks `diarize_status` done; the separate `diarize` stage is
-for refreshing diarization on its own.
+(`segments[].words[]` with `start, end, word, score, speaker`).
+
+The `asr` stage never overwrites a transcript a seeded annotation kit was
+built from (`seeding.kit_seed_transcripts`): the kit records that file's
+hash. The earlier `faster_whisper_medium` transcripts stay beside the new
+ones; `data/diarization_pyannote31/` keeps the 3.1 RTTMs.
 
 Output: `data/transcripts/<case>/<camera>_<engine>_<model>.json` (the source
 of truth for ELAN and benchmarking) and a `.txt` beside it for reading.
@@ -174,8 +192,9 @@ Two failure modes dominate on clinical audio; a bigger model fixes neither.
   domain terms (`asr.DEFAULT_PROMPT`) biases the decoder softly. Treat the
   prompt as an experimental variable in benchmarks, not a constant.
 
-`medium` is the batch default; use `--model large-v3` for accuracy-sensitive
-runs and as the benchmark accuracy anchor.
+`whisperx_disfluent` deliberately leaves `condition_on_previous_text` on
+(it carries the disfluent register across segments), which is also the main
+cause of repetition loops on bad audio: check its benchmark scores for that.
 
 ### 6b. Prosody (`run_stage.py prosody`, md-speech, CPU)
 
@@ -380,7 +399,7 @@ short clips.
 
 ## 10. The manifest
 
-`manifest.sqlite` (SQLite, gitignored, written only on tofino). All database
+`manifest.sqlite` (SQLite, gitignored, written only on the processing host). All database
 code is in `manifest.py`, which imports only the standard library so it works
 in every env. Additive column migrations run automatically on connect.
 
@@ -410,8 +429,8 @@ manifest is needed elsewhere, take `sqlite3 manifest.sqlite ".backup <path>"`
 ## 11. Scale, governance, reproducibility
 
 - **Cost:** about 39 machine-minutes and 0.56 GB per case, 90% of the compute
-  being 2D pose; the full small-room catalogue doesn't fit on tofino's main
-  drive. Details and scenarios: [cost_estimate.md](cost_estimate.md).
+  being 2D pose; the full small-room catalogue doesn't fit on the pilot
+  workstation's main drive. Details and scenarios: [cost_estimate.md](cost_estimate.md).
 - **What's irreplaceable:** the manifest and the gold/annotation `.eaf`
   files. Raw video can be re-exported from the recording system; everything
   else regenerates. Backups: [operations.md](operations.md).

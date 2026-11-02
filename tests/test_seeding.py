@@ -139,3 +139,37 @@ def test_ledger_header_upgrade_keeps_rows(tmp_path):
     rows = list(csv.DictReader(open(old)))
     assert list(rows[0].keys()) == run_benchmark.FIELDS
     assert rows[0]["gold_pass1"] == "" and rows[0]["case_id"] == "v" and rows[1]["gold_pass1"] == "n"
+
+
+def test_kit_seed_transcripts_lists_only_seeded_kits(tmp_path):
+    kits, data = tmp_path / "kits", tmp_path / "data"
+    for case, ann, kit in [("c1", "a", {"case_id": "c1", "pass1_source": "seeded",
+                                        "seed_transcript": "9_x_y.json"}),
+                           ("c2", "b", {"case_id": "c2"})]:
+        (kits / case / ann).mkdir(parents=True)
+        (kits / case / ann / "kit.json").write_text(json.dumps(kit))
+    assert seeding.kit_seed_transcripts(kits, data) == \
+        {(data / "transcripts" / "c1" / "9_x_y.json").resolve()}
+
+
+def test_pipeline_engine_is_the_seed_engine():
+    asr = pytest.importorskip("multidata.asr")
+    assert (asr.DEFAULT_ENGINE, asr.DEFAULT_MODEL) == (seeding.SEED_ENGINE, seeding.SEED_MODEL)
+
+
+def test_whisperx_family_uses_pipeline_rttm(tmp_path, monkeypatch):
+    asr = pytest.importorskip("multidata.asr")
+    seen = {}
+
+    def fake_engine(audio_path, **kw):
+        seen.update(kw)
+        return {"segments": []}
+
+    monkeypatch.setitem(asr.ENGINES, "whisperx_disfluent", fake_engine)
+    monkeypatch.setattr(asr, "_diarize_and_merge", lambda r, *a, **k: seen.setdefault("merged", a[1]) and r)
+    rttm = tmp_path / "x.rttm"
+    asr.transcribe("a.wav", engine="whisperx_disfluent", diarize_rttm=rttm)
+    assert seen["diarize"] is False and seen["merged"] == rttm
+    seen.clear()
+    asr.transcribe("a.wav", engine="whisperx_disfluent")            # no RTTM: diarizes itself
+    assert "diarize" not in seen and "merged" not in seen
