@@ -22,8 +22,11 @@ can express something known-good before it's used to express something new. It
 also needs no keys, no IRB, no budget, and no interlock — so it can't be blocked.
 
 **3. One new dimension at a time.** Whisper validates the **shared layer**
-(record schema, normalizer, glossary source, cache, `--out-root`). Deepgram then
-validates the **cloud layer** (auth, interlock, keyterm renderer, rate limits).
+(record schema, normalizer, glossary source, cache, `--out-root`). Google then
+validates the **cloud layer** (auth, interlock, phrase-set renderer, rate limits,
+GCS staging for long audio). It goes first because it's inside the
+institution's BAA, not because it's the easiest: expect it to stress the
+registry.
 Bundling both into one first provider means that when something breaks you don't
 know which layer broke.
 
@@ -68,7 +71,7 @@ vendor, a key, or a gold file.
 - [ ] **0.6 Accounts + keys**; confirm no-train flags and BAA availability.
       Vendor defaults often permit retention. **Google is already inside the
       institution's enterprise BAA** (`status.md`, "Governance facts"
-      section), so this item is only outstanding for AssemblyAI / Deepgram /
+      section), so this item is only outstanding for AssemblyAI /
       ElevenLabs — which is an argument about ordering, not about merit
       (`status.md`).
 - [ ] **0.7 Set `cloud_release`** on the dev subset, with basis recorded.
@@ -242,18 +245,21 @@ The shared layer, end to end, at zero marginal cost.
 
 ---
 
-## Phase 4 — Deepgram and the cloud layer
+## Phase 4 — Google STT v2 and the cloud layer
 
 Gated on 0.4 (matrix verified) and 0.6 (keys). Everything new here is
 cloud-specific.
 
 - [ ] **4.1 Credentials** from `.env`; never in configs or the manifest.
 - [ ] **4.2 `cloud_release` enforcement** in the adapter path.
-- [ ] **4.3 Deepgram adapter** — request construction, no-train flag, raw
-      response persisted, normalization to the §4 record.
-      *Done when:* `run_stage.py asr --engine deepgram --only <case>` produces a
+- [ ] **4.3 Google STT v2 adapter** — request construction, data logging
+      off (the no-train condition), GCS staging for audio over the sync
+      limit, raw response persisted, normalization to the §4 record. Confirm
+      which Chirp variants allow diarization and adaptation together before
+      assuming both.
+      *Done when:* `run_stage.py asr --engine google --only <case>` produces a
       conforming record.
-- [ ] **4.4 Glossary renderer for `keyterm`** — first weighted mechanism.
+- [ ] **4.4 Glossary renderer for `phrase_set`** — first weighted mechanism.
 - [ ] **4.5 `--diarizer {provider,pyannote}`** control arm (spec §5).
       *Done when:* both arms differ only in speaker labels.
 
@@ -313,10 +319,11 @@ Blocked on Phases 1, 2, and 5. First real numbers.
 
 ## Phase 7 — Remaining providers, then the bake-off
 
-- [ ] **7.1 AssemblyAI** — `disfluencies` switch; closest comparator to Deepgram.
-- [ ] **7.2 Google STT v2** — hardest: GCS staging for long audio, and Chirp
-      variants differ on whether diarization and adaptation coexist. Expect it to
-      stress the registry.
+- [ ] **7.1 AssemblyAI** — `disfluencies` switch: the most informative
+      comparison under the keep-disfluencies standard.
+- [ ] **7.2 Google Medical Conversation** — registry entry
+      `google_medical_conversation`; filters disfluencies aggressively, so
+      score it on the clean profile only.
 - [ ] **7.3 ElevenLabs Scribe v2** — likely `glossary_mechanism: none`; the real
       test of whether lossiness reporting is honest.
 - [ ] **7.4 Long-audio handling** — if any adapter chunks, it sets
@@ -411,8 +418,8 @@ produced before the normalizer is versioned.
 
 ## Decisions this will surface
 
-- **Disfluency-tuning parity.** If Whisper gets a hand-tuned prompt and Deepgram
-  gets one flag, the comparison is rigged. Recommend recording a
+- **Disfluency-tuning parity.** If Whisper gets a hand-tuned prompt and a cloud
+  provider gets one flag, the comparison is rigged. Recommend recording a
   **`best_disfluency_config` per provider** in the registry, so the comparison is
   each provider at its own best effort, documented — not each provider at
   whatever effort it happened to receive.

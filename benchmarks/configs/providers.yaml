@@ -99,30 +99,6 @@ providers:
       condition_on_previous_text -- re-check if whisperx is upgraded
       (env/speech.yml doesn't pin its version).
 
-  deepgram:
-    kind: cloud
-    diarizes_internally: true       # `diarize=true`
-    word_timings: true
-    glossary_mechanism: keyterm     # Nova-3's natural-language keyterm prompting
-    glossary_limit: null            # TODO verify: Nova-3 keyterm count/length limits
-    disfluency_param: "filler_words (bool)"
-    best_disfluency_config:
-      filler_words: true
-    speaker_hint_param: null        # TODO verify: speakers_expected or similar  
-    formatting_off_param: "smart_format=false / punctuate=false"
-    long_audio:
-      sync_limit_s: null            # TODO verify current sync request duration limit
-      async_path: "TODO verify: async/batch endpoint details"
-    baa_available: true             # TODO verify current terms -- generally offered historically
-    no_train_flag: "TODO verify: zero-retention / no-train request flag or account-level setting"
-    cost_per_minute: null           # TODO fill in from current pricing page
-    verified: false
-    checked_on: null
-    notes: >
-      First provider to implement (implementation plan Phase 4) -- the only
-      candidate exercising internal diarization, word timings, a keyterm
-      glossary, AND a real filler_words switch at once.
-
   google:
     kind: cloud
     diarizes_internally: true       # Chirp does, standard doesn't. 
@@ -142,7 +118,8 @@ providers:
     verified: true
     checked_on: 2026-08-26
     notes: >
-      Expected hardest adapter (implementation plan Phase 7.2): GCS staging
+      First cloud provider to implement (implementation plan Phase 4): inside
+      the institution's BAA, so no new paperwork. Also the hardest: GCS staging
       for long audio, and Chirp variants may not support diarization and
       adaptation (glossary) at the same time -- confirm before assuming both
       can be requested together.

@@ -19,7 +19,7 @@ you want to change one, change it here first.
 
 | # | Decision |
 |---|---|
-| 1 | Cloud providers register into `asr.ENGINES` behind the existing `--engine` flag. `--engine <provider>` + `--model <model-id>` already generalizes (`faster_whisper`+`medium` → `deepgram`+`nova-3-medical`). No new axis. |
+| 1 | Cloud providers register into `asr.ENGINES` behind the existing `--engine` flag. `--engine <provider>` + `--model <model-id>` already generalizes (`faster_whisper`+`medium` → `google`+`chirp_3`). No new axis. |
 | 2 | Every adapter emits **the existing normalized record** (§4). Consumers never learn which provider produced it. |
 | 3 | The **raw provider response is always cached** beside the normalized one. Never let the normalizer be the only copy. |
 | 4 | Providers that diarize internally **do** diarize — but a **pyannote control arm** is available per provider (§5). |
@@ -67,7 +67,6 @@ Fields per provider:
 |---|---|---|---|---|---|
 | `faster_whisper` (local) | no — pyannote merged | yes | `initial_prompt` (lossy — prose, not terms) | inconsistently | baseline; fully pinned |
 | `whisperx` (local) | yes (pyannote) | yes (wav2vec2 forced alignment) | `initial_prompt` | inconsistently | best local word timing |
-| `deepgram` | yes (`diarize`) | yes | `keyterm` (Nova-3) | **yes** (`filler_words`) | Nova-3 Medical variant; BAA generally available |
 | `google` | model-dependent | yes | `phrase_set` + boost | largely **no** | Chirp variants differ on diarization *and* adaptation; >1 min needs GCS |
 | `assemblyai` | yes (`speaker_labels`) | yes | `word_boost` / keyterms prompt | **yes** (`disfluencies`) | Universal-3 Pro + Medical Mode unconfirmed |
 | `elevenlabs` | yes (`diarize`) | yes | possibly none | partially | emits audio-event tags natively — see §6 bracket rule |
@@ -119,7 +118,7 @@ Not a new schema. The existing one (pipeline doc §6), formalized and versioned:
 {
   "schema_version": "1",
   "language": "en",
-  "engine": "deepgram",
+  "engine": "assemblyai",
   "word_timing": true,          // false ⇒ ELAN and CTM consumers must refuse
   "chunked": false,             // true ⇒ boundaries recorded; stitched-timestamp risk
   "segments": [
@@ -159,7 +158,7 @@ must never re-bill.
 Providers that diarize internally do so — that's the product you'd actually buy,
 and it's what should be evaluated.
 
-But it entangles two things: DER for `deepgram` scores Deepgram's diarizer, while
+But it entangles two things: DER for `assemblyai` scores AssemblyAI's diarizer, while
 DER for `faster_whisper` scores pyannote. A WER difference between them could be
 words *or* speaker assignment, and you can't tell which.
 
@@ -169,7 +168,7 @@ speaker labels and merges the cached RTTM through the existing
 case (pipeline doc §6).
 
 Provenance carries `diarizer` as a **column distinct from `engine`**, so
-"nova-3 + own diarizer" and "nova-3 + pyannote@version" are never confused.
+"universal + own diarizer" and "universal + pyannote@version" are never confused.
 
 Speaker-count hints (`speakers_expected` / `num_speakers` / `min`+`max`) are their
 own axis. Pass them consistently or not at all — never per-provider ad hoc.
@@ -253,7 +252,7 @@ exact config is noise (pipeline doc §8d). Beyond the existing columns:
 | Column | Why |
 |---|---|
 | `provider` | distinct from `model` |
-| `provider_model_returned` | vendors silently update `nova-3` — record what they *say* they ran |
+| `provider_model_returned` | vendors silently update model versions — record what they *say* they ran |
 | `request_id` | the vendor's own handle, for support and for disputes |
 | `diarizer` | `provider` or `pyannote@<version>` (§5) |
 | `glossary_sha` | null for headline runs (§3) |
@@ -279,8 +278,8 @@ imperfect. Say so when reporting results.
 Each provider's **`best_disfluency_config`** is recorded in the registry. If one
 engine gets a hand-tuned prompt and another gets a single flag, the comparison is
 rigged — so the fair comparison is every provider at its own documented best
-effort, not at whatever effort it happened to receive. For Deepgram that's one
-parameter; for Whisper it may be a prompt register plus a
+effort, not at whatever effort it happened to receive. For AssemblyAI that's one
+parameter (`disfluencies`); for Whisper it may be a prompt register plus a
 `condition_on_previous_text` tradeoff. Both are "this provider, tuned."
 
 ---
