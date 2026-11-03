@@ -32,6 +32,22 @@ transcription** (gold annotation and an ASR bake-off) and **moving pose to
 | ASR benchmarking | Built and tested (spec Phases 1-2); one gold reference so far |
 | Cost tracking | Every stage run recorded in `stage_runs`; [cost_estimate.md](cost_estimate.md) |
 
+- **Open (noted 2026-11-03): audio clock on room 11's camera 16.** That
+  camera dropped sound during its recording gaps without leaving silence,
+  so the pipeline's wav (`data/audio/<case>/16.wav`) is shorter than the
+  video and runs ahead of it by a growing amount. Everything timed on the
+  wav is off against video and pose by the same amount: ASR and
+  diarization drafts, prosody, ELAN kits, human pass-1s and any gold
+  export. Affected (3 of 72 camera recordings): **261456** (14.8 s by the
+  end, mostly accrued in the first 13 min; has two human pass-1s),
+  261505 (9.6 s), 261485 (3.6 s). Measured by matching the wav against the
+  video's soundtrack decoded with gaps filled (`aresample=async=1`). The
+  demo branch corrects its own copy (`audio_clock` in
+  `demo/build_case.py`); the pipeline, kits and transcripts are unchanged.
+  Fix options to weigh later: extract audio with gaps filled (changes every
+  time in those cases, so existing annotations would need re-timing), or
+  keep wav time and store a wav-to-video time map per case.
+
 ---
 
 ## Transcription validation
