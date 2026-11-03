@@ -471,9 +471,14 @@ function resizeCanvases() {
     const r = c.getBoundingClientRect();
     if (!r.width) continue;
     c.width = Math.round(r.width * dpr);
-    if (c.id) c.height = Math.round(parseFloat(c.getAttribute("height")) * dpr);
-    else c.height = Math.round(r.height * dpr);
-    if (c.id) c.style.height = c.getAttribute("height") + "px";
+    if (c.id) {
+      // the HTML height attribute is the CSS height; remember it once, since
+      // setting c.height below overwrites that attribute (and would compound
+      // by devicePixelRatio on every resize)
+      c.dataset.cssH ||= c.getAttribute("height");
+      c.style.height = c.dataset.cssH + "px";
+      c.height = Math.round(parseFloat(c.dataset.cssH) * dpr);
+    } else c.height = Math.round(r.height * dpr);
   }
 }
 

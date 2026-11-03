@@ -121,12 +121,65 @@ def speaker_mask(utts, t, role):
     return mine & ~other
 
 
-def prosody_lanes(case, cam, utts, roles, duration):
+def _pcm(path, sr=8000, keep_gaps=False):
+    """Mono samples. keep_gaps: fill timestamp gaps with silence, so sample
+    k is at time k/sr on the file's own clock (a plain decode skips them)."""
+    af = ["-af", "aresample=async=1:first_pts=0"] if keep_gaps else []
+    b = subprocess.run([which("ffmpeg"), "-v", "error", "-i", str(path), "-vn", "-ac", "1",
+                        "-ar", str(sr)] + af + ["-f", "s16le", "-"], capture_output=True, check=True).stdout
+    return np.frombuffer(b, np.int16).astype(np.float32)
+
+
+def audio_clock(wav, video, sr=8000, step=10.0, win=20.0, reach=30.0):
+    """Map times in the pipeline's wav (which the transcripts, diarization and
+    prosody use) to times in the encoded video.
+
+    On a few cameras the recorded audio is shorter than the video (room 11's
+    camera 16: up to 15 s over 20 min), because the camera dropped sound
+    during its recording gaps without leaving silence. The wav then runs
+    ahead of the picture by a growing amount. This matches the two
+    soundtracks every `step` seconds and interpolates. Returns (fn, note);
+    fn is None when the two already agree."""
+    a, v = _pcm(wav, sr), _pcm(video, sr, keep_gaps=True)
+    if abs(len(v) - len(a)) / sr < 1.0:
+        return None, None
+    n, pairs = int(win * sr), []
+    for tw in np.arange(5.0, len(a) / sr - win, step):
+        x = a[int(tw * sr):int(tw * sr) + n]
+        if x.std() < 1:
+            continue
+        lo = int(max(tw - 2, 0) * sr)                      # the wav only runs ahead
+        y = v[lo:int((tw + reach) * sr) + n]
+        if len(y) <= n:
+            continue
+        m = len(y) + n
+        c = np.fft.irfft(np.fft.rfft(y, m) * np.conj(np.fft.rfft(x, m)), m)[:len(y) - n + 1]
+        k = int(c.argmax())
+        yy = y[k:k + n]
+        r = float(np.dot(x - x.mean(), yy - yy.mean()) / (x.std() * yy.std() * n + 1e-9))
+        if r > 0.5:
+            pairs.append((tw, lo / sr + k / sr))
+    if len(pairs) < 5:
+        return None, "transcript clock: soundtracks differ in length but couldn't be matched"
+    tw, tv = np.array(pairs).T
+    d = tv - tw
+    keep = np.abs(d - np.convolve(np.pad(d, 2, mode="edge"), np.ones(5) / 5, "valid")) < 0.5
+    keep &= np.r_[True, np.diff(d) > -0.2]              # the shift only grows
+    tw, tv = tw[keep], tv[keep]
+    note = (f"transcript re-timed to the video: its audio was {tv[-1] - tw[-1]:.1f} s short "
+            f"by the end (camera dropped sound in recording gaps); matched at {len(tw)} points")
+    shift = tv - tw
+    return (lambda t: np.asarray(t, float) + np.interp(t, tw, shift)), note
+
+
+def prosody_lanes(case, cam, utts, roles, duration, clock=None):
     p = DATA / "prosody" / case / f"{cam}.npz"
     if not p.exists():
         return None
     z = np.load(p, allow_pickle=False)
     t, f0, db = z["time_s"], z["f0_hz"], z["intensity_db"]
+    if clock:
+        t = clock(t)
     grid = np.arange(0, duration, 1 / LANE_HZ)
     idx = np.clip(np.searchsorted(t, grid), 0, len(t) - 1)
     bins = np.clip((t * LANE_HZ).astype(int), 0, len(grid) - 1)
@@ -426,14 +479,24 @@ def main():
             print(f"{case}/{cam}: encoding pixelated video")
             encode_pixelated(src, out / f"{cam}_pix.mp4", e, cam == audio_cam, duration)
 
+    clock, clock_note = None, None
+    wav = DATA / "audio" / case / f"{audio_cam}.wav"
+    if wav.exists() and (out / f"{audio_cam}.mp4").exists():
+        print(f"{case}/{audio_cam}: checking the transcript's clock against the video")
+        clock, clock_note = audio_clock(wav, out / f"{audio_cam}.mp4")
+        if clock_note:
+            print("  " + clock_note)
+    if clock:
+        utts = [(float(clock(a)), float(clock(b)), r, t) for a, b, r, t in utts]
+
     cams.sort(key=lambda c: not c["audio"])
     meta = {"case": case, "room": room, "duration_s": duration, "transcript_source": source,
-            "roles": roles, "cameras": cams, "skeleton": {"fps": SKEL_FPS, "people": SKEL_PEOPLE,
+            "transcript_clock": clock_note, "roles": roles, "cameras": cams, "skeleton": {"fps": SKEL_FPS, "people": SKEL_PEOPLE,
                                                          "roles": SKEL_ROLES},
             "motion_hz": MOTION_HZ,
             "bookmarks": json.loads(bm_path.read_text()) if bm_path.exists() else []}
     lanes = {"utterances": [[round(a, 2), round(b, 2), r, t] for a, b, r, t in utts],
-             "prosody": prosody_lanes(case, audio_cam, utts, roles, duration),
+             "prosody": prosody_lanes(case, audio_cam, utts, roles, duration, clock),
              "motion": motion_lanes, "head": gaze_lanes}
     (out / "meta.json").write_text(json.dumps(meta, indent=1))
     (out / "lanes.json").write_text(json.dumps(lanes, separators=(",", ":")))

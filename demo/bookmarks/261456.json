@@ -1,12 +1,12 @@
 [
- {"t": 87.0,  "label": "Learner knocks and enters"},
- {"t": 111.7, "label": "Opening: the reason for the visit"},
- {"t": 233.1, "label": "Learner asks about guilt over drinking"},
- {"t": 307.6, "label": "Patient: family is embarrassed, maybe time to change"},
- {"t": 400.5, "label": "Patient reflects on the night in the cell"},
- {"t": 436.6, "label": "Learner lays out options (long learner turn)"},
- {"t": 738.2, "label": "Learner asks about the DUI"},
- {"t": 944.1, "label": "Feedback: 'How do you feel it went?'"},
- {"t": 991.3, "label": "Learner: unsure what to do when a patient resists"},
- {"t": 1135.5, "label": "Preceptor praises the distraction strategy"}
+ {"t": 87.85,  "label": "Learner knocks and enters"},
+ {"t": 113.1, "label": "Opening: the reason for the visit"},
+ {"t": 237.5, "label": "Learner asks about guilt over drinking"},
+ {"t": 314.01, "label": "Patient: family is embarrassed, maybe time to change"},
+ {"t": 409.24, "label": "Patient reflects on the night in the cell"},
+ {"t": 445.78, "label": "Learner lays out options (long learner turn)"},
+ {"t": 752.74, "label": "Learner asks about the DUI"},
+ {"t": 958.87, "label": "Feedback: 'How do you feel it went?'"},
+ {"t": 1006.08, "label": "Learner: unsure what to do when a patient resists"},
+ {"t": 1150.2, "label": "Preceptor praises the distraction strategy"}
 ]

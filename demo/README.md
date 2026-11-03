@@ -68,6 +68,15 @@ Say this when you show it:
   232 s of the 20 minutes (129 dropouts of 0.7-7.5 s; the file's own frame
   timestamps show them), so the video freezes and the pose lanes are blank
   there. The sync stage logs dropouts per camera; most cameras have none.
+- **The transcript is re-timed to the video on such cameras.** Camera 16
+  also dropped sound in those gaps without leaving silence, so the
+  pipeline's wav (which the transcripts, ELAN kits and prosody are timed
+  on) is up to 15 s shorter than the video and runs ahead of it.
+  `build_case.py` matches the two soundtracks every 10 s and shifts
+  transcript, pitch and loudness onto the video's clock (`transcript_clock`
+  in `meta.json`). Of 72 camera recordings, three are affected, all room
+  11's camera 16: 261456 (14.8 s), 261505 (9.6 s) and 261485 (3.6 s).
+  Bookmark times are video time.
 - **3D is uncalibrated** (`fake3d.py`). With no calibration session yet,
   the cameras calibrate themselves: focal length from the room's vanishing
   points (floor tiles, door frames), camera positions from people seen by
