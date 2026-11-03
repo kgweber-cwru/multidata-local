@@ -120,14 +120,25 @@ then: build it locally, `deploy_gcp.sh data`, done; no new image.
 ```bash
 export GCP_PROJECT=cwru-sim-center-data GCP_REGION=us-central1 GCP_REPO=encounter-explorer GCP_BUCKET=demo-site-storage-bucket
 demo/deploy_gcp.sh all          # or: data, image, service, one at a time
+demo/deploy_gcp.sh grant a@umich.edu b@umich.edu c@umich.edu d@umich.edu
+demo/deploy_gcp.sh viewers      # who's in; `revoke <email>` takes someone out
 ```
 
 Needs `docker`, `gsutil` and `gcloud` (the Google Cloud CLI), logged in to
 the project. The script creates the bucket and the Artifact Registry
-repository if they're missing, and deploys **without public access**: give
-people `roles/run.invoker` or put Identity-Aware Proxy in front. The
-service's runtime service account needs `roles/storage.objectViewer` on the
-bucket.
+repository if they're missing. `service` deploys the newest pushed image
+(or `IMAGE=...`), without public access, and turns on **Identity-Aware
+Proxy**: viewers open the service URL, sign in with their Google account,
+and get in only if `grant` added them. (A plain `roles/run.invoker` grant
+doesn't work for people using a browser: Cloud Run would then want an
+identity token on every request, which browsers don't send.)
+
+One-time setup the script doesn't do: if the project has never used IAP,
+configure the OAuth consent screen (internal, if all viewers are in the
+university's Google Workspace); and give the service's runtime service
+account `roles/storage.objectViewer` on the bucket. IAP for Cloud Run is
+recent: if gcloud refuses a flag, see
+https://cloud.google.com/run/docs/securing/identity-aware-proxy-cloud-run.
 
 How it fits Cloud Run:
 
