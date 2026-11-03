@@ -63,7 +63,14 @@ Say this when you show it:
   faces from the side (`"head_direction": true` in the labels file; not on
   overhead cameras). Thresholds were set by eye on room 11's camera 16:
   "toward the other person", "down" (in 261456, the clipboard) or
-  "elsewhere".
+  "elsewhere". Where a case has 3D and its people are labelled (261320,
+  7:31-11:28), head direction comes from the 3D reconstruction instead,
+  which works from any camera angle: "toward" is within 35 degrees of the
+  other person's head, "down" is tipped more than 35 degrees below level.
+  In an exam, looking at the patient's hands or legs counts as down or
+  elsewhere, not toward. Camera 13 in that room sees the patient from
+  above and the learner from behind, which the 2D method misreads (it had
+  the patient "looking down" 97% of the time), so it isn't used there.
 - **Gaps in the lanes are real.** In 261456, camera 16 recorded nothing for
   232 s of the 20 minutes (129 dropouts of 0.7-7.5 s; the file's own frame
   timestamps show them), so the video freezes and the pose lanes are blank
@@ -83,8 +90,10 @@ Say this when you show it:
   both, scale from typical body proportions, up from vertical room lines.
   Shape should be right and size roughly right (about +-10%). All four
   cameras in the two rooms tried came out 2.6-2.9 m up and points reproject
-  within about 1 px, which is plausible but not verified. "patient?" and
-  "learner?" in 3D are a guess (the steadiest person is the patient).
+  within about 1 px, which is plausible but not verified. When the case's
+  labels file names people on the first camera, the 3D people carry those
+  names (261320); otherwise "patient?" and "learner?" are a guess (the
+  steadiest person is the patient).
 
 ## Files
 
@@ -96,7 +105,7 @@ Say this when you show it:
 | `fake3d.py` | uncalibrated 3D for a still-camera stretch -> `threed.json` |
 | `vanishing.py` | focal length and directions from a frame's vanishing points |
 | `tracklet_sheets.py` | contact sheets of tracklets, for labelling people |
-| `labels/<case>.json` | which tracklet is which person (hand-checked) |
+| `labels/<case>.json` | which tracklet is which person (hand-checked); for a machine transcript, which diarized voice is who (`speakers`) |
 | `bookmarks/<case>.json` | moments to jump to |
 | `serve.py` | the server; supports the range requests video seeking needs |
 | `Dockerfile` | container image: `app` (bundles mounted at /data) or `with-data` |

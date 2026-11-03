@@ -346,6 +346,47 @@ def head_direction(e, rc, offset, duration, held):
 
 # --- video --------------------------------------------------------------------
 
+TOWARD_3D_DEG = 35   # 3D: face direction within this of the line to the other's head
+DOWN_3D_DEG = 35     # 3D: face direction this far below level (neutral is about 10 below)
+
+
+def head_direction_3d(threed, duration):
+    """Like head_direction, but from the 3D reconstruction (threed.json, made
+    by fake3d.py with hand labels), so it works from any camera angle. Only
+    covers the 3D stretch; "0" elsewhere. Face direction is ears -> nose."""
+    n = int(duration * MOTION_HZ) + 1
+    out = {}
+    for me, other in GAZE_PAIRS:
+        votes = np.zeros((n, 4))
+        for k, fr in enumerate(threed["frames"]):
+            a = [p for p in fr if p.get("who") == me]
+            b = [p for p in fr if p.get("who") == other]
+            if len(a) != 1 or len(b) != 1:
+                continue
+            pa, pb = a[0]["pts"], b[0]["pts"]
+            ears = [pa[j] for j in (3, 4) if pa[j]]
+            tgt = pb[0] or pb[17]
+            if not pa[0] or not ears or not tgt:
+                continue
+            nose = np.array(pa[0])
+            f = nose - np.mean(ears, 0)
+            if np.linalg.norm(f) < 0.03:
+                continue
+            f /= np.linalg.norm(f)
+            to = (np.array(tgt) - nose) / (np.linalg.norm(np.array(tgt) - nose) + 1e-9)
+            if f @ to > np.cos(np.radians(TOWARD_3D_DEG)):
+                c = 1
+            elif f[1] < -np.sin(np.radians(DOWN_3D_DEG)):          # y is up
+                c = 2
+            else:
+                c = 3
+            t = threed["t0"] + k / threed["hz"]
+            votes[min(int(t * MOTION_HZ), n - 1), c] += 1
+        if votes.sum() > 50:
+            out[me] = "".join(map(str, np.where(votes.sum(1) >= 1, votes.argmax(1), 0)))
+    return out
+
+
 def encode_plain(src, dst, audio):
     cmd = [which("ffmpeg"), "-y", "-loglevel", "error", "-i", str(src),
            "-vf", f"scale={OUT_W}:{OUT_H},fps={OUT_FPS}", "-c:v", "h264_nvenc", "-preset", "p5",
@@ -504,6 +545,13 @@ def main():
                                                          "roles": SKEL_ROLES},
             "motion_hz": MOTION_HZ,
             "bookmarks": json.loads(bm_path.read_text()) if bm_path.exists() else []}
+    t3 = out / "threed.json"
+    if t3.exists():
+        threed = json.loads(t3.read_text())
+        if any(p.get("who") for fr in threed["frames"] for p in fr):
+            h3 = head_direction_3d(threed, duration)
+            if h3:
+                gaze_lanes = {"3D": h3, **gaze_lanes}
     lanes = {"utterances": [[round(a, 2), round(b, 2), r, t] for a, b, r, t in utts],
              "prosody": prosody_lanes(case, audio_cam, utts, roles, duration, clock),
              "motion": motion_lanes, "head": gaze_lanes}

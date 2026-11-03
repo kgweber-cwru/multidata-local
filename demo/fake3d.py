@@ -173,8 +173,9 @@ def video_focal(path, offset, t0, t1, n=7):
     return f, dirs
 
 
-def people_3d(A, B, matches, KA, KB, R, t):
-    """{A frame index: [26x3 array with NaN]}"""
+def people_3d(A, B, matches, KA, KB, R, t, slots=None):
+    """{A frame index: [26x3 array with NaN]}; if `slots` is a dict, it gets
+    {A frame index: [camera A pose slot of each person]} in the same order."""
     out = {}
     for i, j, sa, sb in matches:
         k = shared(A, B, i, j, sa, sb)
@@ -186,6 +187,8 @@ def people_3d(A, B, matches, KA, KB, R, t):
                        reproj(X[k], KB, R, t, B["kp"][sb, j, k]))
         X[k[e > 15]] = np.nan
         out.setdefault(i, []).append(X)
+        if slots is not None:
+            slots.setdefault(i, []).append(sa)
     return out
 
 
@@ -324,6 +327,34 @@ def track_3d(frames, max_jump=0.6, max_gap=10):
     return frames
 
 
+def hand_labels(case, cam):
+    """who(slot, frame) on camera `cam` from demo/labels/<case>.json, via the
+    same tracker build_case.py uses; "" where nobody is named."""
+    path = ROOT / "demo" / "labels" / f"{case}.json"
+    cfg = json.loads(path.read_text()).get(cam) if path.exists() else None
+    if not cfg:
+        return lambda s, i: ""
+    import build_case, tracks                         # noqa: E401
+    rc = build_case.tracklet_roles(tracks.track(pose.load(ROOT / "data" / "pose" / case / f"{cam}.npz")), cfg)
+    names = build_case.SKEL_ROLES
+    return lambda s, i: "" if rc[s, i] <= 0 or names[rc[s, i]] == "person" else names[rc[s, i]]
+
+
+def name_tracks(frames):
+    """Each 3D track takes the hand label most of its frames had (the tracker
+    can swap ids when people pass close; this keeps one name per track)."""
+    votes = {}
+    for ppl in frames:
+        for p in ppl:
+            if p["who"]:
+                v = votes.setdefault(p["id"], {})
+                v[p["who"]] = v.get(p["who"], 0) + 1
+    for ppl in frames:
+        for p in ppl:
+            v = votes.get(p["id"])
+            p["who"] = max(v, key=v.get) if v else ""
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("case")
@@ -335,6 +366,7 @@ def main():
         "SELECT camera, sync_offset_s, filepath FROM videos WHERE case_id=? ORDER BY camera",
         (args.case,)).fetchall()[:2]
     A, B = load(args.case, ca, oa or 0.0), load(args.case, cb, ob or 0.0)
+    who_a = hand_labels(args.case, ca)
     pairs = frame_pairs(A, B, args.t0, args.t1)
     print(f"{len(pairs)} synced frame pairs, {args.t0:.0f}-{args.t1:.0f} s")
     F = fit_fundamental(A, B, pairs)
@@ -359,7 +391,8 @@ def main():
           f"essential-matrix inliers {int(m.sum())}/{len(m)}; median reprojection error {err:.1f} px; "
           f"{100 * front:.0f}% of points in front of both cameras")
     matches = match_people(A, B, pairs, F)
-    people = people_3d(A, B, matches, KA, KB, R, t)
+    slots = {}
+    people = people_3d(A, B, matches, KA, KB, R, t, slots)
     s, n = body_scale(people)
     cams = [np.zeros(3), (-R.T @ t).ravel()]
     for Xs in people.values():
@@ -384,14 +417,15 @@ def main():
         if abs(A["t"][i] - g) > 0.1:
             frames.append([]); continue
         ppl = []
-        for X in people[i]:
+        for X, sa in zip(people[i], slots[i]):
             W = to_world(X)
             st = standing(W)
             role = "" if st is None else ("standing" if st else "on table")
-            ppl.append({"role": role, "pts": [None if not np.isfinite(p).all() else [round(float(v), 3) for v in p]
+            ppl.append({"role": role, "who": who_a(sa, i), "pts": [None if not np.isfinite(p).all() else [round(float(v), 3) for v in p]
                                                for p in W]})
         frames.append(ppl)
     frames = track_3d(frames)
+    name_tracks(frames)
     heights = [max(p[1] for p in pp["pts"] if p) for fr in frames for pp in fr
                if pp["role"] == "standing" and pp["pts"][17]]
     if heights:

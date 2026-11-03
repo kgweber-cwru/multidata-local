@@ -143,11 +143,16 @@ function fineprint() {
     `(2D pose), on the large camera, blank while the camera moves or the person is out of view; ` +
     (Object.keys(S.lanes.motion).some((c) => Object.keys(S.lanes.motion[c]).some((r) => r !== "person"))
       ? "people are identified by hand-checked tracking. " : "people aren't identified in this case. ") + `Pauses: gaps of ${PAUSE_MIN}+ s between anyone's speech. Head direction is a gaze ` +
-    `proxy from the 2D head keypoints (face direction and head tilt), not eye tracking: coloured = toward the other ` +
-    `person, grey = looking down, red = elsewhere.` +
+    `proxy from the head keypoints (face direction and head tilt), not eye tracking: coloured = toward the other ` +
+    `person, grey = looking down, red = elsewhere. ` +
+    ((S.lanes.head || {})["3D"] ? `Here it comes from the 3D reconstruction, so it covers only the 3D stretch; ` +
+      `"toward" means within ${35}° of the other person's head, so looking at their hands or legs during an exam counts as down or elsewhere.`
+      : `It comes from one camera's 2D view.`) +
     (S.three ? ` 3D (purple bar on the timeline): an uncalibrated reconstruction from the two cameras; the cameras ` +
       `calibrated themselves from people's keypoints and the room's lines, size from typical body proportions. ` +
-      `"patient?"/"learner?" is a guess (who stays put), not identification.` : "");
+      (S.three.frames.some((f) => f.some((p) => p.who))
+        ? `People are named from the hand-checked tracking on one camera.`
+        : `"patient?"/"learner?" is a guess (who stays put), not identification.`) : "");
 }
 
 function headStats() {
@@ -387,7 +392,7 @@ function draw3d(t) {
   }
   if (inside) {
     for (const p of T.frames[g]) {
-      const col = p.id === 0 ? ROLE_COLORS.PATIENT : ROLE_COLORS.LEARNER;
+      const col = p.who ? roleColor(p.who) : p.id === 0 ? ROLE_COLORS.PATIENT : ROLE_COLORS.LEARNER;
       // floor shadow
       ctx.strokeStyle = "rgba(255,255,255,.10)"; ctx.lineWidth = 2 * dpr;
       for (const [a, b] of SKEL3D) if (p.pts[a] && p.pts[b]) line([p.pts[a][0], 0, p.pts[a][2]], [p.pts[b][0], 0, p.pts[b][2]]);
@@ -397,7 +402,7 @@ function draw3d(t) {
       for (const q of p.pts) { if (!q) continue; const Q = P(q); if (Q) { ctx.beginPath(); ctx.arc(Q[0], Q[1], 2.2 * dpr, 0, 6.29); ctx.fill(); } }
       const head = p.pts[17] || p.pts[0] || p.pts[18];
       const Hd = head && P(head);
-      if (Hd) { ctx.font = `600 ${11 * dpr}px system-ui`; ctx.fillText(p.id === 0 ? "patient?" : "learner?", Hd[0] + 6, Hd[1] - 8); }
+      if (Hd) { ctx.font = `600 ${11 * dpr}px system-ui`; ctx.fillText(p.who ? p.who.toLowerCase() : p.id === 0 ? "patient?" : "learner?", Hd[0] + 6, Hd[1] - 8); }
     }
   }
   ctx.fillStyle = "#7b8590"; ctx.font = `${10 * dpr}px system-ui`;
@@ -620,7 +625,7 @@ function drawLanes(t) {
   const heads = Object.entries(S.lanes.head || {});
   if (heads.length) {
     const [hcam, H2] = heads[0], hroles = Object.keys(H2), rh = 13 * dpr, hh = rh * hroles.length;
-    top = lane("Head direction", hh, `camera ${hcam}`);
+    top = lane("Head direction", hh, hcam === "3D" ? "3D stretch only" : `camera ${hcam}`);
     hroles.forEach((r, j) => {
       const sq = H2[r];
       const i0 = Math.max(0, Math.floor(a * hz)), i1 = Math.min(sq.length, Math.ceil(b * hz) + 1);
