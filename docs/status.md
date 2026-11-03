@@ -95,6 +95,18 @@ the raw response is the artifact to cache and compare.
   sharing).
 - **Assessment use** (judging learners) would likely need its own IRB and
   consent coverage, separate from research use.
+- **Open (noted 2026-11-03): names in public git history.** The first
+  commit (`b3b248b`, 2026-07-29) included `manifest.sqlite` with full
+  learner and SP names for 755 cases. The next commit deleted it, but it
+  stays in history, and the repo was public until 2026-11-03 (no forks).
+  Still to decide: purge history (`git filter-repo`, force-push every
+  branch, ask GitHub to purge cached views) and whether to tell the IRB or
+  privacy office.
+- **Open: redaction gap.** `eaf_to_gold.py` redacts only the names recorded
+  in `cases`. A case with preceptor speech but no `preceptor_name` exports
+  the preceptor's spoken name unredacted: `261498.gold.txt` has one. Fix:
+  refuse to export when a speaker tier has speech and no name to redact;
+  then record 261498's preceptor and re-export it.
 
 ---
 
