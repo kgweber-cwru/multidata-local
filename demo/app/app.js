@@ -76,7 +76,9 @@ async function loadCase(id, t0 = 0) {
     const buf = await (await fetch(base + c.skeletons)).arrayBuffer();
     skel[c.camera] = new Int16Array(buf);
   }));
-  S = { id, base, meta, lanes, skel, mainIdx: 0, pix: $("#pixToggle").checked, vids: [], lastNow: -1 };
+  let three = null;
+  try { const r = await fetch(base + "threed.json"); if (r.ok) three = await r.json(); } catch { three = null; }
+  S = { id, base, meta, lanes, skel, three, mainIdx: 0, pix: $("#pixToggle").checked, vids: [], lastNow: -1 };
   S.utts = lanes.utterances.map(([a, b, role, text], i) => ({ i, a, b, role, text }));
   S.pauses = findPauses(S.utts);
   S.scales = scales(lanes);
@@ -92,6 +94,7 @@ async function loadCase(id, t0 = 0) {
     .map((c) => `Camera ${c.camera} sync: ${c.offset_note}.`);
   $("#syncNote").textContent = notes.join(" ");
   $("#fineprint").textContent = fineprint();
+  $("#headStats").textContent = headStats();
   resizeCanvases();
   seek(t0);
   history.replaceState(null, "", `#case=${id}` + (DEBUG ? "&debug=1" : ""));
@@ -137,8 +140,36 @@ function fineprint() {
   const m = S.meta;
   return `Case ${m.case}, room ${m.room}. Talk and speech rate from the transcript; pitch and loudness from the ` +
     `audio (Praat), pitch shown only where one person speaks alone. Movement: how fast each person's body keypoints move ` +
-    `(2D pose), on the large camera, blank while the camera moves or the person is out of view; people are identified ` +
-    `by hand-checked tracking. Pauses: gaps of ${PAUSE_MIN}+ s between anyone's speech.`;
+    `(2D pose), on the large camera, blank while the camera moves or the person is out of view; ` +
+    (Object.keys(S.lanes.motion).some((c) => Object.keys(S.lanes.motion[c]).some((r) => r !== "person"))
+      ? "people are identified by hand-checked tracking. " : "people aren't identified in this case. ") + `Pauses: gaps of ${PAUSE_MIN}+ s between anyone's speech. Head direction is a gaze ` +
+    `proxy from the 2D head keypoints (face direction and head tilt), not eye tracking: coloured = toward the other ` +
+    `person, grey = looking down, red = elsewhere.` +
+    (S.three ? ` 3D (purple bar on the timeline): an uncalibrated reconstruction from the two cameras; the cameras ` +
+      `calibrated themselves from people's keypoints and the room's lines, size from typical body proportions. ` +
+      `"patient?"/"learner?" is a guess (who stays put), not identification.` : "");
+}
+
+function headStats() {
+  // share of time each person's head pointed at the other, by who was speaking
+  const H = Object.values(S.lanes.head || {})[0];
+  if (!H) return "";
+  const hz = S.meta.motion_hz, parts = [];
+  for (const [me, sq] of Object.entries(H)) {
+    const other = me === "LEARNER" ? "PATIENT" : "LEARNER";
+    for (const [label, who] of [["while the other spoke", other], ["while speaking", me]]) {
+      let n = 0, toward = 0, down = 0;
+      for (const u of S.utts) {
+        if (u.role !== who) continue;
+        for (let i = Math.floor(u.a * hz); i < Math.min(sq.length, u.b * hz); i++) {
+          if (sq[i] === "0") continue;
+          n++; if (sq[i] === "1") toward++; if (sq[i] === "2") down++;
+        }
+      }
+      if (n > 20) parts.push(`${me.toLowerCase()} ${label}: faced the ${other.toLowerCase()} ${Math.round(100 * toward / n)}%, looked down ${Math.round(100 * down / n)}%`);
+    }
+  }
+  return parts.length ? "Head direction · " + parts.join(" · ") : "";
 }
 
 // ---------------------------------------------------------------- video
@@ -161,6 +192,7 @@ function buildVideos() {
     video.addEventListener("click", (ev) => { if (!wrap.classList.contains("small")) { ev.stopPropagation(); togglePlay(); } });
     return { cam: c, wrap, video, canvas, label };
   });
+  S.view3d = S.three ? build3d() : null;
   layoutVideos();
 }
 
@@ -171,12 +203,18 @@ function layoutVideos() {
   if (!box.children.length) for (const v of S.vids) box.append(v.wrap);
   box.style.gridTemplateColumns = n > 1 ? "" : "1fr";
   let k = 1;
+  const rows = Math.max(n - 1, 1) + (S.view3d ? 1 : 0);
   S.vids.forEach((v, i) => {
     const main = i === S.mainIdx;
     v.wrap.classList.toggle("small", !main);
     v.wrap.style.gridColumn = main ? "1" : "2";
-    v.wrap.style.gridRow = main ? `1 / span ${Math.max(n - 1, 1)}` : String(k++);
+    v.wrap.style.gridRow = main ? `1 / span ${rows}` : String(k++);
   });
+  if (S.view3d) {
+    if (!S.view3d.wrap.parentElement) box.append(S.view3d.wrap);
+    S.view3d.wrap.style.gridColumn = "2";
+    S.view3d.wrap.style.gridRow = String(k);
+  }
   requestAnimationFrame(resizeCanvases);
 }
 
@@ -284,6 +322,88 @@ function viewAt(cam, t) {
   return s ? s.label : "moving";
 }
 
+// ---------------------------------------------------------------- 3D view
+
+const SKEL3D = [[15, 13], [13, 11], [11, 19], [16, 14], [14, 12], [12, 19], [17, 18], [18, 19],
+  [18, 5], [5, 7], [7, 9], [18, 6], [6, 8], [8, 10], [0, 18], [1, 2], [0, 1], [0, 2], [15, 24], [16, 25]];
+
+function build3d() {
+  const wrap = el("div", "cam three");
+  const canvas = el("canvas", "three-cv");
+  const label = el("div", "cam-label", "3D · uncalibrated · drag to rotate, scroll to zoom");
+  const jump = el("button", "jump3d", "Jump to the 3D window ▸");
+  wrap.append(canvas, label, jump);
+  const fr = S.three.frames;
+  // orbit around the middle of where people are, at chest height
+  const pts = [];
+  for (let i = 0; i < fr.length; i += 10) for (const p of fr[i]) for (const q of p.pts) if (q) pts.push(q);
+  const mid = [0, 2].map((k) => pts.reduce((s, q) => s + q[k], 0) / Math.max(pts.length, 1));
+  const v = { wrap, canvas, label, jump, yaw: 0.6, pitch: 0.35, dist: 3.4, target: [mid[0], 0.9, mid[1]], drag: null };
+  canvas.addEventListener("pointerdown", (e) => { v.drag = [e.clientX, e.clientY, v.yaw, v.pitch]; canvas.setPointerCapture(e.pointerId); });
+  canvas.addEventListener("pointermove", (e) => {
+    if (!v.drag) return;
+    v.yaw = v.drag[2] - (e.clientX - v.drag[0]) * 0.01;
+    v.pitch = Math.max(0.05, Math.min(1.5, v.drag[3] + (e.clientY - v.drag[1]) * 0.01));
+  });
+  canvas.addEventListener("pointerup", () => { v.drag = null; });
+  canvas.addEventListener("wheel", (e) => { e.preventDefault(); v.dist = Math.max(2, Math.min(14, v.dist * (1 + e.deltaY * 0.001))); }, { passive: false });
+  jump.onclick = () => seek(S.three.t0 + 1);
+  return v;
+}
+
+function draw3d(t) {
+  const v = S.view3d, cv = v.canvas, ctx = cv.getContext("2d"), W = cv.width, H = cv.height;
+  const dpr = devicePixelRatio || 1;
+  ctx.fillStyle = "#0b0e12"; ctx.fillRect(0, 0, W, H);
+  const T = S.three, g = Math.round((t - T.t0) * T.hz), inside = g >= 0 && g < T.frames.length;
+  v.jump.style.display = inside ? "none" : "";
+  const eye = [v.target[0] + v.dist * Math.cos(v.pitch) * Math.sin(v.yaw), v.target[1] + v.dist * Math.sin(v.pitch),
+    v.target[2] + v.dist * Math.cos(v.pitch) * Math.cos(v.yaw)];
+  const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+  const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+  const norm = (a) => { const l = Math.hypot(...a); return [a[0] / l, a[1] / l, a[2] / l]; };
+  const fwd = norm(sub(v.target, eye)), right = norm(cross(fwd, [0, 1, 0])), up = cross(right, fwd);
+  const f = H * 1.1;
+  const P = (p) => { const d = sub(p, eye), z = dot(d, fwd); return z < 0.1 ? null : [W / 2 + f * dot(d, right) / z, H / 2 - f * dot(d, up) / z, z]; };
+  const line = (a, b) => { const A = P(a), B = P(b); if (A && B) { ctx.beginPath(); ctx.moveTo(A[0], A[1]); ctx.lineTo(B[0], B[1]); ctx.stroke(); } };
+  // floor grid, 1 m
+  ctx.strokeStyle = "#232a33"; ctx.lineWidth = dpr;
+  const gx = Math.round(v.target[0]), gz = Math.round(v.target[2]);
+  for (let k = -4; k <= 4; k++) {
+    line([gx + k, 0, gz - 4], [gx + k, 0, gz + 4]);
+    line([gx - 4, 0, gz + k], [gx + 4, 0, gz + k]);
+  }
+  // cameras: a small pyramid along their view direction
+  ctx.strokeStyle = "#e05d5d"; ctx.fillStyle = "#e05d5d"; ctx.font = `${11 * dpr}px system-ui`;
+  for (const c of T.cameras) {
+    const R = c.R, C = c.pos, s = 0.35, hw = s * (c.w / 2) / c.f, hh = s * (c.h / 2) / c.f;
+    const corner = (sx, sy) => [0, 1, 2].map((k) => C[k] + R[2][k] * s + R[0][k] * sx * hw + R[1][k] * sy * hh);
+    const cs = [corner(-1, -1), corner(1, -1), corner(1, 1), corner(-1, 1)];
+    for (const q of cs) line(C, q);
+    for (let k = 0; k < 4; k++) line(cs[k], cs[(k + 1) % 4]);
+    const L = P(C); if (L) ctx.fillText(`camera ${c.camera}`, L[0] + 6, L[1] - 6);
+    line(C, [C[0], 0, C[2]]);
+  }
+  if (inside) {
+    for (const p of T.frames[g]) {
+      const col = p.id === 0 ? ROLE_COLORS.PATIENT : ROLE_COLORS.LEARNER;
+      // floor shadow
+      ctx.strokeStyle = "rgba(255,255,255,.10)"; ctx.lineWidth = 2 * dpr;
+      for (const [a, b] of SKEL3D) if (p.pts[a] && p.pts[b]) line([p.pts[a][0], 0, p.pts[a][2]], [p.pts[b][0], 0, p.pts[b][2]]);
+      ctx.strokeStyle = col; ctx.lineWidth = 2.4 * dpr;
+      for (const [a, b] of SKEL3D) if (p.pts[a] && p.pts[b]) line(p.pts[a], p.pts[b]);
+      ctx.fillStyle = col;
+      for (const q of p.pts) { if (!q) continue; const Q = P(q); if (Q) { ctx.beginPath(); ctx.arc(Q[0], Q[1], 2.2 * dpr, 0, 6.29); ctx.fill(); } }
+      const head = p.pts[17] || p.pts[0] || p.pts[18];
+      const Hd = head && P(head);
+      if (Hd) { ctx.font = `600 ${11 * dpr}px system-ui`; ctx.fillText(p.id === 0 ? "patient?" : "learner?", Hd[0] + 6, Hd[1] - 8); }
+    }
+  }
+  ctx.fillStyle = "#7b8590"; ctx.font = `${10 * dpr}px system-ui`;
+  ctx.fillText("grid: 1 m", 8, H - 8);
+}
+
 // ---------------------------------------------------------------- transcript, bookmarks
 
 function buildTranscript() {
@@ -346,6 +466,7 @@ function resizeCanvases() {
   const dpr = devicePixelRatio || 1;
   const cvs = [$("#overview"), $("#lanes")];
   if (S) for (const v of S.vids) cvs.push(v.canvas);
+  if (S && S.view3d) cvs.push(S.view3d.canvas);
   for (const c of cvs) {
     const r = c.getBoundingClientRect();
     if (!r.width) continue;
@@ -387,6 +508,11 @@ function drawOverview(t) {
   for (const b of S.meta.bookmarks || []) {
     ctx.fillStyle = "#ffe08a";
     ctx.beginPath(); ctx.moveTo(x(b.t) - 4 * dpr, 0); ctx.lineTo(x(b.t) + 4 * dpr, 0); ctx.lineTo(x(b.t), 6 * dpr); ctx.fill();
+  }
+  if (S.three) {
+    const t0 = S.three.t0, t1 = t0 + S.three.frames.length / S.three.hz;
+    ctx.fillStyle = "rgba(199,146,234,.85)";
+    ctx.fillRect(x(t0), H - 14 * dpr, x(t1) - x(t0), 3 * dpr);
   }
   const [a, b] = windowRange(t);
   ctx.strokeStyle = "rgba(255,255,255,.55)"; ctx.lineWidth = dpr;
@@ -485,6 +611,23 @@ function drawLanes(t) {
     ctx.stroke();
   }
 
+  // head direction (a gaze proxy), on whichever camera has it
+  const heads = Object.entries(S.lanes.head || {});
+  if (heads.length) {
+    const [hcam, H2] = heads[0], hroles = Object.keys(H2), rh = 13 * dpr, hh = rh * hroles.length;
+    top = lane("Head direction", hh, `camera ${hcam}`);
+    hroles.forEach((r, j) => {
+      const sq = H2[r];
+      const i0 = Math.max(0, Math.floor(a * hz)), i1 = Math.min(sq.length, Math.ceil(b * hz) + 1);
+      for (let i = i0; i < i1; i++) {
+        const c = sq[i];
+        if (c === "0") continue;
+        ctx.fillStyle = c === "1" ? roleColor(r) : c === "2" ? "#5c6672" : "#c0392b";
+        ctx.fillRect(x(i / hz), top + j * rh + 1, Math.max(1, x((i + 1) / hz) - x(i / hz)), rh - 2);
+      }
+    });
+  }
+
   // camera views
   top = lane("Camera view", 18 * dpr);
   const vc = { Baseline: "#3d4f66", Bed: "#4b3d66", Chair: "#3d6650", Sink: "#665a3d", PC: "#663d4a", User: "#55603a", moving: "#2b2f36" };
@@ -517,6 +660,7 @@ function tick(ts) {
     const t = now();
     syncSlaves(t);
     drawSkeletons(t);
+    if (S.view3d) draw3d(t);
     $("#clock").textContent = fmt(t);
     $("#playBtn").textContent = master().video.paused ? "▶" : "❚❚";
     updateTranscript(t);

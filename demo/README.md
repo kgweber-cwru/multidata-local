@@ -6,9 +6,12 @@ leadership. Two views:
 - **One encounter.** Both cameras, time-synced, with sound, optional
   pixelated faces and 2D skeletons coloured by role. Below them, lanes that
   move with the playhead: who talks when (with pauses), speech rate, pitch
-  per speaker, loudness, each person's body movement, and the camera's
-  preset view. A transcript beside it scrolls along; click any line, lane or
-  bookmarked moment to jump there.
+  per speaker, loudness, each person's body movement, where each person's
+  head points (a gaze proxy) and the camera's preset view. A transcript
+  beside it scrolls along; click any line, lane or bookmarked moment to jump
+  there. Where a case has one, a **3D view** under the small camera shows the
+  people reconstructed from both cameras, orbitable, during a stretch when
+  neither camera moves (purple bar on the timeline).
 - **All encounters.** Every case on one time axis as a strip of who talks
   when, with simple measures beside it (share of time with speech,
   overlapping speech, longest silence, turn changes per minute, top voice's
@@ -22,6 +25,8 @@ It lives on its own branch and reads the pipeline's outputs; nothing in
 ```bash
 conda activate md-pose
 python demo/build_case.py 261456 --offset 31=0.0   # ~10 min: video encodes on the GPU
+python demo/build_case.py 261320                   # the neuro exam (machine transcript)
+python demo/fake3d.py 261320 --from 451 --to 688   # seconds: 3D for a still-camera stretch
 python demo/build_overview.py                      # seconds; any env
 python demo/serve.py                               # open http://localhost:8765
 ```
@@ -53,6 +58,24 @@ Say this when you show it:
   uncalibrated.
 - **Pixelation** follows the pose model's head keypoints, so a face it
   missed in a frame isn't covered.
+- **Head direction** is not eye tracking. It reads the face direction
+  (ears to nose) and how far the head tips down, on a camera that sees
+  faces from the side (`"head_direction": true` in the labels file; not on
+  overhead cameras). Thresholds were set by eye on room 11's camera 16:
+  "toward the other person", "down" (in 261456, the clipboard) or
+  "elsewhere".
+- **Gaps in the lanes are real.** In 261456, camera 16 recorded nothing for
+  232 s of the 20 minutes (129 dropouts of 0.7-7.5 s; the file's own frame
+  timestamps show them), so the video freezes and the pose lanes are blank
+  there. The sync stage logs dropouts per camera; most cameras have none.
+- **3D is uncalibrated** (`fake3d.py`). With no calibration session yet,
+  the cameras calibrate themselves: focal length from the room's vanishing
+  points (floor tiles, door frames), camera positions from people seen by
+  both, scale from typical body proportions, up from vertical room lines.
+  Shape should be right and size roughly right (about +-10%). All four
+  cameras in the two rooms tried came out 2.6-2.9 m up and points reproject
+  within about 1 px, which is plausible but not verified. "patient?" and
+  "learner?" in 3D are a guess (the steadiest person is the patient).
 
 ## Files
 
@@ -61,16 +84,19 @@ Say this when you show it:
 | `build_case.py` | one case -> `data/demo/cases/<case>/` (video, skeletons, lanes) |
 | `build_overview.py` | all cases -> `data/demo/overview.json` |
 | `tracks.py` | joins per-frame pose detections into tracklets |
+| `fake3d.py` | uncalibrated 3D for a still-camera stretch -> `threed.json` |
+| `vanishing.py` | focal length and directions from a frame's vanishing points |
 | `tracklet_sheets.py` | contact sheets of tracklets, for labelling people |
 | `labels/<case>.json` | which tracklet is which person (hand-checked) |
 | `bookmarks/<case>.json` | moments to jump to |
-| `serve.py` | local server; supports the range requests video seeking needs |
+| `serve.py` | the server; supports the range requests video seeking needs |
+| `Dockerfile` | container image: `app` (bundles mounted at /data) or `with-data` |
+| `deploy_gcp.sh` | upload bundles, push the image, deploy to Cloud Run |
 | `app/` | the page: `index.html`, `app.js`, `style.css` (no libraries) |
 
-Everything under `data/demo/` holds identifiable video and speech: it stays
-on the processing host and is never committed. `serve.py` answers only this
-machine unless you pass `--host`; only do that on a network where everyone
-who can reach it is on the study's IRB.
+Everything under `data/demo/` holds identifiable video and speech: it is
+never committed. `serve.py` answers only this machine unless you pass
+`--host`; anyone who can reach it can see everything it serves.
 
 ## Adding a case
 
@@ -83,3 +109,46 @@ who can reach it is on the study's IRB.
    names).
 4. Build again without `--skip-video`, then rerun `build_overview.py` so the
    overview links to it.
+
+## Deploying to Google Cloud
+
+The container (`Dockerfile`) is the server and page only; the built bundles
+(`data/demo/cases/`, `data/demo/overview.json`) live in a Cloud Storage
+bucket that Cloud Run mounts read-only at `/data`. Adding an encounter is
+then: build it locally, `deploy_gcp.sh data`, done; no new image.
+
+```bash
+export GCP_PROJECT=... GCP_REGION=us-central1 GCP_BUCKET=... GCP_REPO=encounter-explorer
+demo/deploy_gcp.sh all          # or: data, image, service, one at a time
+```
+
+Needs `docker`, `gsutil` and `gcloud` (the Google Cloud CLI), logged in to
+the project. The script creates the bucket and the Artifact Registry
+repository if they're missing, and deploys **without public access**: give
+people `roles/run.invoker` or put Identity-Aware Proxy in front. The
+service's runtime service account needs `roles/storage.objectViewer` on the
+bucket.
+
+How it fits Cloud Run:
+
+- **Port and settings** come from the environment: `PORT` (Cloud Run sets
+  it), `HOST=0.0.0.0` and `DEMO_DATA=/data` (set in the image).
+- **32 MiB response limit.** Cloud Run caps HTTP/1 responses at 32 MiB, and
+  browsers ask for video as "everything from byte N". `serve.py` answers
+  those in 8 MiB pieces and the browser asks for the next one, so videos
+  of any length play and seek.
+- **Bucket mount** needs the second-generation execution environment
+  (`--execution-environment gen2`, set by the script).
+- **Size.** About 0.6 GB per encounter in the bucket; the image is about
+  190 MB. Media is sent with `Cache-Control: private, max-age=86400`, so a
+  viewer's browser doesn't fetch the same video twice in a day.
+
+Without a bucket (any Docker host, or to try it locally):
+
+```bash
+docker build -f demo/Dockerfile --target app -t encounter-explorer:app .
+docker run --rm -p 8080:8080 -v "$PWD/data/demo:/data:ro" encounter-explorer:app
+# or bake the bundles in:
+docker build -f demo/Dockerfile --target with-data -t encounter-explorer:data .
+docker run --rm -p 8080:8080 encounter-explorer:data
+```

@@ -1,0 +1,7 @@
+# Used by `docker build -f demo/Dockerfile .` (BuildKit reads <Dockerfile>.dockerignore).
+# Send only what the image needs; everything else in the repo stays out.
+*
+!demo/serve.py
+!demo/app/
+!data/demo/overview.json
+!data/demo/cases/

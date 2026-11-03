@@ -119,3 +119,10 @@ nav { display: flex; gap: 4px; }
   .strips-head, .strip-row { grid-template-columns: 110px minmax(0, 1fr) repeat(2, 56px); }
   .strips-head .c-num:nth-of-type(n+4), .strip-row .c-num:nth-of-type(n+4) { display: none; }
 }
+
+.stats { color: var(--text); font-size: 13px; margin: 8px 0 0; }
+
+.cam.three { background: #0b0e12; aspect-ratio: 4 / 3; }
+.cam.three canvas { pointer-events: auto; cursor: grab; }
+.cam.three canvas:active { cursor: grabbing; }
+.jump3d { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); font-size: 12px; }

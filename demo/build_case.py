@@ -19,7 +19,9 @@ Transcript: the case's gold .eaf, else a human pass-1 .eaf from its kit, else
 (--machine, or nothing human exists) the pipeline transcript with diarized
 speakers. Roles for motion and skeleton colours come from
 demo/labels/<case>.json (tracklet ids from demo/tracks.py; see that file);
-without it everyone is "person". Bookmarks: demo/bookmarks/<case>.json.
+without it everyone is "person". A camera with "head_direction": true there
+also gets the head-direction lane (learner and patient; only meaningful on a
+camera that sees faces from the side or front, not from overhead). Bookmarks: demo/bookmarks/<case>.json.
 """
 import argparse
 import json
@@ -241,6 +243,53 @@ def motion(e, ids, rc, offset, duration, held, smooth=5):
     return out
 
 
+GAZE_PAIRS = (("LEARNER", "PATIENT"), ("PATIENT", "LEARNER"))
+DOWN_MIN = 0.4        # nose this far below the ears (in head lengths): looking down
+TOWARD_MIN = 0.8      # cosine between face direction and the other person's head
+
+
+def head_direction(e, rc, offset, duration, held):
+    """{role: "0123..."} at MOTION_HZ, where each person's head points, from
+    the 2D head keypoints on this camera: 1 toward the other person, 2 down,
+    3 elsewhere, 0 unknown. A proxy for gaze, not eye tracking: it reads the
+    face direction (ears -> nose) and how far the nose sits below the ears.
+    Thresholds were set by eye on room 11's camera 16."""
+    kp, sc = e["keypoint"], e["keypoint_score"]
+    ok = sc > tracks.KPT_THR
+    t = e["frame_ms"] / 1000 + offset
+    n = int(duration * MOTION_HZ) + 1
+    code = {r: i for i, r in enumerate(SKEL_ROLES)}
+
+    def best(c, i):
+        s = np.flatnonzero(rc[:, i] == c)
+        return None if not len(s) else s[np.argmax(sc[s, i, :5].sum(-1))]
+
+    out = {}
+    for me, other in GAZE_PAIRS:
+        votes = np.zeros((n, 4))
+        for i in np.flatnonzero(held(t)):
+            a, b = best(code[me], i), best(code[other], i)
+            if a is None or b is None or not ok[a, i, 0]:
+                continue
+            ears = [kp[a, i, j] for j in (3, 4) if ok[a, i, j]]
+            tgt = kp[b, i, 0] if ok[b, i, 0] else (kp[b, i, 17] if ok[b, i, 17] else None)
+            if not ears or tgt is None:
+                continue
+            f = kp[a, i, 0] - np.mean(ears, 0)
+            to = tgt - kp[a, i, 0]
+            nf = np.linalg.norm(f)
+            if nf < 1:
+                continue
+            down = f[1] / nf
+            cos = f @ to / (nf * np.linalg.norm(to) + 1e-6)
+            k = 2 if down > DOWN_MIN else (1 if cos > TOWARD_MIN else 3)
+            votes[min(int(t[i] * MOTION_HZ), n - 1), k] += 1
+        if votes.sum() > 100:
+            cls = np.where(votes.sum(1) >= 2, votes.argmax(1), 0)
+            out[me] = "".join(map(str, cls))
+    return out
+
+
 # --- video --------------------------------------------------------------------
 
 def encode_plain(src, dst, audio):
@@ -339,7 +388,7 @@ def main():
     labels = json.loads(labels_path.read_text()) if labels_path.exists() else {}
     bm_path = ROOT / "demo" / "bookmarks" / f"{case}.json"
 
-    cams, motion_lanes = [], {}
+    cams, motion_lanes, gaze_lanes = [], {}, {}
     for cam, path, _, offset in vids:
         note = "audio sync"
         if cam in override:
@@ -360,6 +409,8 @@ def main():
 
         skeletons(e, rc, offset, duration).tofile(out / f"skel_{cam}.bin")
         motion_lanes[cam] = motion(e, ids, rc, offset, duration, held)
+        if (labels.get(cam) or {}).get("head_direction"):
+            gaze_lanes[cam] = head_direction(e, rc, offset, duration, held)
         h, w = (int(x) for x in e["img_shape"][:2])
         cams.append({
             "camera": cam, "offset": offset, "offset_note": note, "width": w, "height": h,
@@ -383,7 +434,7 @@ def main():
             "bookmarks": json.loads(bm_path.read_text()) if bm_path.exists() else []}
     lanes = {"utterances": [[round(a, 2), round(b, 2), r, t] for a, b, r, t in utts],
              "prosody": prosody_lanes(case, audio_cam, utts, roles, duration),
-             "motion": motion_lanes}
+             "motion": motion_lanes, "head": gaze_lanes}
     (out / "meta.json").write_text(json.dumps(meta, indent=1))
     (out / "lanes.json").write_text(json.dumps(lanes, separators=(",", ":")))
     index = OUT / "index.json"
