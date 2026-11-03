@@ -118,7 +118,7 @@ bucket that Cloud Run mounts read-only at `/data`. Adding an encounter is
 then: build it locally, `deploy_gcp.sh data`, done; no new image.
 
 ```bash
-export GCP_PROJECT=... GCP_REGION=us-central1 GCP_BUCKET=... GCP_REPO=encounter-explorer
+export GCP_PROJECT=cwru-sim-center-data GCP_REGION=us-central1 GCP_REPO=encounter-explorer GCP_BUCKET=demo-site-storage-bucket
 demo/deploy_gcp.sh all          # or: data, image, service, one at a time
 ```
 
