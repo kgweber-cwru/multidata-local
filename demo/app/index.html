@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Encounter Explorer</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>Encounter Explorer</h1>
+  <nav>
+    <button class="tab active" data-tab="one">One encounter</button>
+    <button class="tab" data-tab="all">All encounters</button>
+  </nav>
+  <div class="case-pick">
+    <label>Case <select id="caseSelect"></select></label>
+    <span id="sourceBadge" class="badge"></span>
+  </div>
+</header>
+
+<main id="one" class="view">
+  <section class="stage">
+    <div class="videos" id="videos"></div>
+    <div class="controls">
+      <button id="playBtn" title="Play / pause (space)">▶</button>
+      <span id="clock" class="clock">0:00.0</span>
+      <label>Speed <select id="speed">
+        <option>0.75</option><option selected>1</option><option>1.5</option><option>2</option>
+      </select></label>
+      <label class="toggle"><input type="checkbox" id="pixToggle"> Pixelate faces</label>
+      <label class="toggle"><input type="checkbox" id="skelToggle" checked> Skeletons</label>
+      <button id="swapBtn" title="Swap the large and small camera">⇄ Swap cameras</button>
+      <span id="syncNote" class="note"></span>
+    </div>
+  </section>
+
+  <aside class="side">
+    <div class="bookmarks">
+      <h2>Moments</h2>
+      <div id="bookmarks"></div>
+    </div>
+    <div class="transcript-head">
+      <h2>Transcript</h2>
+      <label class="toggle small"><input type="checkbox" id="follow" checked> Follow</label>
+    </div>
+    <ol id="transcript" class="transcript"></ol>
+  </aside>
+
+  <section class="timeline">
+    <div class="timeline-bar">
+      <span class="legend" id="legend"></span>
+      <label>Window <select id="zoom">
+        <option value="30">30 s</option><option value="120" selected>2 min</option>
+        <option value="300">5 min</option><option value="0">whole</option>
+      </select></label>
+    </div>
+    <canvas id="overview" height="46"></canvas>
+    <canvas id="lanes" height="430"></canvas>
+    <p class="fineprint" id="fineprint"></p>
+  </section>
+</main>
+
+<main id="all" class="view hidden">
+  <section class="all-head">
+    <p>Every encounter on one time axis: who talks when. Each colour is one voice, ranked by
+      talk time within its encounter; grey hatching is the recorded announcements. This is
+      machine output (automatic speaker separation), not checked by a person: two people
+      sometimes share a colour, and one person can be split in two.</p>
+    <div class="all-controls">
+      <label>Sort by <select id="sortBy">
+        <option value="room">room</option>
+        <option value="case">case</option>
+        <option value="speech_pct">speech, % of recording</option>
+        <option value="overlap_pct">overlapping speech, %</option>
+        <option value="longest_silence_s">longest silence</option>
+        <option value="turns_per_min">turn changes per minute</option>
+        <option value="top_speaker_pct">top voice's share of talk</option>
+        <option value="duration_s">length</option>
+      </select></label>
+      <label class="toggle"><input type="checkbox" id="humanOnly"> Only cases with a human transcript</label>
+    </div>
+  </section>
+  <div class="strips-head">
+    <span class="c-id">Case</span><span class="c-strip" id="axis"></span>
+    <span class="c-num" title="speech, % of recording">talk %</span>
+    <span class="c-num" title="overlapping speech, % of speech">overlap</span>
+    <span class="c-num" title="longest silence between speech">silence</span>
+    <span class="c-num" title="turn changes per minute">turns/m</span>
+    <span class="c-num" title="top voice's share of talk">top %</span>
+  </div>
+  <div id="strips" class="strips"></div>
+  <section id="detail" class="detail hidden">
+    <div class="detail-head">
+      <h2 id="detailTitle"></h2>
+      <button id="openExplorer" class="hidden">Open in explorer ▸</button>
+    </div>
+    <canvas id="detailStrip" height="70"></canvas>
+    <ol id="detailTranscript" class="transcript"></ol>
+  </section>
+</main>
+
+<script src="app.js"></script>
+</body>
+</html>
