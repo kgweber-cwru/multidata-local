@@ -1,0 +1,5 @@
+{
+ "speakers": {"SPEAKER_00": "PRECEPTOR", "SPEAKER_01": "PATIENT", "SPEAKER_03": "ANNOUNCEMENT",
+              "SPEAKER_04": "LEARNER", "SPEAKER_02": "OUTSIDE_ROOM", "UNKNOWN": "OUTSIDE_ROOM"},
+ "speakers_note": "much of the patient's speech is under the learner, and some of the preceptor's under outside-room"
+}

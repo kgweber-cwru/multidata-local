@@ -19,7 +19,8 @@ Transcript: the case's gold .eaf, else a human pass-1 .eaf from its kit, else
 (--machine, or nothing human exists) the pipeline transcript with diarized
 speakers. Roles for motion and skeleton colours come from
 demo/labels/<case>.json (tracklet ids from demo/tracks.py; see that file);
-without it everyone is "person". A camera with "head_direction": true there
+without it everyone is "person". For a machine transcript, "speakers" there
+names the diarized voices ({"SPEAKER_00": "PRECEPTOR", ...}). A camera with "head_direction": true there
 also gets the head-direction lane (learner and patient; only meaningful on a
 camera that sees faces from the side or front, not from overhead). Bookmarks: demo/bookmarks/<case>.json.
 """
@@ -427,18 +428,26 @@ def main():
     out = OUT / case
     out.mkdir(parents=True, exist_ok=True)
 
+    labels_path = ROOT / "demo" / "labels" / f"{case}.json"
+    labels = json.loads(labels_path.read_text()) if labels_path.exists() else {}
+
     eaf, source = (None, None) if args.machine else find_eaf(case)
     if eaf:
         utts = read_eaf(eaf)
         roles = [r for r in ROLES if any(u[2] == r for u in utts)]
     else:
         utts, name = machine_transcript(case, audio_cam)
-        source = f"machine ({name}; speakers as diarized, not checked)"
-        roles = sorted({u[2] for u in utts})
+        named = labels.get("speakers") or {}
+        if named:          # diarized voices named by hand: {"SPEAKER_00": "PRECEPTOR", ...}
+            utts = [(a, b, named.get(r, r), t) for a, b, r, t in utts]
+            source = (f"machine ({name}); voices named by hand, but diarization errors "
+                      "remain" + (f": {labels['speakers_note']}" if labels.get("speakers_note") else ""))
+            roles = [r for r in ROLES if any(u[2] == r for u in utts)]
+            roles += sorted({u[2] for u in utts} - set(roles))
+        else:
+            source = f"machine ({name}; speakers as diarized, not checked)"
+            roles = sorted({u[2] for u in utts})
     duration = min(v[2] for v in vids)
-
-    labels_path = ROOT / "demo" / "labels" / f"{case}.json"
-    labels = json.loads(labels_path.read_text()) if labels_path.exists() else {}
     bm_path = ROOT / "demo" / "bookmarks" / f"{case}.json"
 
     cams, motion_lanes, gaze_lanes = [], {}, {}
