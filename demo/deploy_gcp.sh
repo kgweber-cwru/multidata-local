@@ -35,6 +35,14 @@ ROOT="$(git -C "$(dirname "$0")" rev-parse --show-toplevel)"
 REPO_PATH="${GCP_REGION}-docker.pkg.dev/${GCP_PROJECT}/${GCP_REPO}/encounter-explorer"
 LOC=(--project "$GCP_PROJECT" --region "$GCP_REGION")
 
+enable_apis() {
+  # turn on Google APIs the step needs (no-op if already on; first time takes a minute).
+  # Done explicitly: otherwise gcloud asks "enable it? (y/N)" mid-command, which hangs
+  # when its output is hidden.
+  echo "== making sure these APIs are on: $*"
+  gcloud services enable "$@" --project "$GCP_PROJECT"
+}
+
 step_data() {
   : "${GCP_BUCKET:?set GCP_BUCKET (bucket name, no gs://)}"
   echo "== uploading bundles to gs://${GCP_BUCKET} (contact sheets stay local)"
@@ -48,9 +56,10 @@ step_image() {
   tag="${TAG:-$(git -C "$ROOT" rev-parse --short HEAD)$(git -C "$ROOT" diff --quiet || echo -dirty)}"
   image="${REPO_PATH}:${tag}"
   echo "== building and pushing ${image}"
+  enable_apis artifactregistry.googleapis.com
   gcloud artifacts repositories describe "$GCP_REPO" --project "$GCP_PROJECT" --location "$GCP_REGION" \
-    >/dev/null 2>&1 || gcloud artifacts repositories create "$GCP_REPO" --project "$GCP_PROJECT" \
-    --location "$GCP_REGION" --repository-format docker --description "Encounter Explorer demo"
+    --quiet >/dev/null || gcloud artifacts repositories create "$GCP_REPO" --project "$GCP_PROJECT" \
+    --location "$GCP_REGION" --repository-format docker --description "Encounter Explorer demo" --quiet
   gcloud auth configure-docker "${GCP_REGION}-docker.pkg.dev" --quiet
   DOCKER_BUILDKIT=1 docker build --platform linux/amd64 -f "$ROOT/demo/Dockerfile" --target app -t "$image" "$ROOT"
   docker push "$image"
@@ -69,7 +78,7 @@ step_service() {
   : "${GCP_BUCKET:?set GCP_BUCKET (bucket name, no gs://)}"
   local image="${IMAGE:-$(latest_image)}" number
   echo "== deploying Cloud Run service ${SERVICE} from ${image}"
-  gcloud services enable iap.googleapis.com --project "$GCP_PROJECT"
+  enable_apis run.googleapis.com iap.googleapis.com
   gcloud run deploy "$SERVICE" "${LOC[@]}" \
     --image "$image" \
     --execution-environment gen2 \
