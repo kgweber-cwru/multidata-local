@@ -186,6 +186,9 @@ to these forms on both sides, so a spelling difference never counts as a
 mishearing, but one spelling keeps transcripts searchable. A run-together
 `uhuh` is never mapped, because it could be either `uh-huh` or `uh-uh`.
 
+Write **`okay`**, not `OK` or `ok`: it is what engines write. The scorer maps
+`ok` to `okay` on both sides, so older transcripts with `OK` are not penalized.
+
 > ⚠️ **`uh-huh` and `uh-uh` are one letter apart with opposite meanings.** A
 > patient answering "uh-uh" to "any chest pain?" is a clinical *no*. This is a
 > genuine annotator hazard and ASR providers confuse the pair constantly —
@@ -286,7 +289,7 @@ One source, three renderings. Each is a deterministic transform of the one above
 
 Shared transforms applied identically to reference and hypothesis at every
 level: name redaction (§8), then **bracket stripping**, casing, punctuation,
-backchannel spelling variants (§6), and whitespace (`multidata.normalize`; the exact rules are in
+backchannel spelling variants and `ok` → `okay` (§6), and whitespace (`multidata.normalize`; the exact rules are in
 [asr_evaluation_methods.md](asr_evaluation_methods.md) §4.2). **Number
 canonicalization is not implemented yet**: until it is, a reference's "one
 twenty" against an engine's "120" counts as an error.
@@ -524,5 +527,6 @@ the affected subset.
 |---|---|---|
 | 1.0 | 2026-08-26 | Initial standard. From-scratch blind annotation, utterance-level segmentation, L0/L1/L2 levels, verbatim names with mechanical redaction. Supersedes `gold_annotation_guide.md`. |
 | 1.3 | 2026-11-11 | §6/§7, scoring only (annotation unchanged): prolongation colons and cut-off hyphens are taken off their words at L0 (an engine is never penalized for a mark no engine writes); L1 drops cut-off words; backchannel spelling variants (`mhm` → `mm-hmm`, ...) are unified on both sides; `mm` (the continuer) is a backchannel. Scoring label `redact+L0/L1 v2`. |
+| 1.4 | 2026-11-11 | §6/§7: write `okay`; the scorer maps `ok`/`OK`/`O.K.` to `okay` on both sides (gold mostly wrote `OK`, every engine writes `okay`). Scoring label `redact+L0/L1 v3`. |
 | 1.2 | 2026-11-11 | §4: `ANNOUNCEMENT` and `OUTSIDE_ROOM` text goes into `gold.txt` (it was RTTM-only): engines hear and transcribe it, so leaving it out counted their correct words as errors. Annotation itself is unchanged; 261498 and 261505 re-exported. Scores against earlier exports are not comparable. |
 | 1.1 | 2026-11-01 | §9: adds route B, draft-seeded pass 1, as a fallback when annotators are scarce (fixed seed engine `whisperx_disfluent`/`large-v3`; provenance recorded; seed engine never scored against its own seeded gold; seeded results reported separately). §6/§7 unchanged, so 1.0 gold stays valid and comparable. |
