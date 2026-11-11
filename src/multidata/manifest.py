@@ -194,6 +194,30 @@ CREATE TABLE IF NOT EXISTS stage_runs (
     details TEXT NOT NULL DEFAULT '{}',
     error TEXT NOT NULL DEFAULT ''
 );
+
+-- LearningSpace checklist scores (multidata.learningspace): one row per
+-- case part, section and submission. Points only; item answers stay in
+-- LearningSpace. The faculty-observation part's submitter is the preceptor.
+CREATE TABLE IF NOT EXISTS case_scores (
+    case_id TEXT NOT NULL REFERENCES cases(case_id),
+    case_part TEXT NOT NULL,
+    section TEXT NOT NULL,
+    submit_id TEXT NOT NULL,
+    submitter_id TEXT NOT NULL DEFAULT '',
+    submitter_name TEXT NOT NULL DEFAULT '',
+    submitted_at TEXT NOT NULL DEFAULT '',
+    achieved REAL,
+    possible REAL,
+    items INTEGER,
+    PRIMARY KEY (case_id, case_part, section, submit_id)
+);
+
+-- LearningSpace room GUID -> our room number, learned from recordings whose
+-- room we already know. A GUID seen with two numbers is a conflict to fix.
+CREATE TABLE IF NOT EXISTS ls_rooms (
+    room_guid TEXT PRIMARY KEY,
+    room_number TEXT NOT NULL
+);
 """
 
 
@@ -252,6 +276,18 @@ def _migrate(conn):
             conn.execute(f"ALTER TABLE gold ADD COLUMN {col} {decl}")
     if "prosody_status" not in vcols:
         conn.execute("ALTER TABLE videos ADD COLUMN prosody_status TEXT NOT NULL DEFAULT 'pending'")
+
+    # LearningSpace links (multidata.learningspace)
+    for col in ("ls_recording_guid", "ls_activity_id", "ls_event_id", "ls_case_guid",
+                "ls_learner_id", "ls_room_id", "recording_start_utc", "ls_synced_at"):
+        if col not in cols:
+            conn.execute(f"ALTER TABLE cases ADD COLUMN {col} TEXT NOT NULL DEFAULT ''")
+    for col, decl in (("ls_file_id", "TEXT NOT NULL DEFAULT ''"),
+                      ("ls_server", "TEXT NOT NULL DEFAULT ''"),
+                      ("size_bytes", "INTEGER"),
+                      ("download_url", "TEXT NOT NULL DEFAULT ''")):
+        if col not in vcols:
+            conn.execute(f"ALTER TABLE videos ADD COLUMN {col} {decl}")
 
     _seed_cameras_once(conn)
 
@@ -720,6 +756,78 @@ def unresolved_matches(path=DEFAULT_PATH):
             "ORDER BY filename"
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+# --- LearningSpace links (multidata.learningspace) ----------------------
+
+def update_case(case_id, path=DEFAULT_PATH, **fields):
+    """Set columns on one cases row. Unknown columns are an error."""
+    unknown = set(fields) - set(Case.columns())
+    if unknown:
+        raise ValueError(f"Unknown columns {sorted(unknown)}")
+    if not fields:
+        return
+    with closing(connect(path)) as conn, conn:
+        cur = conn.execute(
+            f"UPDATE cases SET {', '.join(f'{k} = ?' for k in fields)} WHERE case_id = ?",
+            (*fields.values(), case_id))
+        if cur.rowcount != 1:
+            raise ValueError(f"no case {case_id!r}")
+
+
+def set_case_scores(case_id, rows, path=DEFAULT_PATH):
+    """Replace one case's checklist scores (multidata.learningspace.summarize_scores)."""
+    cols = ("case_part", "section", "submit_id", "submitter_id", "submitter_name",
+            "submitted_at", "achieved", "possible", "items")
+    with closing(connect(path)) as conn, conn:
+        conn.execute("DELETE FROM case_scores WHERE case_id = ?", (case_id,))
+        conn.executemany(
+            f"INSERT INTO case_scores (case_id, {', '.join(cols)}) "
+            f"VALUES (?, {', '.join('?' * len(cols))})",
+            [(case_id, *(r[c] for c in cols)) for r in rows])
+
+
+def case_scores(case_id, path=DEFAULT_PATH):
+    with closing(connect(path)) as conn:
+        rows = conn.execute("SELECT * FROM case_scores WHERE case_id = ? "
+                            "ORDER BY case_part, section, submitted_at", (case_id,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def set_ls_room(room_guid, room_number, path=DEFAULT_PATH):
+    """Record a room GUID's number. Returns the number already stored when it
+    differs (a conflict, left unchanged), else None."""
+    with closing(connect(path)) as conn, conn:
+        row = conn.execute("SELECT room_number FROM ls_rooms WHERE room_guid = ?",
+                           (room_guid,)).fetchone()
+        if row is None:
+            conn.execute("INSERT INTO ls_rooms VALUES (?, ?)", (room_guid, str(room_number)))
+            return None
+        return row["room_number"] if row["room_number"] != str(room_number) else None
+
+
+def all_ls_rooms(path=DEFAULT_PATH):
+    with closing(connect(path)) as conn:
+        return {r["room_guid"]: r["room_number"]
+                for r in conn.execute("SELECT * FROM ls_rooms").fetchall()}
+
+
+def prune_cases_without_videos(path=DEFAULT_PATH, dry_run=True):
+    """Drop cases with no videos row and nothing else pointing at them (gold,
+    scores, stage runs, matches). Returns the case_ids dropped (or that would
+    be). The Excel export can always add them back."""
+    sql = """SELECT case_id FROM cases c
+             WHERE NOT EXISTS (SELECT 1 FROM videos v WHERE v.case_id = c.case_id)
+               AND NOT EXISTS (SELECT 1 FROM gold g WHERE g.case_id = c.case_id)
+               AND NOT EXISTS (SELECT 1 FROM case_scores s WHERE s.case_id = c.case_id)
+               AND NOT EXISTS (SELECT 1 FROM stage_runs r WHERE r.case_id = c.case_id)
+               AND NOT EXISTS (SELECT 1 FROM video_case_matches m WHERE m.case_id = c.case_id)
+             ORDER BY case_id"""
+    with closing(connect(path)) as conn, conn:
+        ids = [r["case_id"] for r in conn.execute(sql).fetchall()]
+        if not dry_run:
+            conn.executemany("DELETE FROM cases WHERE case_id = ?", [(i,) for i in ids])
+    return ids
 
 
 # --- Excel import ------------------------------------------------------
