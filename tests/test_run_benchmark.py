@@ -243,3 +243,42 @@ class TestRecord:
 
     def test_default_results_path_is_the_real_ledger(self):
         assert run_benchmark.RESULTS.name == "runs.csv"
+
+
+class TestScore:
+    """score(): names redacted on both sides, then the designed L0/L1
+    normalization, so tags and spoken names are neutral."""
+
+    NAMES = {"learner": "Jamie Smith", "patient": "Alex Rivera", "preceptor": ""}
+
+    def test_name_in_hypothesis_matches_redacted_gold(self):
+        ref = "Hi, I'm [LEARNER_NAME]. Nice to meet you."
+        hyp = "hi im jamie smith nice to meet you"
+        assert run_benchmark.score(ref, hyp, self.NAMES)["wer"] == 0.0
+
+    def test_name_in_both_sides_is_neutral(self):
+        ref = "Hi, I'm Jamie Smith."
+        hyp = "Hi I'm Jamie Smyth"
+        assert run_benchmark.score(ref, hyp, self.NAMES)["wer"] == 0.0
+
+    def test_bracket_tags_are_not_scored_as_words(self):
+        ref = "OK [unintelligible] so [unclear: more?] tell me [laughter] about it"
+        hyp = "OK so tell me about it"
+        assert run_benchmark.score(ref, hyp, self.NAMES)["wer"] == 0.0
+
+    def test_l1_ignores_fillers_l0_does_not(self):
+        ref = "um so tell me about it"
+        hyp = "so tell me about it"
+        s = run_benchmark.score(ref, hyp, self.NAMES)
+        assert s["wer"] > 0 and s["wer_l1"] == 0.0
+
+    def test_backchannel_survives_l1(self):
+        s = run_benchmark.score("uh-huh yes", "uh-uh yes", self.NAMES)
+        assert s["wer_l1"] > 0
+
+    def test_no_names_skips_redaction(self):
+        s = run_benchmark.score("hi jamie", "hi jamie", None)
+        assert s["wer"] == 0.0
+
+    def test_scoring_label_is_in_fields(self):
+        assert "scoring" in run_benchmark.FIELDS and "wer_l1" in run_benchmark.FIELDS

@@ -142,3 +142,11 @@ class TestSharedTransformIdenticalBothSides:
         ref = "Well, UH, the patient's [unintelligible] chest hurt."
         hyp = "well the patient's chest hurt"
         assert normalize.to_filler_neutral(ref) == normalize.to_filler_neutral(hyp)
+
+
+class TestFreeStandingMarks:
+    def test_free_standing_dash_is_not_a_word(self):
+        assert normalize.scoring_base("I - I think -- so … ok") == "i i think so ok"
+
+    def test_attached_dashes_survive(self):
+        assert normalize.scoring_base("wh- mm-hmm") == "wh- mm-hmm"

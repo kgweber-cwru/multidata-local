@@ -70,6 +70,12 @@ _PUNCTUATION = re.compile(r"[.,!?;\"'()]")
 
 _WHITESPACE = re.compile(r"\s+")
 
+# A token with no letter or digit left after the above -- a free-standing
+# dash used to mark a pause or interruption ("I - I think"), an ellipsis, an
+# em dash. Markup, not a word: dropped so it can't count as one. Attached
+# dashes ("wh-", "mm-hmm") are untouched.
+_NO_WORD = re.compile(r"^[^\w]+$")
+
 
 def _tokenize(text):
     return text.split()
@@ -102,7 +108,7 @@ def scoring_base(text):
     text = strip_brackets(text)
     text = text.lower()
     text = _PUNCTUATION.sub("", text)
-    return _normalize_whitespace(text)
+    return " ".join(t for t in _tokenize(text) if not _NO_WORD.match(t))
 
 
 def to_filler_neutral(text):
