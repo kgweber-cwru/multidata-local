@@ -15,4 +15,5 @@ dependencies:
       - pandas
       - lxml
       - html5lib
+      - python-dotenv
       - pytest                # tests/ -- see pyproject.toml [tool.pytest.ini_options]

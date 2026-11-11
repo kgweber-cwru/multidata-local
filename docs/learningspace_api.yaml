@@ -1,0 +1,1236 @@
+openapi: 3.0.1
+info:
+  title: LearningSpace Reporting API
+  version: 1.4.0
+  description: >-
+    Provides access to the reporting data in LearningSpace. Authentication is
+    through a JWT obtained from `/w/api/v2/auth.cgi` using the LearningSpace API
+    Key generated on System Manager.
+paths:
+  /api/data/v1/activities:
+    get:
+      summary: Provides list of activities
+      operationId: getActivitiesV1
+      parameters: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ActivitiesV1Response'
+  /api/data/v1/cases:
+    get:
+      summary: Provides list of cases
+      operationId: getCasesV1
+      parameters: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CasesV1Response'
+  /api/data/v1/assessment/activity/{ActivityID}/case/{CaseID}/learner/{LearnerID}/comments:
+    get:
+      summary: Provides the content of the comments report
+      operationId: getCommentsReportV1ByActivityIDAndCaseIDAndLearnerID
+      parameters:
+        - name: ActivityID
+          in: path
+          description: ID of the activity
+          required: true
+          schema:
+            type: string
+        - name: CaseID
+          in: path
+          description: ID of the case
+          required: true
+          schema:
+            type: string
+        - name: LearnerID
+          in: path
+          description: ID of the user
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommentsReportV1Response'
+  /api/data/v1/events/activity/{ActivityID}:
+    get:
+      summary: Provides list of events of an activity
+      operationId: getEventsV1ByActivityID
+      parameters:
+        - name: ActivityID
+          in: path
+          description: GUID of the activity
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventsV1Response'
+  /api/data/v1/events/nbome:
+    get:
+      summary: Provides list of events that are marked ready for the API
+      operationId: getNbomeEventsV1
+      parameters: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NbomeEventsV1Response'
+  /api/data/v1/student-assessments/nbome/event/{EventID}:
+    get:
+      summary: >-
+        Provides student assessment results for an event. Adheres to the NBOME
+        format.
+      operationId: getNbomeStudentAssessmentsV1ByEventID
+      parameters:
+        - name: EventID
+          in: path
+          description: GUID of the event
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NbomeStudentAssessmentsV1Response'
+  /api/data/v1/student-video-recordings/nbome/event/{EventID}:
+    get:
+      summary: Provides student video recording files for an event and case combination
+      operationId: getNbomeStudentVideoRecordingsV1ByEventID
+      parameters:
+        - name: EventID
+          in: path
+          description: GUID of the event
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NbomeStudentVideoRecordingsV1Response'
+  /api/data/v1/assessment/activity/items:
+    get:
+      summary: >-
+        Provides list of activities with their cases and questions, with the
+        questions answer options
+      operationId: getRawDataActivityCaseItemsV1
+      parameters: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RawDataActivityCaseItemsV1Response'
+  /api/data/v1/assessment/activity/{ActivityID}/items:
+    get:
+      summary: >-
+        Provides list of activities with their cases and questions, with the
+        questions answer options
+      operationId: getRawDataActivityCaseItemsV1ByActivityID
+      parameters:
+        - name: ActivityID
+          in: path
+          description: ID of the activity
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RawDataActivityCaseItemsV1Response'
+  /api/data/v1/assessment/activity/{ActivityID}/case/{CaseID}/items:
+    get:
+      summary: >-
+        Provides list of activities with their cases and questions, with the
+        questions answer options
+      operationId: getRawDataActivityCaseItemsV1ByActivityIDAndCaseID
+      parameters:
+        - name: ActivityID
+          in: path
+          description: ID of the activity
+          required: true
+          schema:
+            type: string
+        - name: CaseID
+          in: path
+          description: ID of the case
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RawDataActivityCaseItemsV1Response'
+  /api/data/v1/assessment/activity/{ActivityID}/responses:
+    get:
+      summary: Provides list of responses by learners for activity cases
+      operationId: getRawDataActivityCaseResponsesV1ByActivityID
+      parameters:
+        - name: ActivityID
+          in: path
+          description: ID of the activity
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RawDataActivityCaseResponsesV1Response'
+  /api/data/v1/assessment/activity/{ActivityID}/case/{CaseID}/responses:
+    get:
+      summary: Provides list of responses by learners for activity cases
+      operationId: getRawDataActivityCaseResponsesV1ByActivityIDAndCaseID
+      parameters:
+        - name: ActivityID
+          in: path
+          description: ID of the activity
+          required: true
+          schema:
+            type: string
+        - name: CaseID
+          in: path
+          description: ID of the case
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RawDataActivityCaseResponsesV1Response'
+  /api/data/v1/assessment/activity/{ActivityID}/case/{CaseID}/learner/{LearnerID}/responses:
+    get:
+      summary: Provides list of responses by learners for activity cases
+      operationId: getRawDataActivityCaseResponsesV1ByActivityIDAndCaseIDAndLearnerID
+      parameters:
+        - name: ActivityID
+          in: path
+          description: ID of the activity
+          required: true
+          schema:
+            type: string
+        - name: CaseID
+          in: path
+          description: ID of the case
+          required: true
+          schema:
+            type: string
+        - name: LearnerID
+          in: path
+          description: ID of the user
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RawDataActivityCaseResponsesV1Response'
+  /api/data/v1/students:
+    get:
+      summary: Provides list of students
+      operationId: getStudentsV1
+      parameters: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StudentsV1Response'
+  /api/data/v1/student-video-recordings/event/{EventID}/case/{CaseID}/student/{StudentID}:
+    get:
+      summary: Provides student video recordings for an event, case combination
+      operationId: getStudentVideoRecordingsV1ByEventIDAndCaseIDAndStudentID
+      parameters:
+        - name: EventID
+          in: path
+          description: GUID of the event
+          required: true
+          schema:
+            type: string
+        - name: CaseID
+          in: path
+          description: GUID of the case
+          required: true
+          schema:
+            type: string
+        - name: StudentID
+          in: path
+          description: GUID of the student
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StudentVideoRecordingsV1Response'
+  /api/data/v1/video-files/video-recording/{VideoRecordingID}:
+    get:
+      summary: Provides list of video files
+      operationId: getVideoFilesV1ByVideoRecordingID
+      parameters:
+        - name: VideoRecordingID
+          in: path
+          description: GUID of the video recording
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VideoFilesV1Response'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    ActivitiesV1:
+      type: object
+      properties:
+        ID:
+          type: string
+          description: GUID of the activity
+        Title:
+          type: string
+          description: Title of activity
+        StartDate:
+          type: string
+          description: Start date of activity
+        EndDate:
+          type: string
+          description: End date of activity
+        LearnerGroupID:
+          type: string
+          description: GUID of learner group
+          nullable: true
+        LearnerGroupName:
+          type: string
+          description: Name of the learner group
+          nullable: true
+        SPGroupID:
+          type: string
+          description: GUID of the SP group
+          nullable: true
+        SPGroupName:
+          type: string
+          description: Name of the SP group
+          nullable: true
+        FONGroupID:
+          type: string
+          description: GUID of the faculty group
+          nullable: true
+        FONGroupName:
+          type: string
+          description: Name of the faculty groups
+          nullable: true
+    ActivitiesV1Response:
+      type: object
+      description: ActivitiesV1 Response Object
+      properties:
+        success:
+          type: boolean
+        total:
+          type: integer
+          description: total number of records
+        offset:
+          type: integer
+          description: returning records from this offset
+        limit:
+          type: integer
+          description: number of records returned in this request
+        filter:
+          type: string
+          description: >-
+            Optional filters by column name (substring match). Add query params
+            matching view columns (e.g. ActivityTitle=EMS Matches when the
+            column contains the value. Reserved: offset, limit.
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/ActivitiesV1'
+    CasesV1:
+      type: object
+      properties:
+        ID:
+          type: string
+          description: GUID of the case
+        Patient:
+          type: string
+          description: Patient or title of case
+          nullable: true
+        PresentingComplaint:
+          type: string
+          description: Presenting complaint of case
+          nullable: true
+        Title:
+          type: string
+          description: Title of the case
+          nullable: true
+        CaseNumber:
+          type: string
+          description: Case number
+          nullable: true
+        ShortID:
+          type: string
+          description: Short ID of the case
+          nullable: true
+        Diagnosis:
+          type: string
+          description: Diagnosis of the case
+          nullable: true
+        Description:
+          type: string
+          description: Description of the case
+          nullable: true
+        VideoSelfReviewInstructions:
+          type: string
+          description: Video self-review instructions for the case
+          nullable: true
+    CasesV1Response:
+      type: object
+      description: CasesV1 Response Object
+      properties:
+        success:
+          type: boolean
+        total:
+          type: integer
+          description: total number of records
+        offset:
+          type: integer
+          description: returning records from this offset
+        limit:
+          type: integer
+          description: number of records returned in this request
+        filter:
+          type: string
+          description: >-
+            Optional filters by column name (substring match). Add query params
+            matching view columns (e.g. ActivityTitle=EMS Matches when the
+            column contains the value. Reserved: offset, limit.
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/CasesV1'
+    CommentsReportV1:
+      type: object
+      properties:
+        LearnerName:
+          type: string
+          description: Full name of the user
+          nullable: true
+        LearnerID:
+          type: string
+          description: Unique ID of the user
+        LearnerUCID:
+          type: string
+          description: UCID of the user
+          nullable: true
+        LearnerACID:
+          type: string
+          description: Additional custom ID of the user
+          nullable: true
+        ActivityTitle:
+          type: string
+          description: Title of the activity
+        ActivityID:
+          type: string
+          description: ID of the activity
+        CaseID:
+          type: string
+          description: ID of the case
+        CaseTitle:
+          type: string
+          description: Title of the case
+          nullable: true
+        QuestionID:
+          type: string
+          description: ID of the question
+        QuestionPhrase:
+          type: string
+          description: The text or phrase of the question
+          nullable: true
+        AchievedPoints:
+          type: number
+          description: Number of points the user achieved for the question
+          nullable: true
+        SectionID:
+          type: string
+          description: ID of the section
+        SectionRank:
+          type: integer
+          description: Order of the section within the case part
+        SectionTitle:
+          type: string
+          description: Title of the section
+        SectionAbbreviation:
+          type: string
+          description: Short title of the section
+          nullable: true
+        SubmitID:
+          type: string
+          description: ID of the submit
+          nullable: true
+        SubmitDate:
+          type: string
+          description: Date of the submit
+          nullable: true
+        SubmitterID:
+          type: string
+          description: ID of the submitter
+          nullable: true
+        SubmitterUCID:
+          type: string
+          description: UCID of the submitter
+          nullable: true
+        SubmitterACID:
+          type: string
+          description: Additional custom ID of the submitter
+          nullable: true
+        SubmitterName:
+          type: string
+          description: Full name of the submitter
+          nullable: true
+        AnswerText:
+          type: string
+          description: The user's answer to the question
+          nullable: true
+        Comment:
+          type: string
+          description: Comment provided in OEQS for the learner's response
+          nullable: true
+        CasePart:
+          type: string
+          description: Name of the specific part of the case to which the response belongs
+          nullable: true
+        isReportedCommentItem:
+          type: string
+          description: Marked as a "Reported Comment Item" in case editor
+    CommentsReportV1Response:
+      type: object
+      description: CommentsReportV1 Response Object
+      properties:
+        success:
+          type: boolean
+        total:
+          type: integer
+          description: total number of records
+        offset:
+          type: integer
+          description: returning records from this offset
+        limit:
+          type: integer
+          description: number of records returned in this request
+        filter:
+          type: string
+          description: >-
+            Optional filters by column name (substring match). Add query params
+            matching view columns (e.g. ActivityTitle=EMS Matches when the
+            column contains the value. Reserved: offset, limit.
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/CommentsReportV1'
+    EventsV1:
+      type: object
+      properties:
+        ID:
+          type: integer
+          description: GUID of the event
+        ActivityID:
+          type: string
+          description: GUID of the activity
+        Title:
+          type: string
+          description: Title of event
+          nullable: true
+        StartTime:
+          type: string
+          description: Start date/time of event
+        EndTime:
+          type: string
+          description: End date/time of event
+          nullable: true
+    EventsV1Response:
+      type: object
+      description: EventsV1 Response Object
+      properties:
+        success:
+          type: boolean
+        total:
+          type: integer
+          description: total number of records
+        offset:
+          type: integer
+          description: returning records from this offset
+        limit:
+          type: integer
+          description: number of records returned in this request
+        filter:
+          type: string
+          description: >-
+            Optional filters by column name (substring match). Add query params
+            matching view columns (e.g. ActivityTitle=EMS Matches when the
+            column contains the value. Reserved: offset, limit.
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/EventsV1'
+    NbomeEventsV1:
+      type: object
+      properties:
+        EventID:
+          type: integer
+          description: GUID of the event
+        ActivityID:
+          type: string
+          description: GUID of the activity
+        InstitutionName:
+          type: string
+          description: Name of the institution
+          nullable: true
+        Title:
+          type: string
+          description: Title of event
+          nullable: true
+        Comments:
+          type: string
+          description: Comments/notes
+          nullable: true
+        StartTime:
+          type: string
+          description: Start date/time of event
+        EndTime:
+          type: string
+          description: End date/time of event
+          nullable: true
+        AMPM:
+          type: string
+          description: Indicator if the event started before (AM) or after (PM) noon
+    NbomeEventsV1Response:
+      type: object
+      description: NbomeEventsV1 Response Object
+      properties:
+        success:
+          type: boolean
+        total:
+          type: integer
+          description: total number of records
+        offset:
+          type: integer
+          description: returning records from this offset
+        limit:
+          type: integer
+          description: number of records returned in this request
+        filter:
+          type: string
+          description: >-
+            Optional filters by column name (substring match). Add query params
+            matching view columns (e.g. ActivityTitle=EMS Matches when the
+            column contains the value. Reserved: offset, limit.
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/NbomeEventsV1'
+    NbomeStudentAssessmentsV1:
+      type: object
+      properties:
+        EventID:
+          type: integer
+          description: GUID of the event
+        ExamDate:
+          type: string
+          description: Date of the exam
+          nullable: true
+        RoomNumber:
+          type: string
+          description: Name of the room the learner took the exam in
+        StudentNBOMEID:
+          type: string
+          description: The learner's NBOME ID (Additional Custom ID in LearningSpace)
+          nullable: true
+        SPNBOMEID:
+          type: string
+          description: The SP's NBOME ID (Additional Custom ID in LearningSpace)
+          nullable: true
+        SPName:
+          type: string
+          description: Name of the SP
+          nullable: true
+        CaseNumber:
+          type: string
+          description: The case number
+          nullable: true
+        SectionID:
+          type: string
+          description: The section GUID
+        SectionType:
+          type: string
+          description: The type of section (SP or learner)
+          nullable: true
+        SubmitID:
+          type: string
+          description: The GUID of the submit
+        SubmitterNBOMEID:
+          type: string
+          description: >-
+            The submitter's (learner or SP) NBOME ID (Additional Custom ID in
+            LearningSpace)
+          nullable: true
+        QuestionID:
+          type: string
+          description: GUID of the question
+        QuestionText:
+          type: string
+          description: The text of the question
+          nullable: true
+        QuestionType:
+          type: string
+          description: The question type, e.g. dropdown, checkbox, etc.
+          nullable: true
+        Response:
+          type: string
+          description: The response for the question
+          nullable: true
+        QuestionSortOrder:
+          type: integer
+          description: The rank of the question in the section
+    NbomeStudentAssessmentsV1Response:
+      type: object
+      description: NbomeStudentAssessmentsV1 Response Object
+      properties:
+        success:
+          type: boolean
+        total:
+          type: integer
+          description: total number of records
+        offset:
+          type: integer
+          description: returning records from this offset
+        limit:
+          type: integer
+          description: number of records returned in this request
+        filter:
+          type: string
+          description: >-
+            Optional filters by column name (substring match). Add query params
+            matching view columns (e.g. ActivityTitle=EMS Matches when the
+            column contains the value. Reserved: offset, limit.
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/NbomeStudentAssessmentsV1'
+    NbomeStudentVideoRecordingsV1:
+      type: object
+      properties:
+        VideoRecordingID:
+          type: string
+          description: GUID of the video recording
+        VideoFileID:
+          type: string
+          description: GUID of the video file
+          nullable: true
+        RoomID:
+          type: string
+          description: GUID of the room
+          nullable: true
+        ActivityID:
+          type: string
+          description: GUID of the activity
+        EventID:
+          type: integer
+          description: GUID of the event
+        CaseNumber:
+          type: string
+          description: The case number
+          nullable: true
+        RecordingDateTime:
+          type: string
+          description: Date and time of the video recording
+        Title:
+          type: string
+          description: Title of the video recording
+          nullable: true
+        StudentNBOMEID:
+          type: string
+          description: The learner's NBOME ID (Additional Custom ID in LearningSpace)
+          nullable: true
+        LengthSeconds:
+          type: integer
+          description: Length of the video file in seconds
+          nullable: true
+        SizeBytes:
+          type: integer
+          description: Size of the video file in bytes
+          nullable: true
+        LearningSpaceSerial:
+          type: string
+          description: Serial number of the LearningSpace server holding the video file
+          nullable: true
+        Filename:
+          type: string
+          description: File name of the video file
+        CameraID:
+          type: integer
+          description: ID of the camera
+          nullable: true
+    NbomeStudentVideoRecordingsV1Response:
+      type: object
+      description: NbomeStudentVideoRecordingsV1 Response Object
+      properties:
+        success:
+          type: boolean
+        total:
+          type: integer
+          description: total number of records
+        offset:
+          type: integer
+          description: returning records from this offset
+        limit:
+          type: integer
+          description: number of records returned in this request
+        filter:
+          type: string
+          description: >-
+            Optional filters by column name (substring match). Add query params
+            matching view columns (e.g. ActivityTitle=EMS Matches when the
+            column contains the value. Reserved: offset, limit.
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/NbomeStudentVideoRecordingsV1'
+    RawDataActivityCaseItemsV1:
+      type: object
+      properties:
+        ActivityTitle:
+          type: string
+          description: Title of the activity
+        ActivityID:
+          type: string
+          description: ID of the activity
+        CaseID:
+          type: string
+          description: ID of the case
+        CaseTitle:
+          type: string
+          description: Title of the case
+          nullable: true
+        SectionID:
+          type: string
+          description: ID of the section
+        SectionRank:
+          type: integer
+          description: Order of the section within the case part
+        SectionTitle:
+          type: string
+          description: Title of the section
+        SectionAbbreviation:
+          type: string
+          description: Short title or abbreviation of the section
+          nullable: true
+        CasePart:
+          type: string
+          description: Name of the case part (e.g. Pre-Encounter, SP)
+          nullable: true
+        QuestionID:
+          type: string
+          description: ID of the question
+        QuestionPhrase:
+          type: string
+          description: Question text or phrase
+          nullable: true
+        QuestionRank:
+          type: integer
+          description: Order of the question within the section
+        QuestionType:
+          type: string
+          description: Question type name (e.g. Radiobutton, Drop-down)
+          nullable: true
+        AnswerValue:
+          type: number
+          description: Value of a possible answer option for the question
+          nullable: true
+        QuestionnaireItemPhrase:
+          type: string
+          description: >-
+            Phrase of the questionnaire item from the special section; NULL when
+            the question does not use questionnaire scoring
+          nullable: true
+        AnswerDescription:
+          type: string
+          description: Text or phrase for that answer option
+          nullable: true
+        AnswerRank:
+          type: integer
+          description: Order of the answers within the question
+          nullable: true
+        MinScore:
+          type: number
+          description: >-
+            Minimum score for an OEQS question with direct scoring; NULL
+            otherwise
+          nullable: true
+        MaxScore:
+          type: number
+          description: >-
+            Maximum score for an OEQS question with direct scoring; NULL
+            otherwise
+          nullable: true
+        isHiddenCase:
+          type: string
+          description: >-
+            Whether the case is marked hidden in Case Manager ('true' or
+            'false')
+    RawDataActivityCaseItemsV1Response:
+      type: object
+      description: RawDataActivityCaseItemsV1 Response Object
+      properties:
+        success:
+          type: boolean
+        total:
+          type: integer
+          description: total number of records
+        offset:
+          type: integer
+          description: returning records from this offset
+        limit:
+          type: integer
+          description: number of records returned in this request
+        filter:
+          type: string
+          description: >-
+            Optional filters by column name (substring match). Add query params
+            matching view columns (e.g. ActivityTitle=EMS Matches when the
+            column contains the value. Reserved: offset, limit.
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/RawDataActivityCaseItemsV1'
+    RawDataActivityCaseResponsesV1:
+      type: object
+      properties:
+        LearnerName:
+          type: string
+          description: Full name of the user
+          nullable: true
+        LearnerID:
+          type: string
+          description: ID of the user
+        LearnerUCID:
+          type: string
+          description: UCID of the user
+          nullable: true
+        LearnerACID:
+          type: string
+          description: Additional custom ID of the user
+          nullable: true
+        ActivityTitle:
+          type: string
+          description: Title of the activity
+        ActivityID:
+          type: string
+          description: ID of the activity
+        LearnerGroupID:
+          type: string
+          description: Group ID of the activity
+        CaseID:
+          type: string
+          description: ID of the case
+        CasePart:
+          type: string
+          description: Name of the case part (e.g. Pre-Encounter, SP)
+          nullable: true
+        CaseTitle:
+          type: string
+          description: Title of the case
+          nullable: true
+        QuestionID:
+          type: string
+          description: ID of the question
+        ScorePercentage:
+          type: number
+          description: Percentage of achieved score per item
+          nullable: true
+        AchievedPoints:
+          type: number
+          description: Number of achieved points
+          nullable: true
+        MaxAchievable:
+          type: number
+          description: Number of max achievable points
+          nullable: true
+        SectionID:
+          type: string
+          description: ID of the section
+        SectionTitle:
+          type: string
+          description: Title of the section
+        SectionAbbreviation:
+          type: string
+          description: Short title of the section
+          nullable: true
+        SectionWeight:
+          type: number
+          description: Score weight of the section
+        ActivityStartDate:
+          type: string
+          description: Start date of the activity
+        ActivityEndDate:
+          type: string
+          description: End date of the activity
+        AnswerText:
+          type: string
+          description: The answer for a question given by the user
+          nullable: true
+        VirtualSectionTags:
+          type: string
+          description: Virtual section tags
+          nullable: true
+        Client:
+          type: string
+          description: Client type set for the activity
+        SubmitID:
+          type: string
+          description: ID of the submit
+          nullable: true
+        SubmitDate:
+          type: string
+          description: Date of the submit
+          nullable: true
+        ItemComment:
+          type: string
+          description: Comment submitted in item level comment box during data entry
+          nullable: true
+        SubmitterID:
+          type: string
+          description: ID of the submitter
+          nullable: true
+        SubmitterUCID:
+          type: string
+          description: UCID of the submitter
+          nullable: true
+        SubmitterACID:
+          type: string
+          description: Additional custom ID of the submitter
+          nullable: true
+        SubmitterName:
+          type: string
+          description: Full name of the submitter
+          nullable: true
+    RawDataActivityCaseResponsesV1Response:
+      type: object
+      description: RawDataActivityCaseResponsesV1 Response Object
+      properties:
+        success:
+          type: boolean
+        total:
+          type: integer
+          description: total number of records
+        offset:
+          type: integer
+          description: returning records from this offset
+        limit:
+          type: integer
+          description: number of records returned in this request
+        filter:
+          type: string
+          description: >-
+            Optional filters by column name (substring match). Add query params
+            matching view columns (e.g. ActivityTitle=EMS Matches when the
+            column contains the value. Reserved: offset, limit.
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/RawDataActivityCaseResponsesV1'
+    StudentsV1:
+      type: object
+      properties:
+        UserID:
+          type: string
+          description: GUID of the student
+        UserEmail:
+          type: string
+          description: Email address of the student
+          nullable: true
+        UserName:
+          type: string
+          description: Full name of the student
+          nullable: true
+        NBOMEID:
+          type: string
+          description: The learner's NBOME ID (Additional Custom ID in LearningSpace)
+          nullable: true
+    StudentsV1Response:
+      type: object
+      description: StudentsV1 Response Object
+      properties:
+        success:
+          type: boolean
+        total:
+          type: integer
+          description: total number of records
+        offset:
+          type: integer
+          description: returning records from this offset
+        limit:
+          type: integer
+          description: number of records returned in this request
+        filter:
+          type: string
+          description: >-
+            Optional filters by column name (substring match). Add query params
+            matching view columns (e.g. ActivityTitle=EMS Matches when the
+            column contains the value. Reserved: offset, limit.
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/StudentsV1'
+    StudentVideoRecordingsV1:
+      type: object
+      properties:
+        ID:
+          type: string
+          description: GUID of the video recording
+        RoomID:
+          type: string
+          description: GUID of the room
+          nullable: true
+        ActivityID:
+          type: string
+          description: GUID of the activity
+        EventID:
+          type: integer
+          description: GUID of the event
+        CaseID:
+          type: string
+          description: GUID of the case
+        RecordingDateTime:
+          type: string
+          description: Date and time of the video recording
+        Title:
+          type: string
+          description: Title of the video recording
+          nullable: true
+        StudentID:
+          type: string
+          description: GUID of the student
+    StudentVideoRecordingsV1Response:
+      type: object
+      description: StudentVideoRecordingsV1 Response Object
+      properties:
+        success:
+          type: boolean
+        total:
+          type: integer
+          description: total number of records
+        offset:
+          type: integer
+          description: returning records from this offset
+        limit:
+          type: integer
+          description: number of records returned in this request
+        filter:
+          type: string
+          description: >-
+            Optional filters by column name (substring match). Add query params
+            matching view columns (e.g. ActivityTitle=EMS Matches when the
+            column contains the value. Reserved: offset, limit.
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/StudentVideoRecordingsV1'
+    VideoFilesV1:
+      type: object
+      properties:
+        ID:
+          type: string
+          description: GUID of the video file
+          nullable: true
+        VideoRecordingID:
+          type: string
+          description: GUID of the video recording
+        LengthSeconds:
+          type: integer
+          description: Length of the video file in seconds
+          nullable: true
+        SizeBytes:
+          type: integer
+          description: Size of the video file in bytes
+          nullable: true
+        LearningSpaceSerial:
+          type: string
+          description: Serial number of the LearningSpace server holding the video file
+          nullable: true
+        Filename:
+          type: string
+          description: File name of the video file
+    VideoFilesV1Response:
+      type: object
+      description: VideoFilesV1 Response Object
+      properties:
+        success:
+          type: boolean
+        total:
+          type: integer
+          description: total number of records
+        offset:
+          type: integer
+          description: returning records from this offset
+        limit:
+          type: integer
+          description: number of records returned in this request
+        filter:
+          type: string
+          description: >-
+            Optional filters by column name (substring match). Add query params
+            matching view columns (e.g. ActivityTitle=EMS Matches when the
+            column contains the value. Reserved: offset, limit.
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/VideoFilesV1'
+security:
+  - bearerAuth: []
