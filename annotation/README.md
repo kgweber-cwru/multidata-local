@@ -95,7 +95,7 @@ processing host's ssh name (during the pilot, `tofino`).
    `gold`.
 
 When something is done, tidy its Box folder away (a `complete/` folder is
-fine). Box is a courier, not an archive -- the processing host has the copy that counts.
+fine). Box is a courier -- the processing host has the copy that counts.
 
 ## assignments.csv
 
