@@ -1,6 +1,8 @@
 # Annotator Guide — transcribing an encounter in ELAN
 
-Step-by-step instructions for producing one gold transcript.
+Step-by-step instructions for your part of a gold transcript: a first pass
+(pass 1) or an adjudication (pass 2). How your work is used afterwards is in
+[asr_evaluation_methods.md](asr_evaluation_methods.md).
 
 This guide tells you **what to do**. For *why* any rule exists, see
 [transcription_standards.md](transcription_standards.md) — cited as **[S§n]**
@@ -17,6 +19,9 @@ whoever maintains them.
 > - **Seeded pass 1**: your file opens with a machine transcript already on
 >   the tiers. Do Step 1 (open the file: never make a new one, or you lose the draft), then [Correcting a seeded draft](#correcting-a-seeded-draft-seeded-kits-only)
 >   instead of Steps 2–4, then Steps 5–7. **[S§9]**
+> - **Pass 2**: your file is someone else's finished pass 1
+>   (`<case_id>.pass2.eaf`). Read Steps 1–6 for the rules, then follow
+>   [Pass 2: adjudication](#pass-2-adjudication). **[S§9]**
 
 ---
 
@@ -25,7 +30,8 @@ whoever maintains them.
 You need:
 
 - **ELAN 7.x** installed
-- Your **kit** for the case: a folder holding `<case_id>.pass1.eaf`, a
+- Your **kit** for the case: a folder holding `<case_id>.pass1.eaf` (or
+  `.pass2.eaf` for pass 2), a
   `media/` folder with the video (`.mp4`) and audio (`.wav`), and a
   `README.txt` saying which kind of pass it is. Keep the folder whole: the
   file finds its media through `media/`.
@@ -40,7 +46,8 @@ most of a day. That's normal and it is not a sign you're doing it wrong.
 
 ## Step 1 — Open your file
 
-Your kit already contains the file: open **`<case_id>.pass1.eaf`** from the
+Your kit already contains the file: open **`<case_id>.pass1.eaf`** (pass 2:
+**`<case_id>.pass2.eaf`**) from the
 kit folder in ELAN. It was made from the project template with the video and
 audio linked, so ELAN shouldn't ask where the media is. You should see the
 template's six tiers: `LEARNER`, `PATIENT`, `PRECEPTOR`, `ANNOUNCEMENT`,
@@ -178,7 +185,7 @@ line you leave unchanged must be one you listened to and found right.
    topic, merge where the machine cut one utterance in two, trim or extend
    edges to the speech.
 4. **Add what the machine missed.** It drops quiet speech, overlapped speech
-   and, above all, **backchannels** (`mm-hm`, `uh-huh`) and **filled pauses**
+   and, above all, **backchannels** (`mm-hmm`, `uh-huh`) and **filled pauses**
    (`um`, `uh`). Go through each tier listening for them, and segment them as
    in Step 3.
 5. **Correct every word**, in ~30-second bites as in Step 4, applying all the
@@ -197,7 +204,7 @@ as if it weren't: the listening is the same.
 
 | Situation | Write |
 |---|---|
-| Can't make out any of it | `[unintelligible]` |
+| Can't make out any of it | `[unintelligible]` (not `[unclear]` or a bare `[word?]`: one form, always) |
 | Have a decent guess | `[unintelligible: pressure?]` |
 | Can't tell `uh-huh` from `uh-uh` | `[unintelligible: uh-huh?]` |
 | Don't know the medical term | best phonetic guess in `[unintelligible: ...?]`, then flag it |
@@ -237,16 +244,43 @@ Don't use NOTES for transcription content.
    it — empty segments become phantom turns in the diarization reference.
    In a seeded kit, `UNASSIGNED` must be completely empty.
 2. **Spot-check five random segments** against the audio.
-3. **Save** as `<case_id>.pass1.eaf`.
-4. **Tell the project lead it's done.**
+3. **Save** in place, under the same name.
+4. **Tell the project coordinator it's done.**
 
-Once you report it complete, **pass 1 is frozen**. Don't reopen it to fix
+Once you report it complete, **your pass is frozen**. Don't reopen it to fix
 something you thought of later — report the concern instead. It gets handled in
 adjudication, where the change is recorded. **[S§9]**
 
 > **File handling:** your `.eaf` contains real names. Keep it on managed project
 > storage. Never email it, never put it in a personal cloud folder, never commit
 > it. **[S§8]**
+
+---
+
+## Pass 2: adjudication
+
+You have someone else's finished pass 1. Your job is to decide what the audio
+actually contains. You are not grading pass 1 or reconciling two versions.
+Everything in Steps 3–6 applies to you as well.
+
+1. **Listen through once** (Step 2) before changing anything.
+2. **Go tier by tier through the whole recording**, listening to every
+   annotation. Correct the words, the markup, the boundaries, and the tier
+   (who spoke).
+3. **Listen for what's missing.** Pass 1 most often misses backchannels,
+   filled pauses, quiet or overlapped speech, PA announcements and hallway
+   speech. Segment and transcribe anything missing.
+4. **Uncertain spans.** Where pass 1 wrote `[unintelligible]`, try again. If
+   you can hear it, transcribe it; if not, leave it.
+5. **Don't ask the pass-1 annotator** what they meant. The audio decides.
+6. If the coordinator gave you a machine transcript, use it **only** to find
+   places worth re-listening. Never copy from it: a machine's plausible
+   errors are exactly what gold must not contain.
+7. Finish with Step 7.
+
+Disagreements with pass 1 that come from a rule being unclear, rather than
+from a mishearing, are worth a note to the coordinator: they usually mean
+the standards need fixing. **[S§12]**
 
 ---
 
@@ -310,7 +344,7 @@ how the list grows.
 | Writing `[LEARNER_NAME]` | Breaks scoring and hides what was actually said |
 | Guessing a term instead of flagging | Turns a free non-answer into a counted error |
 | Chasing exact word boundaries | Nothing uses that precision |
-| Reopening a frozen pass 1 | Destroys the blind-pass property |
+| Reopening a frozen pass | Destroys the blind-pass property |
 | Leaving a seeded line unchanged without listening to it | Copies the machine's errors into gold, where they flatter that machine |
 
 ---

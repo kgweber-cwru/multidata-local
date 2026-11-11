@@ -3,11 +3,13 @@
 The conventions that govern every gold reference in this project — what gets
 transcribed, how it's written, and what happens to it afterward.
 
-This is the **policy document**. For the step-by-step ELAN walkthrough, see
-[annotator_guide.md](annotator_guide.md). For how these standards meet the ASR
-benchmark, see [asr_provider_spec.md](asr_provider_spec.md).
+This is the **policy document**: the conventions and the reasons for them.
+For the whole procedure from kit to score, see
+[asr_evaluation_methods.md](asr_evaluation_methods.md); for the ELAN
+walkthrough, [annotator_guide.md](annotator_guide.md); for the commands,
+[../annotation/README.md](../annotation/README.md).
 
-> **Scope:** we benchmark on *our* audio — OSCE simulated-patient encounters —
+> **Scope:** we benchmark on *our* audio — simulated encounters in our sim center —
 > not public datasets. Generic WER numbers don't transfer to this domain. That's
 > the entire reason this document exists.
 
@@ -77,7 +79,7 @@ nobody later mistakes an excerpt for a full transcript.
 cross-provider scoring requires a case that's cloud-releasable
 (`cases.cloud_release`, provider spec §9). Draw the sample from releasable cases
 only, so every reference scores every engine. Today that's no constraint at all —
-the corpus is uniformly OSCE — but note it before the pool stops being uniform.
+the corpus is uniformly simulated encounters — but note it before the pool stops being uniform.
 
 ---
 
@@ -91,17 +93,17 @@ for a genuinely unanticipated party.
 | `LEARNER` | the student | ✅ | ✅ |
 | `PATIENT` | the standardized patient | ✅ | ✅ |
 | `PRECEPTOR` | the supervising clinician | ✅ | ✅ |
-| `ANNOUNCEMENT` | PA / station timing calls | ❌ | ✅ |
-| `OUTSIDE_ROOM` | intelligible hallway bleed | ❌ | ✅ |
+| `ANNOUNCEMENT` | PA / station timing calls | ✅ | ✅ |
+| `OUTSIDE_ROOM` | intelligible hallway bleed | ✅ | ✅ |
 | `NOTES` | annotator observations | ❌ | ❌ |
 
-**Why `ANNOUNCEMENT` and `OUTSIDE_ROOM` are in the RTTM but not the transcript:**
-the benchmark should measure transcription of the *encounter*, not whether an
-engine caught a stranger in the hallway. But a diarizer will detect those voices
-as acoustically distinct regardless of what gold says — omitting them from the
-RTTM entirely would falsely penalize a diarizer via DER for correctly noticing a
-real extra voice. Transcribe them (§5's verbatim rule applies — don't silently
-drop real audio), then exclude the text and keep the boundaries.
+**Why `ANNOUNCEMENT` and `OUTSIDE_ROOM` are scored:** the question is whether
+an engine hears what a person in the room hears. Engines transcribe the PA
+and the hallway; leaving that text out of gold would count every word an
+engine got right there as an error (about 7% of the words in 261498). And a
+diarizer that notices a real extra voice should be credited for it, not
+penalized. So transcribe them like any other speech (until 1.1 their text was
+left out of `gold.txt`; see §12).
 
 **`NOTES` is sparse and non-exhaustive.** Free text, no timing precision required.
 It exists to answer "why did this case score badly?" — noise bursts, very quiet
@@ -259,15 +261,18 @@ One source, three renderings. Each is a deterministic transform of the one above
 
 | Level | Contents | Purpose |
 |---|---|---|
-| **L0 verbatim** | everything in §6 | the gold file; **immutable** |
-| **L1 filler-neutral** | L0 − filled pauses, prolongation marks, bracketed spans | second WER number |
+| **L0 verbatim** | everything in §6, minus bracketed spans | first WER number (`wer`, `cer`) |
+| **L1 filler-neutral** | L0 − filled pauses, − prolongation marks | second WER number (`wer_l1`) |
 | **L2 clean** | L1 − fragments, − collapsed repetitions | readable transcript for others |
 
 **L0 and L1 are scoring profiles. L2 is a deliverable, never a metric.**
 
-Shared transforms applied identically to reference and hypothesis: casing,
-punctuation, whitespace, **bracket stripping**, name redaction (§8), number
-canonicalization.
+Shared transforms applied identically to reference and hypothesis at every
+level: name redaction (§8), then **bracket stripping**, casing, punctuation,
+and whitespace (`multidata.normalize`; the exact rules are in
+[asr_evaluation_methods.md](asr_evaluation_methods.md) §4.2). **Number
+canonicalization is not implemented yet**: until it is, a reference's "one
+twenty" against an engine's "120" counts as an error.
 
 > **Known limitation:** L2 drops the fragment token but *not* the whole abandoned
 > phrase — `I went- I drove` becomes `I went I drove`, not `I drove`. Removing
@@ -301,11 +306,13 @@ anyway. Since the list is needed either way, use it once, mechanically.
 names, raw provider responses, normalized transcripts. Scoring happens here.
 
 **Layer 2 — publishable layer** (`benchmarks/references/`, tracked): the
-de-identified gold export, produced **mechanically** from Layer 1. Never
-hand-edited.
+de-identified gold export, produced **mechanically** from Layer 1. The one
+sanctioned hand edit is masking a name the mechanical redaction missed, which
+is recorded (without the name) in `annotation/assignments.csv`
+([asr_evaluation_methods.md](asr_evaluation_methods.md) §3.2).
 
-The redaction map is **already in the manifest** — `cases.learner_name`,
-`cases.sp_name` (and `preceptor_name`, to be added). No separate name file.
+The redaction map is **in the manifest**: `cases.learner_name`,
+`cases.sp_name`, `cases.preceptor_name` (often empty). No separate name file.
 
 Redaction is applied to both reference and hypothesis before scoring, so the
 reported number belongs to text you can actually publish.
@@ -374,12 +381,13 @@ Rules that keep route B reproducible:
 
 ### Pass 2 — adjudication (both routes)
 
-Only after pass 1 is frozen may a machine draft be consulted. Divergences flag
-spots to **re-listen** — never to accept. The reviewer's job is to decide what
-the audio actually contains, not to reconcile two documents. Output is
-`<case_id>.gold.eaf`. In route B the reviewer should consult a draft *other*
-than the seed (the pipeline's own transcript), since the seed already shaped
-pass 1.
+A different person works on a copy of the frozen pass 1
+(`<case_id>.pass2.eaf`); the result becomes `<case_id>.gold.eaf`. The
+reviewer's job is to decide what the audio actually contains, not to
+reconcile two documents. In route A, a machine draft may be consulted, but
+only once pass 1 is frozen and only to flag spots to **re-listen**, never to
+accept. In route B, no machine draft is consulted: the only one available
+(the pipeline's) comes from the seed engine, which already shaped pass 1.
 
 Because pass 1 is preserved, the human-vs-machine divergence rate is a free
 signal: a systematic pattern in it usually means either a convention gap (§12) or
@@ -439,7 +447,8 @@ elan/
 └── template.etf                        # the versioned annotation template
 
 annotation/kits/<case_id>/<annotator>/  # GITIGNORED — each pass as built and returned
-├── <case_id>.pass1.eaf                 # frozen pass 1 (blind or seeded)
+├── <case_id>.pass1.eaf                 # frozen pass 1 (blind or seeded), or
+├── <case_id>.pass2.eaf                 #   the adjudication, in the pass-2 annotator's kit
 └── kit.json                            # what the kit is, incl. how pass 1 was made
 
 data/gold/<case_id>/                    # GITIGNORED — Layer 1, real names
@@ -455,7 +464,7 @@ benchmarks/
 │   └── <case_id>.gold.json             # how pass 1 was made (blind/seeded + seed), version, span
 ├── runs/                               # GITIGNORED — per-run outputs
 └── results/
-    └── runs.csv                        # TRACKED — append-only, provenance-stamped
+    └── runs.csv                        # TRACKED — append-only, one row per scored run
 ```
 
 > **The template is tracked in git** (`elan/template.etf`), not under `data/` —
@@ -470,7 +479,7 @@ benchmarks/
 
 ### Current gaps
 
-- **DER scoring is not implemented** in `run_benchmark.py` — it computes WER/CER
+- **DER scoring is not implemented** in `run_benchmark.py`: it computes WER/CER
   only. Collecting the RTTM layer is not wasted (§5 produces exactly what DER
   needs), but don't expect a DER number until that path exists.
 
@@ -482,7 +491,10 @@ Changing §6 or §7 **invalidates comparisons across the change**. So:
 
 1. Every change gets a version bump and a dated entry below.
 2. Gold files record the standards version they were annotated under.
-3. `normalizer_version` in the benchmark provenance moves with §7.
+3. The `scoring` label in `runs.csv` (`run_benchmark.SCORING`) changes with
+   §7, and each row records the hash of the gold file it used, so scores
+   across either change are never shown side by side
+   (`scripts/bench_status.py`).
 4. Existing gold is **not** silently re-interpreted under new rules — either
    migrate it deliberately and say so, or scope results to a version.
 
@@ -493,4 +505,5 @@ the affected subset.
 | Version | Date | Change |
 |---|---|---|
 | 1.0 | 2026-08-26 | Initial standard. From-scratch blind annotation, utterance-level segmentation, L0/L1/L2 levels, verbatim names with mechanical redaction. Supersedes `gold_annotation_guide.md`. |
+| 1.2 | 2026-11-11 | §4: `ANNOUNCEMENT` and `OUTSIDE_ROOM` text goes into `gold.txt` (it was RTTM-only): engines hear and transcribe it, so leaving it out counted their correct words as errors. Annotation itself is unchanged; 261498 and 261505 re-exported. Scores against earlier exports are not comparable. |
 | 1.1 | 2026-11-01 | §9: adds route B, draft-seeded pass 1, as a fallback when annotators are scarce (fixed seed engine `whisperx_disfluent`/`large-v3`; provenance recorded; seed engine never scored against its own seeded gold; seeded results reported separately). §6/§7 unchanged, so 1.0 gold stays valid and comparable. |

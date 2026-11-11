@@ -1,6 +1,6 @@
 # Project status
 
-**Last updated: 2026-11-01.** Update this file whenever a working session
+**Last updated: 2026-11-11.** Update this file whenever a working session
 changes what's true; delete what stops being true rather than letting it
 rot. History lives in git and in the decision log at the end.
 
@@ -8,8 +8,8 @@ rot. History lives in git and in the decision log at the end.
 
 ## In one paragraph
 
-The pipeline takes clinical-encounter video (OSCE simulated-patient
-sessions, two PTZ cameras per exam room) to word-level transcripts with
+The pipeline takes clinical-encounter video (simulated encounters in our sim
+center, two PTZ cameras per exam room) to word-level transcripts with
 speakers, ELAN files, prosody, camera sync, camera-view segmentation and 2D
 body pose, all on the pilot's processing host (`tofino`). 57 cases (114 videos, ~75 h) are ingested,
 all in the small exam rooms. Two threads are active: **validating
@@ -29,7 +29,7 @@ transcription** (gold annotation and an ASR bake-off) and **moving pose to
 | views + preset names | Every video; 65 recurring views provisionally named, awaiting confirmation |
 | pose (HALPE_26) | Full re-run 2026-10-30 to 11-01; the 4 newly added cameras follow |
 | 3D | Not started: needs calibration ([pose_3d.md](pose_3d.md)) |
-| ASR benchmarking | Built and tested (spec Phases 1-2); one gold reference so far |
+| ASR benchmarking | Built and tested; scorer redacts names and uses the L0/L1 profiles (2026-11-11); two gold references |
 | Cost tracking | Every stage run recorded in `stage_runs`; [cost_estimate.md](cost_estimate.md) |
 
 - **Open (noted 2026-11-03): audio clock on room 11's camera 16.** That
@@ -52,22 +52,20 @@ transcription** (gold annotation and an ASR bake-off) and **moving pose to
 
 ## Transcription validation
 
-**Gold:** one reference, **261498** (annotated by Kelli, adjudicated by Kate,
-2026-10-28), in `benchmarks/references/`. Three earlier references (252848,
-261456, 261473, all Kate's) skipped pass 2 and were withdrawn to pass 1 on
-2026-10-28; their scores below are kept for the record only.
+**Gold:** two blind references in `benchmarks/references/`, both standards
+1.2: **261498** (pass 1 Kelli, pass 2 Kate) and **261505** (pass 1 Xiaomei,
+pass 2 Kate). Three earlier references (252848, 261456, 261473) skipped pass
+2 and were withdrawn to pass 1 on 2026-10-28; their rows in `runs.csv` were
+scored the old way and are history only.
 
-| Case (pass-1 reference) | Engine | WER | CER |
-|---|---|---|---|
-| 261456 | `whisperx` | 0.41 | 0.35 |
-| 261456 | `whisperx_disfluent` | 0.29 | 0.25 |
-| 261473 | `faster_whisper` | 0.41 | 0.35 |
-| 261473 | `whisperx_disfluent` | 0.41 | 0.32 |
-
-The disfluency-keeping config won on one case and not the other: no pattern
-yet, and its settings are a first guess, never swept. **Next:** score all
-local engines against 261498 (`python scripts/bench_status.py` shows the
-empty cells), then more gold.
+Nothing is scored against current gold yet: `python scripts/bench_status.py`
+shows the empty cells. A trial run (not in the ledger) gave L0 WER 0.25–0.31
+on 261498 and 0.23–0.30 on 261505 for `faster_whisper medium` and
+`whisperx_disfluent large-v3`, with the two engines trading places between
+cases. **Next:** score every local engine against both, then more gold and a
+first double annotation for a noise floor. The procedure is
+[asr_evaluation_methods.md](asr_evaluation_methods.md); its §5 lists what
+the scores don't yet account for.
 
 **Annotation** runs through Box: kits built on the processing host
 (`annotation/make_kit.py`), shared per annotator, returned there; who has
@@ -133,8 +131,7 @@ So a fresh read doesn't mistake these for forgotten:
 - A formal ASR adapter contract (plan Phase 3.1): engines are sibling
   functions until a cloud adapter needs more.
 - A glossary -> Whisper prompt renderer (Phase 3.4): the loader exists.
-- DER scoring against `.gold.rttm` (Phase 6.2), and wiring `normalize.py`'s
-  L0/L1 profiles into `run_benchmark.py` (Phase 6).
+- DER scoring against `.gold.rttm` (Phase 6.4).
 - Number canonicalization in `normalize.py`: waiting for gold with numbers.
 - Cutting an `.eaf` down to an excerpt at export (Phase 5.2): scoring a span
   works; annotators only segment the excerpt anyway.
@@ -151,6 +148,7 @@ Newest first. One line each; the reasoning is in the linked doc.
 
 | Date | Decision |
 |---|---|
+| 2026-11-11 | Gold text includes `ANNOUNCEMENT` and `OUTSIDE_ROOM` (standards 1.2): the question is whether engines hear what humans hear. Scorer redacts names on both sides and uses the L0/L1 profiles. Pass-2 kits and gold import scripted (`make_pass2_kit.py`, `eaf_to_gold.py --from-kit`). |
 | 2026-11-01 | Draft-seeded gold (standards 1.1, route B) as a fallback when annotators are scarce: pass 1 corrects a fixed `whisperx_disfluent`/`large-v3` transcript, provenance recorded, seed engine never scored against its own seeded gold. |
 | 2026-11-01 | Prosody is a pipeline stage (was notebook-only). Transcription Suite engine removed. Operators' preset names from Drew; recurring views labelled provisionally. Large rooms allowed again for transcription/2D; the 3D pilot stays small-room. No video trimming before pose. |
 | 2026-10-30 | Pose restarted for 3D: HALPE_26, 8 slots, WholeBody files deleted; large-room data deleted; own 3D module with Pose2Sim as reference ([pose_3d.md](pose_3d.md)); every stage's cost recorded in `stage_runs`. |
@@ -177,7 +175,6 @@ media" dialog.
 
 ## Housekeeping
 
-- Current work is on branch **`pose-3d-core`**, not yet merged to `main`.
 - Merged and safe to delete when convenient: `asr-provider-config`,
   `benchmark-bookkeeping`, `annotation-standards-and-asr-providers`.
 - Kate's own in-progress edits are sometimes left uncommitted: check

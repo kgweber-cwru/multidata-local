@@ -123,8 +123,8 @@ Provider-independent. All testable without a single API call.
 - [x] **1.4 Name redaction** (`multidata/redact.py` + `manifest.names_for_case`)
       — fuzzy-matched against the manifest's name columns, tag-based
       (`[LEARNER_NAME]` etc.) so it passes straight through the existing
-      bracket-stripping rule for free. *Done as a tested primitive* — tests
-      pass; **wiring it into an actual scoring run is Phase 6**, not done yet.
+      bracket-stripping rule for free. *Done*, and wired into
+      `run_benchmark.py` on both sides (2026-11-11).
 - [x] **1.5 Normalized record schema** (`multidata/records.py`) —
       `finalize_record`/`validate_record` with `schema_version`, `word_timing`,
       `chunked`, `provenance` (spec §4). A validator, not a class hierarchy.
@@ -304,9 +304,12 @@ from annotator output to a scoreable reference.
 Blocked on Phases 1, 2, and 5. First real numbers.
 
 - [ ] **6.1 Rework `run_benchmark.py`** — dual report, per-run directory, full
-      provenance row including **`gold_sha`**.
-- [ ] **6.2 Comparability guard** — refuse (or loudly warn) when comparing rows
-      with different `normalizer_version` or `gold_sha`.
+      provenance row including **`gold_sha`**. *Partly done 2026-11-11:*
+      names redacted on both sides, L0 `wer`/`cer` + L1 `wer_l1`, `scoring`
+      and `gold_sha256` columns. Still missing: provider/diarizer/glossary
+      columns, `cost_usd`.
+- [x] **6.2 Comparability guard** (minimal) — `bench_status.py` shows only
+      rows whose `scoring` and `gold_sha256` match today's.
 - [ ] **6.3 Per-case reporting, not just means.** With n≈5, a mean hides
       everything; per-case is where "this config helps case 1 and hurts case 2"
       becomes visible.

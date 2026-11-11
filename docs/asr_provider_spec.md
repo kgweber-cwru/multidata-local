@@ -178,15 +178,17 @@ own axis. Pass them consistently or not at all — never per-provider ad hoc.
 ## 6. Text normalization and scoring profiles
 
 The scorer is where provider differences get neutralized. All transforms are
-deterministic, versioned (`normalizer_version` in provenance), and applied
-**identically to reference and hypothesis**.
+deterministic, versioned (the `scoring` column in `runs.csv`), and applied
+**identically to reference and hypothesis**. What is built today, step by
+step, is in [asr_evaluation_methods.md](asr_evaluation_methods.md) §4; this
+section is the design.
 
 ### Profiles
 
 | Profile | Transform | Reported |
 |---|---|---|
-| **L0 verbatim** | casing, punctuation, whitespace, brackets, names, numbers | `wer_verbatim`, `cer_verbatim` |
-| **L1 filler-neutral** | L0 + filled pauses removed | `wer_filler_neutral`, `cer_filler_neutral` |
+| **L0 verbatim** | casing, punctuation, whitespace, brackets, names, numbers (not built) | `wer`, `cer` |
+| **L1 filler-neutral** | L0 + filled pauses and prolongation marks removed | `wer_l1` |
 
 Both numbers on every run. L0 asks "did it hear everything?"; L1 asks "did it hear
 everything that carries meaning?" Providers that structurally can't emit fillers
@@ -204,9 +206,10 @@ L1 is where they get a fair read.
   counting against anyone, which is correct — you can't score words nobody could
   hear.
 - **Name redaction** — see §9. Both sides, before scoring.
-- **Number canonicalization** — gold is transcribed *as spoken* ("one twenty over
-  eighty"); providers format however they like. Canonicalize both sides, or you're
-  benchmarking each vendor's formatter instead of its recognizer.
+- **Number canonicalization** (not built yet) — gold is transcribed *as spoken*
+  ("one twenty over eighty"); providers format however they like. Canonicalize
+  both sides, or you're benchmarking each vendor's formatter instead of its
+  recognizer.
 - **Filler class (L1 only)** — `uh`, `um`, `hmm`. **Backchannels are never
   stripped**: `mm-hmm`, `uh-huh`, `uh-uh`, `mm-mm`, `huh?` carry meaning. A patient
   answering "uh-uh" to "any chest pain?" is a clinical *no*; strip it and the L1
@@ -257,9 +260,9 @@ exact config is noise (pipeline doc §8d). Beyond the existing columns:
 | `diarizer` | `provider` or `pyannote@<version>` (§5) |
 | `glossary_sha` | null for headline runs (§3) |
 | `glossary_lossiness` | what the renderer dropped |
-| `normalizer_version` | scores are only comparable within a version |
-| `gold_sha` | hash of the reference actually used — gold gets revised, and a re-export silently invalidates old numbers |
-| `wer_verbatim` / `wer_filler_neutral` | dual report (§6) |
+| `scoring` (built) | the normalizer/scoring method; scores are only comparable within one |
+| `gold_sha256` (built) | hash of the reference actually used — gold gets revised, and a re-export silently invalidates old numbers |
+| `wer` / `wer_l1` (built) | dual report (§6) |
 | `cost_usd` | non-trivial at corpus scale |
 | `cloud_release_basis` | why this case was eligible (§9) |
 
@@ -267,7 +270,7 @@ Local engines are pinned and reproducible. Cloud providers are **not** — a mod
 id is a moving target. `provider_model_returned` is the only defense, and it's
 imperfect. Say so when reporting results.
 
-> **Two numbers are only comparable if `normalizer_version` *and* `gold_sha`
+> **Two numbers are only comparable if `scoring` *and* `gold_sha256`
 > match.** Both change over time — the normalizer when §6 is revised, gold when
 > a standards fix triggers a re-export. Neither failure is visible in the score:
 > both numbers look fine, and the comparison is meaningless. The comparison tool
@@ -286,7 +289,7 @@ parameter (`disfluencies`); for Whisper it may be a prompt register plus a
 
 ## 9. Data handling
 
-**Today's corpus is OSCE simulated-patient encounters.** The "patient" is an
+**Today's corpus is simulated encounters in our sim center.** The "patient" is an
 actor, so there is no patient PHI. But the **learner and preceptor are real
 people**, and two things follow:
 
@@ -303,7 +306,7 @@ people**, and two things follow:
 
 `cases.cloud_release`, defaulting false. Cloud adapters refuse any row without
 it. **The column exists; the refusal does not yet** — no code reads it (see the
-implementation plan's 4.2). Build the check before the first adapter, not after. Today it sorts nothing — the corpus is uniformly OSCE. Its
+implementation plan's 4.2). Build the check before the first adapter, not after. Today it sorts nothing — the corpus is uniformly simulated encounters. Its
 job is to **already exist**, on the day real clinical data lands, so nothing
 leaks because someone forgot to add a check later. Cheap now, impossible to
 retrofit safely.
@@ -313,8 +316,8 @@ Store the *basis* alongside it, not just a boolean: `simulated_patient`,
 
 ### Names
 
-The redaction map is **already in the manifest**: `cases.learner_name` and
-`cases.sp_name`. (`preceptor_name` needs adding.) No separate `names.csv`.
+The redaction map is **in the manifest**: `cases.learner_name`,
+`cases.sp_name` and `cases.preceptor_name` (often empty). No separate `names.csv`.
 `manifest.sqlite` is gitignored, which is correct — it holds names.
 
 Redaction is applied to **both** reference and hypothesis before scoring, so the
@@ -347,6 +350,6 @@ Before any of this is built:
 - [ ] Confirm ElevenLabs Scribe v2 — diarization, word timings, any keyterm mechanism
 - [ ] Confirm which Google STT v2 / Chirp variants support diarization *and* adaptation together
 - [ ] Confirm BAA availability and no-train flags per vendor — Google is already covered by the institution's enterprise BAA; the others are not
-- [ ] Confirm long-audio limits — OSCE encounters exceed several sync limits
+- [ ] Confirm long-audio limits — our encounters exceed several sync limits
 - [x] Get IRB position on third-party processing of learner/preceptor voice — **cleared 2026-09-10** for inference with online vendors
 - [x] Add `cases.cloud_release`, `cases.cloud_release_basis`, `cases.preceptor_name` — columns added; enforcement still outstanding (plan 4.2)
