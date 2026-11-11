@@ -10,14 +10,16 @@ alongside this file.
 
 Three levels, each a deterministic transform of the one above:
 
-- **L0 verbatim** — the annotation as written, with only the always-applied
-  scoring transforms (casing, punctuation, whitespace, bracket stripping).
-  Fillers and backchannels both survive.
-- **L1 filler-neutral** — L0 with filled pauses and prolongation marks
-  removed. Backchannels still survive — they carry meaning ("uh-uh" is a
-  clinical *no*), fillers don't.
-- **L2 clean** — L1 with fragments removed and adjacent repeated tokens
-  collapsed. A deliverable for readability, never a scoring profile.
+- **L0 verbatim** — every word spoken, with the always-applied scoring
+  transforms (casing, punctuation, whitespace, bracket stripping) and the
+  annotators' markup taken off the words: "so:" -> "so", "I-" -> "I". An
+  engine is never penalized for a mark no engine writes. Fillers,
+  backchannels and cut-off words all survive.
+- **L1 filler-neutral** — L0 minus filled pauses and cut-off words (the
+  disfluency, not the message). Backchannels still survive — they carry
+  meaning ("uh-uh" is a clinical *no*), fillers don't.
+- **L2 clean** — L1 with adjacent repeated tokens collapsed. A deliverable
+  for readability, never a scoring profile.
 
 Two transforms are deliberately NOT implemented here yet: **number
 canonicalization** and **name redaction is a separate module** (`redact.py`,
@@ -42,17 +44,18 @@ FILLERS = frozenset({"uh", "um", "hmm"})
 # stripping (below), so "huh" not "huh?" — annotators still write "huh?" per
 # transcription_standards.md §6 (natural orthography; the scorer neutralizes
 # punctuation the same way for every word, backchannels included).
-BACKCHANNELS = frozenset({"mm-hmm", "uh-huh", "uh-uh", "mm-mm", "huh"})
+# `mm` is the continuer ("go on, I'm listening"); a thinking hum is `hmm`,
+# a filler. The spelling alone decides, so no human judgment at scoring.
+BACKCHANNELS = frozenset({"mm-hmm", "uh-huh", "uh-uh", "mm-mm", "huh", "mm"})
 
 # A word token ending in ":" is a stretched sound (prolongation). The colon is
-# markup, not punctuation — stripping it must keep the underlying word
-# ("so:" -> "so"), unlike filler/fragment removal which drops the whole token.
+# markup: stripped at every level, keeping the word ("so:" -> "so").
 _PROLONGATION = re.compile(r"^(\S+):$")
 
-# A word token ending in "-" is a cutoff/fragment ("par-", "went-"). Unlike
-# prolongation, the whole token is dropped (L2 only) — there's no complete
-# word underneath to keep.
-_FRAGMENT = re.compile(r"^\S+-$")
+# A word token ending in "-" is a cut-off or abandoned word ("par-", "I-").
+# At L0 the hyphen is markup and goes, keeping what was said ("I-" -> "i");
+# at L1 the whole token goes, like a filler.
+_FRAGMENT = re.compile(r"^(\S+)-$")
 
 # [unintelligible], [unintelligible: word?], [laugh], [cough], etc. — every
 # annotator bracket tag in the standard. Stripped at every scoring level: an
@@ -93,66 +96,90 @@ def _normalize_whitespace(text):
     return _WHITESPACE.sub(" ", text).strip()
 
 
+# Spelling variants of the same sound, written differently by different
+# annotators and engines ("mhm", "mmm-hmm"), mapped to the standard's form
+# on both sides, so a spelling choice never counts as a mishearing. Only
+# unambiguous shapes: "uhuh" could be uh-huh (yes) or uh-uh (no), so it is
+# left alone rather than guessed.
+_VARIANTS = (
+    (re.compile(r"^m+-?h+m+$"), "mm-hmm"),      # mhm, mmhmm, mm-hm, mmm-hmm
+    (re.compile(r"^u+h+-?h+u+h+$"), "uh-huh"),  # uhhuh, uhh-huh
+    (re.compile(r"^u+h+-u+h+$"), "uh-uh"),      # uhh-uh (the hyphen makes it unambiguous)
+    (re.compile(r"^m+-m+$"), "mm-mm"),          # mmm-mm
+    (re.compile(r"^h+m+$"), "hmm"),             # hm, hmmm
+    (re.compile(r"^m{2,}$"), "mm"),             # mmm, mmmm
+)
+
+
+def _canonical(tok):
+    for pattern, form in _VARIANTS:
+        if pattern.match(tok):
+            return form
+    return tok
+
+
+def _marked_tokens(text):
+    """Tokens after the shared transforms (brackets, casing, punctuation,
+    free-standing marks) but with the annotators' prolongation and cut-off
+    markup still attached, so L1 can still tell which tokens were cut off."""
+    text = strip_brackets(text)
+    text = text.lower()
+    text = _PUNCTUATION.sub("", text)
+    return [_canonical(t) for t in _tokenize(text) if not _NO_WORD.match(t)]
+
+
+def _unmark(tok):
+    """"so:" -> "so", "i-" -> "i"; anything else unchanged."""
+    m = _PROLONGATION.match(tok) or _FRAGMENT.match(tok)
+    return m.group(1) if m else tok
+
+
 def scoring_base(text):
     """L0's scoring transform: lowercase, strip generic punctuation, strip
-    bracketed spans, collapse whitespace. Backchannels, fillers, prolongation
-    marks, and fragments all survive — this is the "verbatim" profile, only
-    normalized for the things WER always ignores (casing/punctuation) or that
-    can never be scored fairly (uncertain/bracketed spans).
+    bracketed spans, drop free-standing marks, take prolongation and cut-off
+    marks off their words, collapse whitespace. Backchannels, fillers and
+    cut-off words all survive — this is the "verbatim" profile, only
+    normalized for the things WER always ignores (casing/punctuation), the
+    annotators' markup (no engine writes "so:" or "I-"), and what can never
+    be scored fairly (uncertain/bracketed spans).
 
     Name redaction and number canonicalization are separate steps, applied
     before this if at all (see module docstring and `redact.py`) — order
     matters for name redaction (it needs case-sensitive names to fuzzy-match
     against), so it is never bundled into this function.
     """
-    text = strip_brackets(text)
-    text = text.lower()
-    text = _PUNCTUATION.sub("", text)
-    return " ".join(t for t in _tokenize(text) if not _NO_WORD.match(t))
+    return " ".join(_unmark(t) for t in _marked_tokens(text))
 
 
 def to_filler_neutral(text):
-    """L1: `scoring_base` plus filled-pause removal and prolongation-mark
-    stripping. Backchannels are read from `scoring_base`'s *already lowercased
-    and depunctuated* output, so this only ever compares against the lowercase
-    forms in FILLERS/BACKCHANNELS/_PROLONGATION — call this on raw text or on
-    `scoring_base` output; either way it re-derives the base first so the two
-    can't drift apart.
+    """L1: L0 minus filled pauses and cut-off words — the disfluency, not the
+    message (transcription_standards.md §7). Backchannels always survive.
 
-    Fragments are deliberately NOT removed here — only L2 removes them
-    (transcription_standards.md §7: "L2 clean = L1 − fragments"). A fragment
-    at L1 still counts as real (if incomplete) disfluency content.
+    Call it on the annotated text, not on `scoring_base` output: L0 has
+    already taken the hyphen off "i-", so a cut-off word is no longer
+    recognizable there.
     """
-    base = scoring_base(text)
     out_tokens = []
-    for tok in _tokenize(base):
+    for tok in _marked_tokens(text):
         if tok in BACKCHANNELS:
             out_tokens.append(tok)
             continue
-        if tok in FILLERS:
+        if tok in FILLERS or _FRAGMENT.match(tok):
             continue
-        m = _PROLONGATION.match(tok)
-        if m:
-            out_tokens.append(m.group(1))
-            continue
-        out_tokens.append(tok)
+        out_tokens.append(_unmark(tok))
     return " ".join(out_tokens)
 
 
 def to_clean(text):
-    """L2: `to_filler_neutral` plus fragment removal and adjacent-repetition
-    collapse. A deliverable for readability — **never a scoring profile**
+    """L2: `to_filler_neutral` plus adjacent-repetition collapse. A deliverable for readability — **never a scoring profile**
     (transcription_standards.md §7). Repetition collapse is generic (any
     adjacent identical tokens, not filler-specific), matching the standard's
     "just type them, L2 collapses them automatically" rule; a genuinely
     repeated backchannel would also collapse, which is correct — it's the same
     mechanism, not a special case.
     """
-    l1_tokens = _tokenize(to_filler_neutral(text))
-    no_fragments = [tok for tok in l1_tokens if not _FRAGMENT.match(tok)]
-
     collapsed = []
-    for tok in no_fragments:
+    for tok in _tokenize(to_filler_neutral(text)):
         if collapsed and collapsed[-1] == tok:
             continue
         collapsed.append(tok)

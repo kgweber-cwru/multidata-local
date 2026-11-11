@@ -175,6 +175,16 @@ derived later (§7) — cleaning at the keyboard is irreversible.
 | `uh-uh` | no |
 | `mm-mm` | no |
 | `huh?` | request for repetition |
+| `mm` | go on, I'm listening (one closed-mouth syllable, any length) |
+
+`mm` is not `mm-hmm`: write the one you heard. A thinking hum
+("hmm, let me see") is the filler `hmm`, not `mm`.
+
+**Spell them exactly as in the table**: `mm-hmm`, not `mhm` or `mmhmm`. The
+scorer maps unambiguous variants (`mhm`, `mmm-hmm`, `uhhuh`, `hmmm`, `mmm`)
+to these forms on both sides, so a spelling difference never counts as a
+mishearing, but one spelling keeps transcripts searchable. A run-together
+`uhuh` is never mapped, because it could be either `uh-huh` or `uh-uh`.
 
 > ⚠️ **`uh-huh` and `uh-uh` are one letter apart with opposite meanings.** A
 > patient answering "uh-uh" to "any chest pain?" is a clinical *no*. This is a
@@ -192,7 +202,8 @@ derived later (§7) — cleaning at the keyboard is irreversible.
 `so:` · `the:` · `I: think`
 
 **One colon regardless of length.** Never grade duration — that destroys
-agreement for information already measurable from the waveform.
+agreement for information already measurable from the waveform. The colon is
+markup: the scorer removes it at every level and keeps the word.
 
 ### Fragments and cutoffs — trailing hyphen
 
@@ -200,7 +211,13 @@ agreement for information already measurable from the waveform.
 
 The strongest stammer and self-repair signal, and standard LDC/Switchboard
 convention. Self-repair needs no additional markup — the hyphen already marks the
-abandonment.
+abandonment. Use it for a whole word that was abandoned or restarted
+(`I- I think`) as well as a partial one (`th- that's`).
+
+The hyphen is markup too. At L0 the scorer removes it and keeps what was said
+(`I-` scores as `I`), so an engine that wrote the word gets credit. At L1 the
+whole cut-off word is dropped, like a filler: engines usually tidy restarts
+away, and L1 asks only about the words that carry the message.
 
 ### Repetitions — no markup at all
 
@@ -261,21 +278,22 @@ One source, three renderings. Each is a deterministic transform of the one above
 
 | Level | Contents | Purpose |
 |---|---|---|
-| **L0 verbatim** | everything in §6, minus bracketed spans | first WER number (`wer`, `cer`) |
-| **L1 filler-neutral** | L0 − filled pauses, − prolongation marks | second WER number (`wer_l1`) |
-| **L2 clean** | L1 − fragments, − collapsed repetitions | readable transcript for others |
+| **L0 verbatim** | every word in §6; bracketed spans removed; prolongation colons and cut-off hyphens taken off their words | first WER number (`wer`, `cer`) |
+| **L1 filler-neutral** | L0 − filled pauses, − cut-off words | second WER number (`wer_l1`) |
+| **L2 clean** | L1 − collapsed repetitions | readable transcript for others |
 
 **L0 and L1 are scoring profiles. L2 is a deliverable, never a metric.**
 
 Shared transforms applied identically to reference and hypothesis at every
 level: name redaction (§8), then **bracket stripping**, casing, punctuation,
-and whitespace (`multidata.normalize`; the exact rules are in
+backchannel spelling variants (§6), and whitespace (`multidata.normalize`; the exact rules are in
 [asr_evaluation_methods.md](asr_evaluation_methods.md) §4.2). **Number
 canonicalization is not implemented yet**: until it is, a reference's "one
 twenty" against an engine's "120" counts as an error.
 
-> **Known limitation:** L2 drops the fragment token but *not* the whole abandoned
-> phrase — `I went- I drove` becomes `I went I drove`, not `I drove`. Removing
+> **Known limitation:** L1 and L2 drop the cut-off word but *not* the whole
+> abandoned phrase — `I was going- I drove` becomes `I was I drove`, not
+> `I drove`. Removing
 > abandoned material properly requires a judgment call about where the repair
 > started, which violates §1. Stated honestly rather than approximated badly.
 
@@ -505,5 +523,6 @@ the affected subset.
 | Version | Date | Change |
 |---|---|---|
 | 1.0 | 2026-08-26 | Initial standard. From-scratch blind annotation, utterance-level segmentation, L0/L1/L2 levels, verbatim names with mechanical redaction. Supersedes `gold_annotation_guide.md`. |
+| 1.3 | 2026-11-11 | §6/§7, scoring only (annotation unchanged): prolongation colons and cut-off hyphens are taken off their words at L0 (an engine is never penalized for a mark no engine writes); L1 drops cut-off words; backchannel spelling variants (`mhm` → `mm-hmm`, ...) are unified on both sides; `mm` (the continuer) is a backchannel. Scoring label `redact+L0/L1 v2`. |
 | 1.2 | 2026-11-11 | §4: `ANNOUNCEMENT` and `OUTSIDE_ROOM` text goes into `gold.txt` (it was RTTM-only): engines hear and transcribe it, so leaving it out counted their correct words as errors. Annotation itself is unchanged; 261498 and 261505 re-exported. Scores against earlier exports are not comparable. |
 | 1.1 | 2026-11-01 | §9: adds route B, draft-seeded pass 1, as a fallback when annotators are scarce (fixed seed engine `whisperx_disfluent`/`large-v3`; provenance recorded; seed engine never scored against its own seeded gold; seeded results reported separately). §6/§7 unchanged, so 1.0 gold stays valid and comparable. |

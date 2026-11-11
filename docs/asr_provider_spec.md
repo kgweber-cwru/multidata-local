@@ -188,7 +188,7 @@ section is the design.
 | Profile | Transform | Reported |
 |---|---|---|
 | **L0 verbatim** | casing, punctuation, whitespace, brackets, names, numbers (not built) | `wer`, `cer` |
-| **L1 filler-neutral** | L0 + filled pauses and prolongation marks removed | `wer_l1` |
+| **L1 filler-neutral** | L0 + filled pauses and cut-off words removed | `wer_l1` |
 
 Both numbers on every run. L0 asks "did it hear everything?"; L1 asks "did it hear
 everything that carries meaning?" Providers that structurally can't emit fillers

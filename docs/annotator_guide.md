@@ -297,12 +297,14 @@ Not `er`, not `erm`, not `ah`. **[S§6]**
 mm-hmm   yes        uh-uh   no
 uh-huh   yes        mm-mm   no
 huh?     "say that again?"
+mm       "go on, I'm listening"   (not mm-hmm: write the one you heard)
 ```
+Spell them exactly like this: `mm-hmm`, not `mhm` or `mmhmm`.
 
 ### Marks
 ```
 so:                stretched sound (one colon, however long it is)
-par-               cut-off word or false start
+par-  I- I think   cut-off, abandoned or restarted word
 I I I went         repetition — just type it, no markup
 [unintelligible]           couldn't hear it
 [unintelligible: word?]    best guess

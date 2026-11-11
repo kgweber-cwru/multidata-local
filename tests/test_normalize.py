@@ -68,6 +68,10 @@ class TestProlongation:
     def test_colon_stripped_word_kept(self):
         assert normalize.to_filler_neutral("so: she was worried") == "so she was worried"
 
+    def test_colon_stripped_at_l0_too(self):
+        # markup, not speech: no engine writes "so:"
+        assert normalize.scoring_base("so: she was worried") == "so she was worried"
+
     def test_prolongation_removed_but_word_survives_not_deleted(self):
         out = normalize.to_filler_neutral("the: patient came in")
         assert "the" in out.split()
@@ -75,15 +79,25 @@ class TestProlongation:
 
 
 class TestFragments:
-    def test_fragment_survives_l1(self):
-        # L1 = L0 minus fillers/prolongation/brackets only -- fragments are
-        # still real (if incomplete) disfluency content at this level.
-        out = normalize.to_filler_neutral("par- particular symptom")
-        assert "par-" in out.split()
+    def test_l0_keeps_the_word_without_the_hyphen(self):
+        # "I- I think": the engine that wrote "i i think" heard it all
+        assert normalize.scoring_base("I- I think") == "i i think"
+        assert normalize.scoring_base("par- particular") == "par particular"
 
-    def test_fragment_removed_only_at_l2(self):
+    def test_l1_drops_cut_off_words(self):
+        assert normalize.to_filler_neutral("I- I think") == "i think"
+        assert normalize.to_filler_neutral("par- particular symptom") == "particular symptom"
+
+    def test_l1_from_l0_output_would_lose_fragments(self):
+        # documented: call L1 on annotated text, not on L0 output
+        assert normalize.to_filler_neutral(normalize.scoring_base("I- I")) == "i i"
+
+    def test_backchannel_hyphens_untouched(self):
+        assert normalize.scoring_base("uh-huh mm-hmm") == "uh-huh mm-hmm"
+
+    def test_fragment_removed_at_l2(self):
         out = normalize.to_clean("par- particular symptom")
-        assert "par-" not in out.split()
+        assert "par-" not in out.split() and "par" not in out.split()
         assert "particular" in out.split()
 
 
@@ -148,5 +162,38 @@ class TestFreeStandingMarks:
     def test_free_standing_dash_is_not_a_word(self):
         assert normalize.scoring_base("I - I think -- so … ok") == "i i think so ok"
 
-    def test_attached_dashes_survive(self):
-        assert normalize.scoring_base("wh- mm-hmm") == "wh- mm-hmm"
+    def test_attached_dashes_become_the_word(self):
+        assert normalize.scoring_base("wh- mm-hmm") == "wh mm-hmm"
+
+
+class TestSpellingVariants:
+    @pytest.mark.parametrize("variant", ["mhm", "mmhmm", "mm-hm", "mmm-hmm", "Mhm", "m-hmm"])
+    def test_mm_hmm_variants(self, variant):
+        assert normalize.scoring_base(variant) == "mm-hmm"
+
+    def test_uh_huh_variants(self):
+        assert normalize.scoring_base("uhhuh uh-huh") == "uh-huh uh-huh"
+
+    def test_ambiguous_uhuh_left_alone(self):
+        # could be yes (uh-huh) or no (uh-uh): never guessed
+        assert normalize.scoring_base("uhuh") == "uhuh"
+
+    def test_uh_uh_never_becomes_uh_huh(self):
+        assert normalize.scoring_base("uh-uh uhh-uh") == "uh-uh uh-uh"
+
+    def test_hmm_and_mm_lengths(self):
+        assert normalize.scoring_base("hm hmmm mmm mmmm") == "hmm hmm mm mm"
+
+    def test_variant_survives_l1_as_backchannel(self):
+        assert normalize.to_filler_neutral("mhm yes") == "mm-hmm yes"
+
+    def test_ordinary_words_untouched(self):
+        assert normalize.scoring_base("hum mum ham uh um") == "hum mum ham uh um"
+
+
+class TestContinuer:
+    def test_mm_is_a_backchannel_kept_at_l1(self):
+        assert normalize.to_filler_neutral("mmm go on") == "mm go on"
+
+    def test_hmm_is_a_filler_dropped_at_l1(self):
+        assert normalize.to_filler_neutral("hmm let me see") == "let me see"

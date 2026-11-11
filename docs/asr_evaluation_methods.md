@@ -83,7 +83,7 @@ holding annotations at the same moment. No overlap markup is needed.
 
 The text is **verbatim**: false starts, repetitions, filled pauses (`uh`,
 `um`, `hmm`) and backchannels (`mm-hmm`, `uh-huh`, `uh-uh`, `mm-mm`,
-`huh?`) are all typed. A small markup set records prolongation (`so:`),
+`huh?`, and `mm` for "go on") are all typed. A small markup set records prolongation (`so:`),
 cut-off words (`par-`), uncertainty (`[unintelligible]`,
 `[unintelligible: best guess?]`) and optional vocalizations (`[laugh]`).
 Numbers are written as spoken. Names are typed as heard; redaction happens
@@ -230,20 +230,27 @@ The same steps are applied to the reference and the hypothesis
    - remove `. , ! ? ; " ' ( )`;
    - drop tokens with no letter or digit left (a free-standing dash typed as a
      pause mark);
+   - map unambiguous spelling variants of backchannels and hums to one form
+     (`mhm`, `mmhmm`, `mmm-hmm` → `mm-hmm`; `uhhuh` → `uh-huh`; `hmmm` →
+     `hmm`; `mmm` → `mm`). A run-together `uhuh` is left alone: it could be
+     yes or no;
+   - take the annotators' markup off words: the prolongation colon (`so:` →
+     `so`) and the cut-off hyphen (`I-` → `I`). No engine writes these marks,
+     so an engine that wrote the word gets credit, and one that left out a
+     spoken word still loses it;
    - collapse whitespace.
 
-   Hyphens inside words (`mm-hmm`, `par-`) and the prolongation colon
-   (`so:`) are kept.
+   Hyphens inside words (`mm-hmm`, `follow-up`) are kept.
 3. **L1, filler-neutral profile:** L0, minus the filled pauses `uh`, `um`
-   and `hmm`, with the prolongation colon removed. Backchannels are never
-   removed at any level: `uh-huh` (yes) and `uh-uh` (no) carry the patient's
-   answer.
+   and `hmm`, and minus cut-off words entirely (`I- I think` → `i think`).
+   Backchannels are never removed at any level: `uh-huh` (yes) and `uh-uh`
+   (no) carry the patient's answer.
 
 ### 4.3 Metrics
 
 | Metric | Profile | Ledger column | Asks |
 |---|---|---|---|
-| WER | L0 | `wer` | did it hear every word, disfluencies included? |
+| WER | L0 | `wer` | did it hear every word spoken, restarts and fillers included? |
 | WER | L1 | `wer_l1` | did it hear every word that carries meaning? |
 | CER | L0 | `cer` | the same, by character |
 | DER, JER | gold turns | not yet | did its diarizer get who spoke when, through overlap and noise? |
@@ -287,11 +294,11 @@ Current as of 2026-11-11. When one is fixed, delete it here.
 - **No noise floor.** No case has two independent blind passes (§2.4).
 - **Numbers are not canonicalized.** Gold writes "one twenty over eighty";
   an engine writing "120/80" is counted wrong.
-- **Spelling variants count as errors.** For example `ok`/`okay`,
-  `kinda`/`kind of`, `follow-up`/`follow up`.
-- **Markup counts at L0.** A prolongation (`so:`) or cut-off word (`par-`)
-  can never match an engine's output exactly, so at L0 it counts as an error
-  even when the engine heard the word. L1 removes the colon but not the hyphen.
+- **Spelling variants of ordinary words count as errors.** For example
+  `ok`/`okay`, `kinda`/`kind of`, `follow-up`/`follow up`. Only backchannel
+  and hum spellings are unified.
+- **A true partial word still counts.** `th-` becomes `th` at L0, which no
+  engine writes. Rare in practice: most cut-offs in our gold are whole words.
 - **Uncertain spans still cost the engine.** Removing `[unintelligible]`
   from the reference leaves nothing there, but the engine still writes its
   guess, which counts as inserted words. Fixing this needs the engine's words
