@@ -1,0 +1,30 @@
+{
+ "_about": "Who each tracklet is, by camera. Tracklet ids come from demo/tracks.py run on data/pose/261456/<cam>.npz; changing the tracker renumbers them. Checked by eye from contact sheets, 2026-11-03. 'default' applies to unnamed tracklets of at least default_min_frames frames; 'ignore' hides a tracklet (reflections in the observation window, objects). 'head_direction': compute the head-direction lane on this camera (faces seen from the side; camera 31 looks down from above, so not there).",
+ "16": {
+  "tracks": {
+   "5": "LEARNER",
+   "3": "LEARNER",
+   "0": "PATIENT",
+   "10": "PRECEPTOR",
+   "4": "ignore",
+   "7": "ignore",
+   "8": "ignore",
+   "9": "ignore",
+   "1": "ignore",
+   "2": "ignore",
+   "14": "ignore",
+   "19": "ignore"
+  },
+  "default": null,
+  "head_direction": true
+ },
+ "31": {
+  "tracks": {
+   "1": "PATIENT",
+   "217": "PRECEPTOR",
+   "218": "LEARNER"
+  },
+  "default": "LEARNER",
+  "default_min_frames": 30
+ }
+}

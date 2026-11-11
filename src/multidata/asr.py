@@ -55,6 +55,20 @@ DEFAULT_PROMPT = (
 )
 
 
+def _free_gpu():
+    """Return cached GPU memory once a case's models are dropped. Without it a
+    batch of cases in one process runs the GPU out of memory part-way."""
+    import gc
+
+    gc.collect()
+    try:
+        import torch
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except ImportError:
+        pass
+
+
 def transcribe_whisperx(audio_path, model_name=DEFAULT_MODEL, device=None, compute_type=None,
                          align_device=None, diarize_device=None, batch_size=8,
                          language=DEFAULT_LANGUAGE, diarize=True):
@@ -97,6 +111,8 @@ def transcribe_whisperx(audio_path, model_name=DEFAULT_MODEL, device=None, compu
 
     align_model, meta = whisperx.load_align_model(result["language"], align_device)
     result = whisperx.align(result["segments"], align_model, meta, audio, align_device)
+    del model, align_model
+    _free_gpu()   # a batch runs many cases in one process
 
     if diarize:   # off when transcribe() merges in the pipeline's own diarization
         dia = whisperx.diarize.DiarizationPipeline(token=hf_token(), device=diarize_device)
@@ -173,6 +189,8 @@ def transcribe_whisperx_disfluent(audio_path, model_name=DEFAULT_MODEL, device=N
 
     align_model, meta = whisperx.load_align_model(result["language"], align_device)
     result = whisperx.align(result["segments"], align_model, meta, audio, align_device)
+    del model, align_model
+    _free_gpu()   # a batch runs many cases in one process
 
     if diarize:   # off when transcribe() merges in the pipeline's own diarization
         dia = whisperx.diarize.DiarizationPipeline(token=hf_token(), device=diarize_device)
