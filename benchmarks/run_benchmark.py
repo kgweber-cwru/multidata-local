@@ -21,10 +21,13 @@ Requires a gold reference at benchmarks/references/<case_id>.gold.txt (see
 scripts/eaf_to_gold.py to produce one from an annotated .eaf). Those are the
 expensive, essential part; see docs/transcription_standards.md.
 
-> Predates the multi-provider design in docs/asr_provider_spec.md: this script
-> still computes a single WER/CER pair, where the spec calls for a dual report
-> (L0 verbatim + L1 filler-neutral, spec §6) and a wider provenance row
-> (spec §8). Not yet reconciled (Phase 6).
+Scoring (`score()`): the manifest's names for the case are redacted from
+BOTH reference and hypothesis (`multidata.redact`), then both are normalized
+with `multidata.normalize` -- L0 verbatim for `wer`/`cer`, L1 filler-neutral
+for `wer_l1`. Bracket tags (`[LEARNER_NAME]`, `[unintelligible]`,
+`[unclear: ...]`, `[laughter]`) are deleted at both levels. The `scoring`
+column names the method; rows with it empty were scored before this, with
+plain lowercase/punctuation stripping, and are not comparable.
 """
 import argparse
 import csv
@@ -42,7 +45,7 @@ import jiwer
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
-from multidata import asr, bench_runs, seeding  # noqa: E402
+from multidata import asr, bench_runs, manifest, normalize, redact, seeding  # noqa: E402
 from multidata.elan import words_of  # noqa: E402
 
 RESULTS = ROOT / "benchmarks" / "results" / "runs.csv"
@@ -60,15 +63,35 @@ CACHE_ROOT = ROOT / "benchmarks" / "cache"
 #                other process (a notebook, run_stage.py) produced it
 FIELDS = ["timestamp", "case_id", "engine", "model", "audio_sha256",
           "wer", "cer", "wall_s", "source", "git_commit", "machine", "notes",
-          "gold_pass1"]
+          "gold_pass1", "wer_l1", "scoring"]
 # gold_pass1: how the reference's pass 1 was made -- "blind", or "seeded"
 # from a machine draft (standards §9). Rows from before the column existed
 # are blind. Seeded and blind results are reported separately, and the seed
 # engine is never scored against gold it seeded (see main()).
 
-# Scoring normalization: casing and punctuation are not what we're measuring.
-_NORMALIZE = jiwer.Compose([jiwer.ToLowerCase(), jiwer.RemovePunctuation(),
-                            jiwer.RemoveMultipleSpaces(), jiwer.Strip()])
+# Names the scoring method in each ledger row. Change it whenever score()
+# changes in a way that moves numbers, so old and new rows aren't compared.
+SCORING = "redact+L0/L1 v1"
+
+
+def score(ref, hyp, names):
+    """WER/CER at L0 and WER at L1, after redacting `names` from both sides.
+
+    Redaction runs on the raw text (it matches names case-sensitively, before
+    punctuation is gone); the resulting `[ROLE_NAME]` tags are then deleted
+    by normalization like every other bracket tag, so a name counts neither
+    for nor against an engine. `names` may be None (no manifest row): then
+    nothing is redacted and the gold was exported unredacted too."""
+    if names:
+        ref, _ = redact.redact_names(ref, names)
+        hyp, _ = redact.redact_names(hyp, names)
+    ref0, hyp0 = normalize.normalize(ref, "l0"), normalize.normalize(hyp, "l0")
+    ref1, hyp1 = normalize.normalize(ref, "l1"), normalize.normalize(hyp, "l1")
+    return {
+        "wer": round(jiwer.wer(ref0, hyp0), 4),
+        "cer": round(jiwer.cer(ref0, hyp0), 4),
+        "wer_l1": round(jiwer.wer(ref1, hyp1), 4),
+    }
 
 
 def hypothesis_text(result, span=None):
@@ -258,6 +281,8 @@ def main():
                           "Omit for whole-encounter gold. Requires --span-end.")
     ap.add_argument("--span-end", type=float, default=None)
     ap.add_argument("--notes", default="")
+    ap.add_argument("--manifest", default=str(ROOT / "manifest.sqlite"),
+                     help="source of the case's names, redacted from both sides before scoring")
     ap.add_argument("--out-root", default=str(RUNS_ROOT),
                      help=f"default: {RUNS_ROOT} -- per-run directory holding the resolved "
                           "config, the normalized record, and scores.json (implementation "
@@ -294,10 +319,13 @@ def main():
     refuse_seed_engine(engine, meta)
 
     hyp = hypothesis_text(result, span=span)
-    ref_n, hyp_n = _NORMALIZE(ref), _NORMALIZE(hyp)
-
-    wer = round(jiwer.wer(ref_n, hyp_n), 4)
-    cer = round(jiwer.cer(ref_n, hyp_n), 4)
+    try:
+        names = manifest.names_for_case(args.case, args.manifest)
+    except KeyError:
+        names = None
+        print(f"WARNING: no manifest row for {args.case}: names not redacted before scoring",
+              file=sys.stderr)
+    scores = score(ref, hyp, names)
 
     row = {
         "timestamp": datetime.datetime.now().isoformat(),
@@ -305,14 +333,16 @@ def main():
         "engine": engine,
         "model": args.model,
         "audio_sha256": audio_sha256,
-        "wer": wer,
-        "cer": cer,
+        "wer": scores["wer"],
+        "cer": scores["cer"],
         "wall_s": round(wall_s, 1),
         "source": source,
         "git_commit": subprocess.getoutput("git rev-parse --short HEAD"),
         "machine": platform.platform(),
         "notes": args.notes,
         "gold_pass1": meta.get("pass1_source", "blind"),
+        "wer_l1": scores["wer_l1"],
+        "scoring": SCORING,
     }
     record(row, results_path=args.results)
 
@@ -323,9 +353,9 @@ def main():
     }
     run_id = bench_runs.make_run_id(engine, args.model, run_config)
     run_dir = bench_runs.write_run(args.out_root, run_id, run_config, result,
-                                    {"wer": wer, "cer": cer})
+                                    scores | {"scoring": SCORING})
 
-    print(f"WER {wer}  CER {cer}  ({row['wall_s']}s, {source}; gold: {seeding.describe(meta)})")
+    print(f"WER {scores['wer']} (L1 {scores['wer_l1']})  CER {scores['cer']}  ({row['wall_s']}s, {source}; gold: {seeding.describe(meta)})")
     print(f"  ledger: {args.results}")
     print(f"  run:    {run_dir}")
 
