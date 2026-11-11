@@ -196,7 +196,7 @@ desktop under "Guide & cheat sheet"). Listen to everything: fix boundaries,
 words, speakers and markup to the standards. Do not trust the draft --
 treat each line as a guess to check against the audio.
 {unassigned}
-When you are done, send Kate a note that you are done.
+When you are done, tell the project coordinator.
 After that, pass 1 is frozen -- report any later concern rather
 than reopening it.
 """
@@ -210,7 +210,7 @@ Follow the annotator guide, on the desktop under "Guide & cheat sheet".
 Work blind: no machine transcript, no other annotator's file. If someone
 offers you one, decline.
 
-When you are done, send Kate a note that you are done.
+When you are done, tell the project coordinator.
 After that, pass 1 is frozen -- report any later concern rather
 than reopening it.
 """

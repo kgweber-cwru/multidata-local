@@ -37,8 +37,8 @@ class Case:
 
     `cloud_release` is the **safety interlock** for third-party ASR providers
     (docs/asr_provider_spec.md §9): 0 by default, and no adapter may send a
-    case's audio off this machine without it. Today's corpus is uniformly OSCE
-    simulated-patient material so it sorts nothing -- its job is to already
+    case's audio off this machine without it. Today's corpus is uniformly
+    simulated encounters from our sim center, so it sorts nothing -- its job is to already
     exist on the day real clinical data lands. `cloud_release_basis` records
     *why* a case is eligible (e.g. "simulated_patient",
     "consented_third_party"), because a bare boolean can't be audited.
