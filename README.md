@@ -34,8 +34,10 @@ hand-made gold transcripts. During the pilot everything runs on one Linux workst
 | run, watch or stop a long job; backups | [docs/operations.md](docs/operations.md) |
 | know what processing costs per case | [docs/cost_estimate.md](docs/cost_estimate.md) |
 | work on pose / 3D | [docs/pose_3d.md](docs/pose_3d.md) |
-| annotate a gold transcript | [docs/annotator_guide.md](docs/annotator_guide.md), [docs/transcription_standards.md](docs/transcription_standards.md), [annotation/README.md](annotation/README.md) |
-| work on ASR benchmarking | [docs/asr_provider_spec.md](docs/asr_provider_spec.md), [docs/asr_provider_implementation_plan.md](docs/asr_provider_implementation_plan.md) |
+| understand how gold is made and engines are scored (methods) | [docs/asr_evaluation_methods.md](docs/asr_evaluation_methods.md) |
+| annotate a gold transcript | [docs/annotator_guide.md](docs/annotator_guide.md), with the rules in [docs/transcription_standards.md](docs/transcription_standards.md) |
+| coordinate annotation (kits, returns, gold, scoring) | [annotation/README.md](annotation/README.md) |
+| work on ASR benchmarking code | [docs/asr_provider_spec.md](docs/asr_provider_spec.md), [docs/asr_provider_implementation_plan.md](docs/asr_provider_implementation_plan.md) |
 | run or write tests | [tests/README.md](tests/README.md) |
 
 ## Words used throughout
@@ -62,7 +64,7 @@ scripts/        run_stage.py       run any stage over the manifest
                 demo_clip.py       demo video of a case: both cameras, pose, faces blurred
                 sample_pose_overlays.py   pose drawn on whole videos, for quality checks
                 test_detect_every.py      does detecting every Nth frame change pose?
-                eaf_to_gold.py     annotated .eaf -> gold reference
+                eaf_to_gold.py     adjudicated pass 2 -> gold reference
                 bench_status.py    gold coverage and scores at a glance
                 label_views_2026-11-01.py one-off: the first provisional view labels
                 backup_to_raid.sh  nightly backup (cron)

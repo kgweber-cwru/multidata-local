@@ -20,7 +20,7 @@ def _build_eaf(path, annotations):
 
 
 class TestTierInclusion:
-    def test_text_includes_only_speech_tiers(self, tmp_path):
+    def test_text_includes_everything_audible_but_not_notes(self, tmp_path):
         eaf_path = tmp_path / "case.eaf"
         _build_eaf(eaf_path, {
             "LEARNER": [(0, 1000, "hello")],
@@ -30,9 +30,7 @@ class TestTierInclusion:
             "NOTES": [(0, 100, "noisy AC unit throughout")],
         })
         text, rttm_lines, _ = export_gold(eaf_path)
-        assert text == "hello hi doctor"
-        assert "paging" not in text
-        assert "hallway" not in text
+        assert text == "hello hi doctor paging doctor smith someone in the hallway"
         assert "AC unit" not in text
 
     def test_rttm_includes_announcement_and_outside_room_but_not_notes(self, tmp_path):

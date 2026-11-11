@@ -63,7 +63,10 @@ CACHE_ROOT = ROOT / "benchmarks" / "cache"
 #                other process (a notebook, run_stage.py) produced it
 FIELDS = ["timestamp", "case_id", "engine", "model", "audio_sha256",
           "wer", "cer", "wall_s", "source", "git_commit", "machine", "notes",
-          "gold_pass1", "wer_l1", "scoring"]
+          "gold_pass1", "wer_l1", "scoring", "gold_sha256"]
+# gold_sha256: the reference file actually scored against. A re-exported
+# gold file gets a new hash, so older rows stop counting as current
+# (bench_status.py) instead of silently mixing with new ones.
 # gold_pass1: how the reference's pass 1 was made -- "blind", or "seeded"
 # from a machine draft (standards §9). Rows from before the column existed
 # are blind. Seeded and blind results are reported separately, and the seed
@@ -71,7 +74,7 @@ FIELDS = ["timestamp", "case_id", "engine", "model", "audio_sha256",
 
 # Names the scoring method in each ledger row. Change it whenever score()
 # changes in a way that moves numbers, so old and new rows aren't compared.
-SCORING = "redact+L0/L1 v1"
+SCORING = "redact+L0/L1 v2"  # v2: markup off words at L0; L1 drops cut-off words
 
 
 def score(ref, hyp, names):
@@ -278,7 +281,8 @@ def main():
                      help="seconds -- for excerpt gold (standards §3), trims the hypothesis "
                           "to this window before scoring, since the reference only covers "
                           "the excerpt but the hypothesis normally covers the whole audio. "
-                          "Omit for whole-encounter gold. Requires --span-end.")
+                          "Default: the span recorded in <case>.gold.json, if any. "
+                          "Requires --span-end.")
     ap.add_argument("--span-end", type=float, default=None)
     ap.add_argument("--notes", default="")
     ap.add_argument("--manifest", default=str(ROOT / "manifest.sqlite"),
@@ -311,6 +315,9 @@ def main():
         sys.exit(f"No gold reference at {reference_path} — see docs/transcription_standards.md")
     ref = reference_path.read_text()
     meta = seeding.read_gold_meta(args.case, reference_path.parent)
+    if span is None and meta.get("span"):
+        span = tuple(meta["span"])
+        print(f"excerpt gold: scoring only {span[0]:.1f}s-{span[1]:.1f}s (from the .gold.json)")
     if not args.transcript:
         refuse_seed_engine(args.engine or asr.DEFAULT_ENGINE, meta)   # before any GPU time
 
@@ -343,6 +350,7 @@ def main():
         "gold_pass1": meta.get("pass1_source", "blind"),
         "wer_l1": scores["wer_l1"],
         "scoring": SCORING,
+        "gold_sha256": sha256(reference_path),
     }
     record(row, results_path=args.results)
 

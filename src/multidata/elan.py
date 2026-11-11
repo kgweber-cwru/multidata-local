@@ -137,14 +137,12 @@ def build_eaf(transcription_data, mp4_path, output_eaf_path, wav_path=None, pitc
 
 
 # Tier inclusion rules for gold export (docs/transcription_standards.md §4):
-# clinical-encounter speech goes in both the transcript and the diarization
-# reference; ANNOUNCEMENT/OUTSIDE_ROOM timing goes in the RTTM only (so a
-# diarizer isn't falsely penalized via DER for correctly noticing a real
-# extra voice) but their *text* is excluded -- the benchmark measures
-# transcription of the encounter, not whether ASR caught a PA announcement or
-# a hallway conversation. NOTES is in neither -- it's for humans, never a
+# Everything a person in the room could hear goes in both the transcript and
+# the diarization reference: the benchmark asks whether an engine hears what
+# a human hears, PA announcements and hallway speech included (standards
+# §4, version 1.2). NOTES is in neither -- it's for humans, never a
 # transcript.
-GOLD_TEXT_TIERS = ("LEARNER", "PATIENT", "PRECEPTOR")
+GOLD_TEXT_TIERS = ("LEARNER", "PATIENT", "PRECEPTOR", "ANNOUNCEMENT", "OUTSIDE_ROOM")
 GOLD_RTTM_TIERS = ("LEARNER", "PATIENT", "PRECEPTOR", "ANNOUNCEMENT", "OUTSIDE_ROOM")
 
 

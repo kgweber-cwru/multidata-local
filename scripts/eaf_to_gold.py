@@ -1,9 +1,18 @@
 #!/usr/bin/env python
 """Hand-annotated .eaf -> <case>.gold.txt + <case>.gold.rttm
-(docs/transcription_standards.md §4/§11).
+(docs/transcription_standards.md §4/§11; procedure in annotation/README.md).
 
-    python scripts/eaf_to_gold.py --eaf data/gold/132704/132704.pass1.eaf --case 132704 \
-        --annotator kate --gold-at 2026-08-26
+The usual call, from a returned and checked pass-2 kit:
+
+    python scripts/eaf_to_gold.py --from-kit annotation/kits/261505/kate
+
+That copies `<case>.pass2.eaf` to `data/gold/<case>/<case>.gold.eaf`
+(refusing to overwrite a different gold file there) and takes the case, the
+pass-1 kit, the annotator, the excerpt span and the gold notes from the
+pass-2 kit's kit.json. Everything can still be given by hand instead:
+
+    python scripts/eaf_to_gold.py --eaf data/gold/132704/132704.gold.eaf --case 132704 \
+        --kit annotation/kits/132704/kate --annotator kate
     python scripts/run_benchmark.py --case 132704 --audio data/audio/132704/41.wav \
         --engine whisperx_disfluent --model medium
 
@@ -34,6 +43,8 @@ cross-checked.
 import argparse
 import datetime
 import json
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -43,20 +54,29 @@ sys.path.insert(0, str(ROOT / "src"))
 from multidata import elan, manifest, seeding  # noqa: E402
 
 REFERENCES = ROOT / "benchmarks" / "references"
+KITS = ROOT / "annotation" / "kits"
+GOLD = ROOT / "data" / "gold"
+ROLE_TIERS = {"learner": "LEARNER", "patient": "PATIENT", "preceptor": "PRECEPTOR"}
 
-# The only version transcription_standards.md has had so far (§12's
-# changelog). Not auto-read from the doc -- parsing a markdown table for one
-# string is more fragile than it's worth. Bump this default by hand if you
-# add a --standards-version yourself and the doc's changelog moves past 1.0.
-CURRENT_STANDARDS_VERSION = "1.1"
+# The latest version in transcription_standards.md §12's changelog. Not
+# auto-read from the doc (parsing a markdown table for one string is more
+# fragile than it's worth): bump it here whenever the changelog gets a row.
+CURRENT_STANDARDS_VERSION = "1.3"
 
 
 def main():
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    ap.add_argument("--eaf", required=True, help="the annotated .eaf to export")
-    ap.add_argument("--case", required=True,
+    ap.add_argument("--from-kit", default=None,
+                     help="a returned pass-2 kit (annotation/kits/<case>/<pass-2 annotator>): "
+                          "copies its .eaf into data/gold/ and fills in --eaf, --case, --kit, "
+                          "--annotator, --gold-notes and the span from its kit.json")
+    ap.add_argument("--replace-gold", action="store_true",
+                     help="with --from-kit: overwrite an existing, different "
+                          "data/gold/<case>/<case>.gold.eaf")
+    ap.add_argument("--eaf", default=None, help="the annotated .eaf to export")
+    ap.add_argument("--case", default=None,
                      help="case_id -- drives output filenames and the manifest name lookup")
     ap.add_argument("--manifest", default=str(ROOT / "manifest.sqlite"))
     ap.add_argument("--out-dir", default=str(REFERENCES),
@@ -85,6 +105,11 @@ def main():
                           "its kit.json says whether pass 1 was blind or seeded")
     args = ap.parse_args()
 
+    if args.from_kit:
+        from_pass2_kit(args)
+    if not (args.eaf and args.case):
+        ap.error("give --from-kit, or both --eaf and --case")
+
     seed = pass1_provenance(args.eaf, args.kit)
     print(f"pass 1: {seeding.describe(seed)}")
 
@@ -104,6 +129,11 @@ def main():
                 "to the manifest first."
             )
         print(f"WARNING: {msg} Writing anyway (--allow-unredacted).", file=sys.stderr)
+
+    for tier in unredactable_tiers(args.eaf, names):
+        print(f"WARNING: the {tier} tier has speech but the manifest has no name for that "
+              f"role, so a spoken {tier.lower()} name will NOT be redacted. Read the "
+              ".gold.txt before committing it.", file=sys.stderr)
 
     out_dir.mkdir(parents=True, exist_ok=True)
     out_txt = out_dir / f"{args.case}.gold.txt"
@@ -138,6 +168,56 @@ def main():
         seed=seed if seed.get("pass1_source") == "seeded" else None, path=args.manifest,
     )
     print(f"recorded gold row id={row_id} in {args.manifest} (gold_at={gold_at})")
+
+
+def from_pass2_kit(args):
+    """Fill args from a pass-2 kit (made by annotation/make_pass2_kit.py) and
+    copy its .eaf into data/gold/. Explicit arguments win over the kit's."""
+    kit_dir = Path(args.from_kit)
+    kj = kit_dir / "kit.json"
+    if not kj.exists():
+        sys.exit(f"--from-kit {kit_dir}: no kit.json there")
+    kit = json.loads(kj.read_text())
+    case = kit["case_id"]
+    pass2 = kit_dir / f"{case}.pass2.eaf"
+    if not pass2.exists():
+        sys.exit(f"--from-kit {kit_dir}: no {pass2.name} -- is this a pass-2 kit?")
+    pass1_annotator = kit.get("pass1_annotator")
+    if not pass1_annotator and not args.kit:
+        sys.exit("kit.json doesn't name the pass-1 annotator (a kit made before "
+                 "make_pass2_kit.py): add --kit annotation/kits/<case>/<pass-1 annotator> "
+                 "and --annotator")
+
+    check = subprocess.run([sys.executable, str(ROOT / "annotation" / "submit_checks.py"),
+                            str(pass2)])
+    if check.returncode != 0:
+        sys.exit("pass 2 fails submit_checks.py -- fix that first")
+
+    gold = GOLD / case / f"{case}.gold.eaf"
+    if gold.exists() and gold.read_bytes() != pass2.read_bytes() and not args.replace_gold:
+        sys.exit(f"{gold} exists and differs from {pass2}. Pass --replace-gold if the "
+                 "returned pass 2 really supersedes it.")
+    gold.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(pass2, gold)
+    print(f"copied {pass2} -> {gold}")
+
+    args.case = args.case or case
+    args.eaf = args.eaf or str(gold)
+    args.kit = args.kit or str(KITS / case / pass1_annotator)
+    args.annotator = args.annotator or pass1_annotator or ""
+    args.gold_notes = args.gold_notes or f"pass 2: {kit.get('annotator', kit_dir.name)}"
+    if args.span_start is None and kit.get("span_start") is not None:
+        args.span_start, args.span_end = kit["span_start"], kit["span_end"]
+
+
+def unredactable_tiers(eaf, names):
+    """Role tiers that hold speech while the manifest has no name for that
+    role -- any name spoken there can't be redacted."""
+    sys.path.insert(0, str(ROOT / "annotation"))
+    from submit_checks import read_annotations
+    spoken = {tier for tier, _s, _e, text in read_annotations(eaf) if text.strip()}
+    return [tier for role, tier in ROLE_TIERS.items()
+            if tier in spoken and not (names or {}).get(role)]
 
 
 def pass1_provenance(eaf, kit):

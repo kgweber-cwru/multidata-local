@@ -71,6 +71,17 @@ def read_runs(results_path):
         return list(csv.DictReader(f))
 
 
+def is_current(row, references=REFERENCES):
+    """Scored with today's method, against the gold file as it is now on
+    disk. Anything else is history: a different normalizer or a since
+    re-exported reference gives numbers that can't be compared."""
+    sys.path.insert(0, str(ROOT / "benchmarks"))
+    from run_benchmark import SCORING, sha256
+    gold = Path(references) / f"{row['case_id']}.gold.txt"
+    return (row.get("scoring") == SCORING and gold.exists()
+            and row.get("gold_sha256") == sha256(gold))
+
+
 def latest_per_config(runs):
     """One row per (case_id, engine, model) -- the most recent run, since a
     re-run supersedes an earlier one for "what's the current number" even
@@ -155,7 +166,11 @@ def main():
 
     gold_rows = gold_status(manifest_path)
     runs = read_runs(RESULTS)
-    latest = latest_per_config(runs)
+    current = [r for r in runs if is_current(r)]
+    latest = latest_per_config(current)
+    if len(current) < len(runs):
+        print(f"({len(runs) - len(current)} older row(s) in runs.csv not shown: scored with "
+              "an earlier method, or against gold that has since changed or been withdrawn)\n")
 
     print_gold_section(gold_rows)
     print_runs_section(latest)

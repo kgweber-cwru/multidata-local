@@ -82,9 +82,10 @@ This is the machine draft, not gold. Open in ELAN; read with `pympi`
 In git. Made by `scripts/eaf_to_gold.py` from the `.eaf` in
 `data/gold/<case>/`.
 
-- `.gold.txt`: the adjudicated transcript of the encounter as one line of
-  text, names replaced by tags like `[LEARNER_NAME]`
-  ([transcription_standards.md](transcription_standards.md)).
+- `.gold.txt`: the adjudicated transcript as one line of text: every speech
+  tier (`LEARNER`, `PATIENT`, `PRECEPTOR`, `ANNOUNCEMENT`, `OUTSIDE_ROOM`) in
+  time order, names replaced by tags like `[LEARNER_NAME]`
+  ([asr_evaluation_methods.md](asr_evaluation_methods.md) §3).
 - `.gold.rttm`: RTTM of the annotated turns, with role names as speakers
   (`LEARNER`, `PATIENT`, `ANNOUNCEMENT`, ...).
 - `.gold.json`: how pass 1 was made. `pass1_source` is `blind` or `seeded`;
@@ -213,10 +214,13 @@ copy with `sqlite3 manifest.sqlite ".backup copy.sqlite"`.
 
 In git, append-only, one row per scored run: `timestamp, case_id, engine,
 model, audio_sha256, wer, cer, wall_s, source, git_commit, machine, notes,
-gold_pass1` (`source`: `live` = engine ran, `cache_hit` / `cached` = it
-didn't; `gold_pass1`: `blind` or `seeded`, empty on rows from before the
-column existed, which are blind). Detail
-per run in `benchmarks/runs/<run_id>/` (gitignored).
+gold_pass1, wer_l1, scoring, gold_sha256`. `source`: `live` = engine ran,
+`cache_hit` / `cached` = it didn't. `gold_pass1`: `blind` or `seeded` (empty
+= blind, from before the column existed). `wer`/`cer` are at L0, `wer_l1` at
+L1. `scoring` names the scoring method and `gold_sha256` the reference file
+used; rows where either differs from today's aren't comparable, and
+`scripts/bench_status.py` hides them. Detail per run in
+`benchmarks/runs/<run_id>/` (gitignored).
 
 ---
 

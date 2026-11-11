@@ -247,7 +247,9 @@ engines. The design (local + cloud providers, glossary, scoring profiles) is
 [asr_provider_spec.md](asr_provider_spec.md); what's built is
 [asr_provider_implementation_plan.md](asr_provider_implementation_plan.md).
 `benchmarks/run_benchmark.py` runs and scores one configuration;
-`scripts/bench_status.py` shows what's been scored against what. Expect
+`scripts/bench_status.py` shows what's been scored against what. The whole
+procedure, from annotation to reported number, is
+[asr_evaluation_methods.md](asr_evaluation_methods.md). Expect
 higher error rates than published numbers (medical vocabulary, overlapping
 speech, multi-party rooms): that gap is a finding; report it.
 
@@ -270,13 +272,12 @@ benchmark scores must never change; its hash is recorded with every run.
 | Question | Metric | Tool |
 |---|---|---|
 | Transcription accuracy | WER, CER | `jiwer` |
-| Speaker attribution | DER, JER | `pyannote.metrics` (not wired yet, plan Phase 6.2) |
+| Speaker attribution | DER, JER | `pyannote.metrics` (not wired yet, plan Phase 6.4) |
 | Word timing | boundary error vs gold | not built |
 
-`normalize.py` (the L0 verbatim / L1 filler-neutral scoring profiles) and
-`providers.py` (the capability registry loader) are built and tested, but
-`run_benchmark.py` still uses its own simple normalization: wiring them in is
-plan Phase 6.
+Names are redacted from both sides, then `normalize.py`'s L0 verbatim
+profile gives `wer`/`cer` and its L1 filler-neutral profile gives `wer_l1`
+([asr_evaluation_methods.md](asr_evaluation_methods.md) §4).
 
 ### 8c. Sweep design
 
@@ -288,8 +289,8 @@ identical run costs nothing.
 ### 8d. Provenance
 
 Every run appends a row to `benchmarks/results/runs.csv` (append-only, in
-git): engine, model, settings, audio hash, gold hash, commit, wall time,
-machine; the full config and normalized output go in
+git): engine, model, audio hash, scores, scoring method, gold hash, commit,
+wall time, machine; the full config and normalized output go in
 `benchmarks/runs/<run_id>/` (gitignored, since it holds transcript text). A
 result that can't be traced to an exact configuration is noise.
 
