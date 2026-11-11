@@ -23,7 +23,7 @@ def _voice(f0, seconds, amp=0.3):
 def two_speakers(tmp_path_factory):
     """0-2 s speaker A at 120 Hz, 2-4 s speaker B at 220 Hz, 4-5 s silence."""
     sig = np.concatenate([_voice(120, 2), _voice(220, 2), np.zeros(SR)])
-    path = tmp_path_factory.mktemp("p") / "case.wav"
+    path = tmp_path_factory.mktemp("p") / "recording.wav"
     parselmouth.Sound(sig, sampling_frequency=SR).save(str(path), "WAV")
     return path, prosody.frame_features(path)
 

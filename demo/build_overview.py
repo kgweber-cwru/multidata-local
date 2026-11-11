@@ -108,9 +108,9 @@ def human_status(case):
 
 def main():
     db = sqlite3.connect(f"file:{ROOT / 'manifest.sqlite'}?mode=ro", uri=True)
-    rows = db.execute("SELECT c.case_id, c.room_number, c.audio_camera, v.duration_s "
-                      "FROM cases c JOIN videos v ON v.case_id = c.case_id AND v.camera = c.audio_camera "
-                      "ORDER BY c.room_number, c.case_id").fetchall()
+    rows = db.execute("SELECT c.recording_id, c.room_number, c.audio_camera, v.duration_s "
+                      "FROM recordings c JOIN videos v ON v.recording_id = c.recording_id AND v.camera = c.audio_camera "
+                      "ORDER BY c.room_number, c.recording_id").fetchall()
     built = DATA / "demo" / "cases" / "index.json"
     built = json.loads(built.read_text()) if built.exists() else {}
     cases = []

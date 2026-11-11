@@ -32,21 +32,21 @@ file has a bug.
 
 **Encounters.** Simulated encounters in our simulation center. A learner
 (medical student) interviews and examines a standardized patient, an actor
-playing a case. In most encounters a preceptor (supervising clinician) then enters and gives feedback. A
+playing a case (the scenario). In most encounters a preceptor (supervising clinician) then enters and gives feedback. A
 recorded PA system announces each phase (door note, start, time warnings,
 end, feedback). Each exam room has two pan/tilt/zoom cameras and one shared
 microphone feed.
 
-**Audio.** For each case, one camera is the *audio camera*. The pipeline
+**Audio.** For each recording, one camera is the *audio camera*. The pipeline
 extracts its soundtrack as 16 kHz mono 16-bit WAV
-(`data/audio/<case>/<camera>.wav`). Every engine is scored on that same file,
+(`data/audio/<recording>/<camera>.wav`). Every engine is scored on that same file,
 and its SHA-256 is recorded with every score.
 
 **Sample.** Gold is expensive: a first pass takes 6–10 times real time, so
-a 20-minute encounter takes most of a day. Cases are therefore chosen
+a 20-minute encounter takes most of a day. Recordings are therefore chosen
 deliberately rather than at random, to cover the conditions that break ASR:
 quiet against noisy rooms, number of speakers and amount of overlap, learner
-accent and speech rate, and microphone. The reason for choosing each case is
+accent and speech rate, and microphone. The reason for choosing each recording is
 recorded in the `notes` column of `annotation/assignments.csv`. A reference
 can be an **excerpt** of an encounter (a time window) rather than all of it.
 WER is a rate, so an excerpt is scored only within its window. Results are
@@ -57,8 +57,8 @@ whole corpus.
 people, and they say their names. Anything holding a real name stays on the
 processing host and the project's Box folder, and is never put into git
 (§4). The IRB cleared sending audio to cloud ASR vendors for transcription
-on 2026-09-10. No case may be sent until the `cases.cloud_release` check
-exists in code and the case has been released ([status.md](status.md)).
+on 2026-09-10. No recording may be sent until the `recordings.cloud_release` check
+exists in code and the recording has been released ([status.md](status.md)).
 
 ---
 
@@ -66,7 +66,7 @@ exists in code and the case has been released ([status.md](status.md)).
 
 ### 2.1 What an annotator produces
 
-One ELAN file per case, with a fixed set of tiers taken from the versioned
+One ELAN file per recording, with a fixed set of tiers taken from the versioned
 template `elan/template.etf`:
 
 | Tier | Holds |
@@ -130,13 +130,13 @@ listening, guided by the guide's hand-off checklist.
 
 ### 2.4 Agreement between annotators
 
-To estimate how far two careful humans differ, about 20% of cases should be
+To estimate how far two careful humans differ, about 20% of recordings should be
 annotated twice, blind and independently. The WER between the two pass-1
 files is the **noise floor**: no engine can meaningfully do better.
 Agreement comes only from blind passes; two corrections of the same seed
 agree partly because they started from the same text.
 
-**No case has been double-annotated yet, so no noise floor exists.** Every
+**No recording has been double-annotated yet, so no noise floor exists.** Every
 reported number must say so until one does.
 
 ---
@@ -150,9 +150,9 @@ in `benchmarks/references/`, the only place gold is tracked in git:
 
 | File | Contents | Used for |
 |---|---|---|
-| `<case>.gold.txt` | the text of every speech tier (`LEARNER`, `PATIENT`, `PRECEPTOR`, `ANNOUNCEMENT`, `OUTSIDE_ROOM`), in time order, as one line, with names replaced by tags | WER, CER |
-| `<case>.gold.rttm` | the same tiers as speaker turns (same-tier utterances 0.3 s or less apart are merged into one turn), labelled with role names | DER (not computed yet, §3.4) |
-| `<case>.gold.json` | how pass 1 was made (blind or seeded, and if seeded, which engine, model and transcript hash), the standards version, the export date, the excerpt window | refusing biased comparisons; reporting |
+| `<recording>.gold.txt` | the text of every speech tier (`LEARNER`, `PATIENT`, `PRECEPTOR`, `ANNOUNCEMENT`, `OUTSIDE_ROOM`), in time order, as one line, with names replaced by tags | WER, CER |
+| `<recording>.gold.rttm` | the same tiers as speaker turns (same-tier utterances 0.3 s or less apart are merged into one turn), labelled with role names | DER (not computed yet, §3.4) |
+| `<recording>.gold.json` | how pass 1 was made (blind or seeded, and if seeded, which engine, model and transcript hash), the standards version, the export date, the excerpt window | refusing biased comparisons; reporting |
 
 `ANNOUNCEMENT` and `OUTSIDE_ROOM` are in both the text and the turns,
 because the question is whether an engine hears what a person in the room
@@ -164,16 +164,16 @@ is append-only, so a re-export adds a row rather than replacing one.
 
 ### 3.2 Name redaction
 
-The manifest holds each case's learner, standardized-patient and preceptor
+The manifest holds each recording's learner, standardized-patient and preceptor
 names. On export, every word of the transcript is compared with each part
-of each name. It is redacted if it matches exactly, ignoring case, or if it
+of each name. It is redacted if it matches exactly, ignoring letter case, or if it
 is at least three letters long and its `difflib` similarity ratio to a name
 part is at least 0.78. Adjacent redacted words collapse into one tag, such as
 `[LEARNER_NAME]`. The 0.78 threshold catches one-letter misspellings
 ("Jamey" for "Jamie"). Lowering it to catch more distant spellings also
 redacts ordinary words: at 0.75, "then" and "when" match the surname "Shen".
 
-This is a best-effort first line, not a guarantee. Two cases need a human:
+This is a best-effort first line, not a guarantee. Two recordings need a human:
 
 - **No name on record.** If a role tier has speech but the manifest has no
   name for that role (preceptor names are often missing), the export prints a
@@ -189,9 +189,9 @@ edit, and the fact (never the name) is recorded in that case's
 
 | Layer | Location | In git? | Holds |
 |---|---|---|---|
-| working copies | `annotation/kits/<case>/<annotator>/` on the processing host; Box while out for work | no | each pass as built and returned; pass 1 frozen on return |
-| adjudicated original | `data/gold/<case>/<case>.gold.eaf` | no | the reference with real names |
-| publishable reference | `benchmarks/references/<case>.gold.*` | yes | redacted text, turns, provenance |
+| working copies | `annotation/kits/<recording>/<annotator>/` on the processing host; Box while out for work | no | each pass as built and returned; pass 1 frozen on return |
+| adjudicated original | `data/gold/<recording>/<recording>.gold.eaf` | no | the reference with real names |
+| publishable reference | `benchmarks/references/<recording>.gold.*` | yes | redacted text, turns, provenance |
 | scores | `benchmarks/results/runs.csv` | yes | one row per scored run |
 | per-run detail | `benchmarks/runs/<run_id>/` | no | the engine's full output (contains names) |
 
@@ -204,12 +204,12 @@ Box is only a courier.
 
 ### 4.1 Producing the hypothesis
 
-`benchmarks/run_benchmark.py` either runs an engine on the case's WAV or
+`benchmarks/run_benchmark.py` either runs an engine on the recording's WAV or
 scores a transcript the pipeline already made. Engine outputs are cached by
 (engine, model, audio hash), so re-scoring never re-runs or re-bills an
 engine. The engine's words are joined in time order into one string. If the
 reference is an excerpt, only words that start inside the window are kept;
-the window is read from `<case>.gold.json`.
+the window is read from `<recording>.gold.json`.
 
 Before scoring, the script refuses to score an engine against gold seeded
 by that same engine.
@@ -219,7 +219,7 @@ by that same engine.
 The same steps are applied to the reference and the hypothesis
 (`multidata.redact`, `multidata.normalize`):
 
-1. **Redact names** with the manifest names for the case, as in §3.2. The
+1. **Redact names** with the manifest names for the recording, as in §3.2. The
    engine heard the real name and wrote it; the reference already has a tag.
    Both end up as a tag, which step 2 removes, so a spoken name counts neither
    for nor against the engine.
@@ -274,11 +274,11 @@ reference as it is now. Older rows stay in the ledger as history.
 
 ### 4.5 Reporting rules
 
-- Report **per case**, not only means: with a handful of cases, a mean hides
+- Report **per recording**, not only means: with a handful of recordings, a mean hides
   everything.
 - Report results against **blind and seeded gold separately**, never
   averaged together. Engine rankings rest on blind gold.
-- Name the sample's strata, and whether any case is an excerpt.
+- Name the sample's strata, and whether any recording is an excerpt.
 - State the noise floor, or that none was established (§2.4).
 - For cloud engines, record the model version the vendor reports. Vendors
   update models silently, so a cloud number is a snapshot.
@@ -291,7 +291,7 @@ Current as of 2026-11-11. When one is fixed, delete it here.
 
 - **No diarization score yet.** Gold turns exist (with overlap), but DER and
   JER are not computed, so the second half of the question is open.
-- **No noise floor.** No case has two independent blind passes (§2.4).
+- **No noise floor.** No recording has two independent blind passes (§2.4).
 - **Numbers are not canonicalized.** Gold writes "one twenty over eighty";
   an engine writing "120/80" is counted wrong.
 - **Spelling variants of ordinary words count as errors.** For example
@@ -308,7 +308,7 @@ Current as of 2026-11-11. When one is fixed, delete it here.
 - **Preceptor names are mostly not in the manifest**, so preceptors'
   spoken names are not redacted automatically. 261498's reference contains
   one ([status.md](status.md)).
-- **Audio clock on room 11's camera 16.** In three cases the WAV runs ahead
+- **Audio clock on room 11's camera 16.** In three recordings the WAV runs ahead
   of the video by up to 15 s ([status.md](status.md)). WER is unaffected (no
   timing involved), and so is DER, as long as gold and engine both use the
   WAV. Comparisons with video or pose are affected.

@@ -1,18 +1,18 @@
 #!/usr/bin/env python
-"""Make a short demo video of a case: both cameras side by side, time-synced,
+"""Make a short demo video of a recording: both cameras side by side, time-synced,
 with 2D pose drawn on, faces blurred.
 
     python scripts/demo_clip.py 261498                      # picks a lively 45 s
     python scripts/demo_clip.py 261498 --start 2:25 --dur 30
     python scripts/demo_clip.py 261498 --audio --labels none --out ~/demo.mp4
 
-md-pose env (OpenCV + ffmpeg). Needs the case's pose files; uses its sync
+md-pose env (OpenCV + ffmpeg). Needs the recording's pose files; uses its sync
 offsets and camera views when they exist. Writes an H.264 .mp4 that plays in
-any browser or slide deck (default: data/demos/<case>_<start>.mp4) and prints
+any browser or slide deck (default: data/demos/<recording>_<start>.mp4) and prints
 where it is.
 
 What you see:
-  - title bar: case, room, the time on the case's reference clock
+  - title bar: recording, room, the time on the recording's reference clock
   - each camera, with its preset name when the view has been named
   - skeletons, coloured by a *guessed* role ("patient?" = the person who stays
     put, "learner?" = the most visible other person) -- position-based
@@ -61,32 +61,32 @@ HEAD = [0, 1, 2, 3, 4, 17]          # nose, eyes, ears, head top
 
 # --- loading ---------------------------------------------------------------
 
-def load_case(case_id, cameras, db):
+def load_recording(recording_id, cameras, db):
     c = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
-    case = c.execute("SELECT room_number, audio_camera FROM cases WHERE case_id = ?",
-                     (case_id,)).fetchone()
-    if not case:
-        sys.exit(f"case {case_id} isn't in the manifest")
-    room, audio_cam = case
-    rows = c.execute("SELECT camera, filepath, sync_offset_s FROM videos WHERE case_id = ? "
-                     "ORDER BY camera", (case_id,)).fetchall()
+    recording = c.execute("SELECT room_number, audio_camera FROM recordings WHERE recording_id = ?",
+                     (recording_id,)).fetchone()
+    if not recording:
+        sys.exit(f"recording {recording_id} isn't in the manifest")
+    room, audio_cam = recording
+    rows = c.execute("SELECT camera, filepath, sync_offset_s FROM videos WHERE recording_id = ? "
+                     "ORDER BY camera", (recording_id,)).fetchall()
     if cameras:
         rows = [r for r in rows if r[0] in cameras]
     if not rows:
-        sys.exit(f"case {case_id} has no videos" + (f" for cameras {cameras}" if cameras else ""))
+        sys.exit(f"recording {recording_id} has no videos" + (f" for cameras {cameras}" if cameras else ""))
     labels = dict(((cam, v), lab) for cam, v, lab in
                   c.execute("SELECT camera, view_id, label FROM camera_views"))
     cams = []
     for cam, path, offset in rows:
-        pose_path = DATA_DIR / "pose" / case_id / f"{cam}.npz"
+        pose_path = DATA_DIR / "pose" / recording_id / f"{cam}.npz"
         if not pose_path.exists():
-            sys.exit(f"no pose for {case_id}/{cam} yet -- run: "
-                     f"python scripts/run_stage.py pose --only {case_id} --accel-device cuda")
+            sys.exit(f"no pose for {recording_id}/{cam} yet -- run: "
+                     f"python scripts/run_stage.py pose --only {recording_id} --accel-device cuda")
         e = pose.load(pose_path)
         if offset is None:
             print(f"note: camera {cam} has no sync offset (sync failed or not run); "
                   "its panel may be up to ~1 s off")
-        views_path = DATA_DIR / "views" / case_id / f"{cam}.json"
+        views_path = DATA_DIR / "views" / recording_id / f"{cam}.json"
         stretches = json.loads(views_path.read_text())["stretches"] if views_path.exists() else []
         cams.append({"camera": cam, "video": ROOT / path, "offset": offset or 0.0,
                      "kp": e["keypoint"], "sc": e["keypoint_score"],
@@ -258,12 +258,12 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0],
                                  formatter_class=argparse.RawDescriptionHelpFormatter,
                                  epilog=__doc__.split("\n\n", 1)[1])
-    ap.add_argument("case", help="case id, e.g. 261498")
-    ap.add_argument("--start", help="clip start on the case clock: seconds, m:ss or h:mm:ss "
+    ap.add_argument("recording", help="recording id, e.g. 261498")
+    ap.add_argument("--start", help="clip start on the recording clock: seconds, m:ss or h:mm:ss "
                                     "(default: pick a lively stretch)")
     ap.add_argument("--dur", type=float, default=45, help="clip length in seconds (default 45)")
-    ap.add_argument("--out", help="output .mp4 (default data/demos/<case>_<start>.mp4)")
-    ap.add_argument("--cameras", nargs="+", help="only these cameras (default: all of the case's)")
+    ap.add_argument("--out", help="output .mp4 (default data/demos/<recording>_<start>.mp4)")
+    ap.add_argument("--cameras", nargs="+", help="only these cameras (default: all of the recording's)")
     ap.add_argument("--labels", choices=["roles", "none"], default="roles",
                     help="roles: colour by guessed patient/learner (default); none: all alike")
     ap.add_argument("--no-blur", action="store_true", help="don't blur faces")
@@ -271,7 +271,7 @@ def main():
     ap.add_argument("--manifest", default=MANIFEST_PATH)
     args = ap.parse_args()
 
-    room, audio_cam, cams = load_case(args.case, args.cameras, args.manifest)
+    room, audio_cam, cams = load_recording(args.recording, args.cameras, args.manifest)
     start = parse_time(args.start) if args.start else pick_start(cams, args.dur)
     n = int(args.dur * FPS)
     ticks = start + np.arange(n) / FPS
@@ -284,7 +284,7 @@ def main():
         c["reader"] = Reader(c, int(j[0]))
 
     out = Path(args.out).expanduser() if args.out else \
-        DATA_DIR / "demos" / f"{args.case}_{clock(start).replace(':', '-').split('.')[0]}.mp4"
+        DATA_DIR / "demos" / f"{args.recording}_{clock(start).replace(':', '-').split('.')[0]}.mp4"
     out.parent.mkdir(parents=True, exist_ok=True)
     W = PANEL_W * len(cams)
     footer = ("faces blurred (best effort; mirrors often missed: check before sharing)"
@@ -316,7 +316,7 @@ def main():
                      + ("  -  frames missing here" if c["gap"][i] else ""), (10, PANEL_H - 9))
                 panels.append(frame)
             top = np.full((BAR, W, 3), 30, np.uint8)
-            text(top, f"Case {args.case}  -  room {room}  -  {clock(ticks[i])}", (14, 29), 0.75, bold=2)
+            text(top, f"Recording {args.recording}  -  room {room}  -  {clock(ticks[i])}", (14, 29), 0.75, bold=2)
             bottom = np.full((BAR, W, 3), 30, np.uint8)
             x = 14
             if args.labels == "roles":

@@ -363,7 +363,7 @@ def main():
     args = ap.parse_args()
     db = sqlite3.connect(f"file:{ROOT / 'manifest.sqlite'}?mode=ro", uri=True)
     (ca, oa, va), (cb, ob, vb) = db.execute(
-        "SELECT camera, sync_offset_s, filepath FROM videos WHERE case_id=? ORDER BY camera",
+        "SELECT camera, sync_offset_s, filepath FROM videos WHERE recording_id=? ORDER BY camera",
         (args.case,)).fetchall()[:2]
     A, B = load(args.case, ca, oa or 0.0), load(args.case, cb, ob or 0.0)
     who_a = hand_labels(args.case, ca)

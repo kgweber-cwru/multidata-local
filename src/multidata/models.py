@@ -1,10 +1,10 @@
 """Domain models for the manifest database (pipeline doc §10).
 
 Denormalized into two entities because that is how the data actually arrives:
-the source system's Excel export gives **case-level** facts (event, learner,
+the source system's Excel export gives **recording-level** facts (event, learner,
 room, recording time...) once per recorded encounter, while pipeline
 processing facts (hashes, dimensions, per-stage status...) exist once per
-**physical camera file** — usually two videos per case (see the raw-ingest
+**physical camera file** — usually two videos per recording (see the raw-ingest
 naming convention in pipeline doc §2).
 
 Stdlib-only (`dataclasses`), so this module imports in both the md-speech and
@@ -17,17 +17,17 @@ STATUSES = {"pending", "done", "failed", "skipped"}
 
 
 @dataclass
-class Case:
+class Recording:
     """One recorded encounter, as exported by the source system.
 
-    `case_id` is the source system's own identifier (matches the
-    `data/raw/<case_id>/` folder name, and the sheet title in the source
+    `recording_id` is the source system's own identifier (matches the
+    `data/raw/<recording_id>/` folder name, and the sheet title in the source
     system's Excel video-manifest export).
 
-    `audio_camera` is the camera whose audio is canonical for this case's
+    `audio_camera` is the camera whose audio is canonical for this recording's
     audio-derived stages (audio/asr/diarize/elan) -- see
     `manifest.ensure_audio_camera()`. Empty until a video row exists and one
-    of those stages first runs for the case; sticky once set.
+    of those stages first runs for the recording; sticky once set.
 
     `learner_name`/`sp_name`/`preceptor_name` double as the **redaction map**
     for gold references: annotators transcribe names verbatim and redaction is
@@ -37,17 +37,17 @@ class Case:
 
     `cloud_release` is the **safety interlock** for third-party ASR providers
     (docs/asr_provider_spec.md §9): 0 by default, and no adapter may send a
-    case's audio off this machine without it. Today's corpus is uniformly
+    recording's audio off this machine without it. Today's corpus is uniformly
     simulated encounters from our sim center, so it sorts nothing -- its job is to already
     exist on the day real clinical data lands. `cloud_release_basis` records
-    *why* a case is eligible (e.g. "simulated_patient",
+    *why* a recording is eligible (e.g. "simulated_patient",
     "consented_third_party"), because a bare boolean can't be audited.
     """
 
-    case_id: str
-    event_name: str = ""
-    case_name: str = ""
-    group_name: str = ""
+    recording_id: str
+    activity_title: str = ""
+    case_title: str = ""
+    learner_group: str = ""
     room_number: str = ""
     learner_name: str = ""
     sp_name: str = ""
@@ -58,11 +58,11 @@ class Case:
     cloud_release_basis: str = ""
     audio_camera: str = ""
     # LearningSpace links (multidata.learningspace; docs/learningspace.md).
-    # ls_recording_guid is LearningSpace's identity for this recording.
-    ls_recording_guid: str = ""
+    # ls_recording_id is LearningSpace's identity for this recording.
+    ls_recording_id: str = ""
     ls_activity_id: str = ""
     ls_event_id: str = ""
-    ls_case_guid: str = ""
+    ls_case_id: str = ""
     ls_learner_id: str = ""
     ls_room_id: str = ""
     recording_start_utc: str = ""
@@ -89,8 +89,8 @@ class Camera:
     git-tracked backup at `db_seed/camera_rooms.csv` (the database itself is
     gitignored, and this hand-verified knowledge has no other source to
     reconstruct it from). Do not try to infer this mapping automatically from
-    timestamps -- cases can share a recording minute across rooms, which makes
-    inference unreliable (see the `casematch` module docstring).
+    timestamps -- recordings can share a recording minute across rooms, which makes
+    inference unreliable (see the `filematch` module docstring).
     """
 
     camera_id: str
@@ -106,24 +106,24 @@ class Camera:
 
 @dataclass
 class Video:
-    """One camera file belonging to a Case. Every `*_status` starts `pending`.
+    """One camera file belonging to a Recording. Every `*_status` starts `pending`.
 
-    `camera` and `recording_id` come from the source filename spec (doc
-    section 2): `<date>-<time>-<recording_id>-<camera>.mp4`, e.g.
+    `camera` and `file_number` come from the source filename spec (doc
+    section 2): `<date>-<time>-<file_number>-<camera>.mp4`, e.g.
     `20260224-132704-v308933-41.mp4` -> date "20260224", time "132704"
-    (13:27:04), recording_id "v308933" (the source system's internal
+    (13:27:04), file_number "v308933" (the source system's internal
     recording/asset id, aka "video number"), camera "41".
 
-    Important: the filename's second field is a timestamp, not the case_id --
-    there is no case_id anywhere in the filename. `case_id` below is resolved
+    Important: the filename's second field is a timestamp, not the recording_id --
+    there is no recording_id anywhere in the filename. `recording_id` below is resolved
     after the fact by matching (video date+time, truncated to the minute, and
-    camera-to-room) against the cases table -- see
-    `multidata.casematch.resolve()`. Never parse it out of the filename.
+    camera-to-room) against the recordings table -- see
+    `multidata.filematch.resolve()`. Never parse it out of the filename.
     """
 
-    case_id: str
+    recording_id: str
     camera: str
-    recording_id: str = ""
+    file_number: str = ""
     video_date: str = ""
     video_time: str = ""
     filepath: str = ""
@@ -166,3 +166,12 @@ class Video:
     @classmethod
     def from_row(cls, row):
         return cls(**{c: row[c] for c in cls.columns()})
+
+
+def upgrade_keys(d):
+    """A kit.json or .gold.json written before the rename to LearningSpace's
+    terms (2026-11-11) says `case_id`; it means `recording_id`. Returns `d`
+    with the new key (same value). Annotators' kits stay as they are."""
+    if "case_id" in d and "recording_id" not in d:
+        d = {("recording_id" if k == "case_id" else k): v for k, v in d.items()}
+    return d

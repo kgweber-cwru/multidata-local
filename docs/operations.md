@@ -13,7 +13,7 @@ them, and look after the backups. Everything runs on the processing host
 ```bash
 cd ~/projects/multidata-local
 conda activate md-speech          # or md-pose for pose / views
-python scripts/run_stage.py <stage> [--only <case_id>]
+python scripts/run_stage.py <stage> [--only <recording_id>]
 ```
 
 Each stage works only on rows still `pending` for it, so re-running is
@@ -24,7 +24,7 @@ env").
 
 ## Long jobs: start them detached
 
-Pose takes the GPU for hours (~35 min per case). Start it so it survives the
+Pose takes the GPU for hours (~35 min per recording). Start it so it survives the
 terminal closing, and record the worker PIDs:
 
 ```bash
@@ -61,7 +61,7 @@ ps -o pid,etime,%cpu,args -p "$(paste -sd, logs/pose.pid)"      # still alive?
 nvidia-smi                                                       # on the GPU?
 tail -f logs/run_stage.log                                       # progress
 sqlite3 manifest.sqlite "select pose_status, count(*) from videos group by 1"
-sqlite3 manifest.sqlite "select stage, status, case_id, camera, round(wall_s), round(realtime_x,2)
+sqlite3 manifest.sqlite "select stage, status, recording_id, camera, round(wall_s), round(realtime_x,2)
                          from stage_runs order by id desc limit 10"
 ```
 
@@ -111,7 +111,7 @@ tail logs/backup.log
 scripts/backup_to_raid.sh                    # run one now (safe alongside a job)
 
 # restore a file or folder, from the mirror or a dated change set
-cp -p /wddata/multidata-backup/current/data/gold/<case>/<file> data/gold/<case>/
+cp -p /wddata/multidata-backup/current/data/gold/<recording>/<file> data/gold/<recording>/
 ls /wddata/multidata-backup/changed/
 
 # restore the manifest: stop every job first; this replaces the live database

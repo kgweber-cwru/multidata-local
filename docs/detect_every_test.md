@@ -15,7 +15,7 @@ Thresholds were fixed before the run: median keypoint shift <= 2.0 px, 95th perc
 
 One per room: the video with the most people, at its 300 s of most movement (the hardest case for reused detector boxes).
 
-| Room | Case/camera | Start (s) | Every 2: median / p95 px, missed | Every 3: median / p95 px, missed |
+| Room | Recording/camera | Start (s) | Every 2: median / p95 px, missed | Every 3: median / p95 px, missed |
 |---|---|---|---|---|
 | 1 | 260658/337 | 1022 | 0.00 / 4.2, 1.50% | 0.25 / 5.9, 2.41% |
 | 2 | 261465/37 | 2509 | 0.00 / 5.6, 0.12% | 0.49 / 7.7, 0.23% |

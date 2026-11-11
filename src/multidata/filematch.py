@@ -1,15 +1,15 @@
-"""Resolve a raw video file to its case_id (pipeline doc §2 / §4).
+"""Resolve a raw video file to its recording_id (pipeline doc §2 / §4).
 
-The source filename (`<date>-<time>-<recording_id>-<camera>.mp4`) carries no
-case_id at all — the only link back to the source system's per-case metadata
+The source filename (`<date>-<time>-<file_number>-<camera>.mp4`) carries no
+recording_id at all — the only link back to the source system's per-recording metadata
 is:
 
-  1. **timestamp**: the case's `recording_start_time` (from the Excel import,
+  1. **timestamp**: the recording's `recording_start_time` (from the Excel import,
      see `manifest._parse_recording_start`) always has its seconds truncated
      to `:00`, while the filename's time field is full HH:MM:SS. So videos can
-     only be matched to a case at **minute** granularity, not exact-second.
+     only be matched to a recording at **minute** granularity, not exact-second.
   2. **room, via camera**: minute-granularity timestamps are not unique on
-     their own — two cases in different rooms can start in the same minute.
+     their own — two recordings in different rooms can start in the same minute.
      `camera` disambiguates via the room it's physically installed in, looked
      up from the hand-verified `manifest.sqlite` `cameras` table
      (`manifest.set_camera_room` / `all_camera_rooms`).
@@ -26,8 +26,8 @@ durable backup for this hand-verified knowledge, which has no other source to
 reconstruct it from).
 
 Matches (successful or not) are cached in the manifest's
-`video_case_matches` table (`manifest.get_cached_match` / `save_match`) so
-this scan — which is O(all cases) per file — doesn't have to be redone on
+`file_matches` table (`manifest.get_cached_match` / `save_match`) so
+this scan — which is O(all recordings) per file — doesn't have to be redone on
 every run, and so ambiguous/unmatched files are recorded in one place for
 manual follow-up (`manifest.unresolved_matches()`).
 """
@@ -37,12 +37,12 @@ from pathlib import Path
 from multidata import ingest, manifest
 
 
-class CaseMatchError(Exception):
-    """Raised when a video can't be resolved to exactly one case.
+class MatchError(Exception):
+    """Raised when a video can't be resolved to exactly one recording.
 
     `status` is one of "no_room", "no_match", "ambiguous" — mirrors the
-    `video_case_matches.status` values that aren't "matched". `candidates`
-    holds the competing case_ids when status is "ambiguous".
+    `file_matches.status` values that aren't "matched". `candidates`
+    holds the competing recording_ids when status is "ambiguous".
     """
 
     def __init__(self, message, status, candidates=()):
@@ -80,7 +80,7 @@ def _video_minute(video_date: str, video_time: str) -> datetime:
     )
 
 
-def _case_minute(recording_start_time: str):
+def _recording_minute(recording_start_time: str):
     if not recording_start_time:
         return None
     try:
@@ -99,34 +99,34 @@ def is_large_room(room) -> bool:
     return "L" in _normalize(room)
 
 
-def match_case(video_date, video_time, camera, cases, camera_room_map) -> str:
-    """Return the one case_id whose room (via `camera_room_map`) and
+def match_recording(video_date, video_time, camera, recordings, camera_room_map) -> str:
+    """Return the one recording_id whose room (via `camera_room_map`) and
     `recording_start_time` (truncated to the minute) match. Raises
-    `CaseMatchError` if the camera has no known room, or there isn't exactly
+    `MatchError` if the camera has no known room, or there isn't exactly
     one match.
     """
     room = camera_room_map.get(_normalize(camera))
     if room is None:
-        raise CaseMatchError(
+        raise MatchError(
             f"camera {camera!r} has no known room yet -- manifest.set_camera_room(...)",
             status="no_room",
         )
 
     target = _video_minute(video_date, video_time)
     candidates = [
-        c.case_id
-        for c in cases
-        if _normalize(c.room_number) == room and _case_minute(c.recording_start_time) == target
+        c.recording_id
+        for c in recordings
+        if _normalize(c.room_number) == room and _recording_minute(c.recording_start_time) == target
     ]
 
     if not candidates:
-        raise CaseMatchError(
-            f"no case in room {room!r} recorded at {target.isoformat()}",
+        raise MatchError(
+            f"no recording in room {room!r} recorded at {target.isoformat()}",
             status="no_match",
         )
     if len(candidates) > 1:
-        raise CaseMatchError(
-            f"{len(candidates)} cases in room {room!r} recorded at "
+        raise MatchError(
+            f"{len(candidates)} recordings in room {room!r} recorded at "
             f"{target.isoformat()}: {candidates}",
             status="ambiguous",
             candidates=candidates,
@@ -135,28 +135,28 @@ def match_case(video_date, video_time, camera, cases, camera_room_map) -> str:
 
 
 def resolve(path, manifest_path=manifest.DEFAULT_PATH) -> str:
-    """Resolve one raw video file to its case_id, using the persistent cache
+    """Resolve one raw video file to its recording_id, using the persistent cache
     when available.
 
-    Raises `CaseMatchError` (and caches the failure) if unresolved — call
+    Raises `MatchError` (and caches the failure) if unresolved — call
     `manifest.unresolved_matches()` afterwards to see everything that needs a
-    manual look (missing camera/room mapping, no candidate case, or more than
+    manual look (missing camera/room mapping, no candidate recording, or more than
     one).
     """
     filename = Path(path).name
     cached = manifest.get_cached_match(filename, manifest_path)
     if cached is not None and cached["status"] == "matched":
-        return cached["case_id"]
+        return cached["recording_id"]
 
     parsed = ingest.parse_filename(path)
     camera_room_map = load_camera_room_map(manifest_path)
-    cases = manifest.all_cases(manifest_path)
+    recordings = manifest.all_recordings(manifest_path)
 
     try:
-        case_id = match_case(
-            parsed["date"], parsed["time"], parsed["camera"], cases, camera_room_map
+        recording_id = match_recording(
+            parsed["date"], parsed["time"], parsed["camera"], recordings, camera_room_map
         )
-    except CaseMatchError as e:
+    except MatchError as e:
         manifest.save_match(
             filename, status=e.status, camera=parsed["camera"],
             video_date=parsed["date"], video_time=parsed["time"],
@@ -168,6 +168,6 @@ def resolve(path, manifest_path=manifest.DEFAULT_PATH) -> str:
     manifest.save_match(
         filename, status="matched", camera=parsed["camera"], room=room,
         video_date=parsed["date"], video_time=parsed["time"],
-        path=manifest_path, case_id=case_id,
+        path=manifest_path, recording_id=recording_id,
     )
-    return case_id
+    return recording_id

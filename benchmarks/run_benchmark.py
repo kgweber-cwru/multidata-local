@@ -1,14 +1,14 @@
 #!/usr/bin/env python
 """ASR benchmarking wing — run one config, score it, log provenance (doc §8).
 
-    python benchmarks/run_benchmark.py --case 132704 \
+    python benchmarks/run_benchmark.py --recording 132704 \
         --audio data/audio/132704/41.wav \
         --engine whisperx_disfluent --model medium
 
     # score a transcript already on disk instead of re-running the engine --
     # e.g. one run_stage.py already produced, or a slow engine you don't want
     # to pay for twice:
-    python benchmarks/run_benchmark.py --case 132704 \
+    python benchmarks/run_benchmark.py --recording 132704 \
         --audio data/audio/132704/41.wav \
         --transcript data/transcripts/132704/41_whisperx_disfluent_medium.json \
         --model medium
@@ -17,11 +17,11 @@ Vary ONE axis at a time, everything else pinned (doc §8c). Every run appends a
 fully-attributed row to benchmarks/results/runs.csv — a benchmark you can't
 attribute to an exact config is noise (doc §8d).
 
-Requires a gold reference at benchmarks/references/<case_id>.gold.txt (see
+Requires a gold reference at benchmarks/references/<recording_id>.gold.txt (see
 scripts/eaf_to_gold.py to produce one from an annotated .eaf). Those are the
 expensive, essential part; see docs/transcription_standards.md.
 
-Scoring (`score()`): the manifest's names for the case are redacted from
+Scoring (`score()`): the manifest's names for the recording are redacted from
 BOTH reference and hypothesis (`multidata.redact`), then both are normalized
 with `multidata.normalize` -- L0 verbatim for `wer`/`cer`, L1 filler-neutral
 for `wer_l1`. Bracket tags (`[LEARNER_NAME]`, `[unintelligible]`,
@@ -47,6 +47,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from multidata import asr, bench_runs, manifest, normalize, redact, seeding  # noqa: E402
 from multidata.elan import words_of  # noqa: E402
+from multidata.models import upgrade_keys  # noqa: E402
 
 RESULTS = ROOT / "benchmarks" / "results" / "runs.csv"
 REFERENCES = ROOT / "benchmarks" / "references"
@@ -61,7 +62,7 @@ CACHE_ROOT = ROOT / "benchmarks" / "cache"
 #                the engine would have run, but didn't need to
 #   cached    -- an externally supplied --transcript file was scored; some
 #                other process (a notebook, run_stage.py) produced it
-FIELDS = ["timestamp", "case_id", "engine", "model", "audio_sha256",
+FIELDS = ["timestamp", "recording_id", "engine", "model", "audio_sha256",
           "wer", "cer", "wall_s", "source", "git_commit", "machine", "notes",
           "gold_pass1", "wer_l1", "scoring", "gold_sha256"]
 # gold_sha256: the reference file actually scored against. A re-exported
@@ -80,7 +81,7 @@ SCORING = "redact+L0/L1 v3"  # v2: markup off words at L0; L1 drops cut-off word
 def score(ref, hyp, names):
     """WER/CER at L0 and WER at L1, after redacting `names` from both sides.
 
-    Redaction runs on the raw text (it matches names case-sensitively, before
+    Redaction runs on the raw text (it matches names recording-sensitively, before
     punctuation is gone); the resulting `[ROLE_NAME]` tags are then deleted
     by normalization like every other bracket tag, so a name counts neither
     for nor against an engine. `names` may be None (no manifest row): then
@@ -165,11 +166,12 @@ def record(row, results_path=RESULTS):
 def _upgrade_header(results_path):
     """Rewrite an existing ledger whose header predates a column in FIELDS:
     same rows, the new column left empty. Append-only in spirit: no value
-    changes, only the header widens."""
+    changes, only the header widens. A `case_id` column (before the rename to
+    LearningSpace's terms) becomes `recording_id`."""
     if not results_path.exists():
         return
     with open(results_path, newline="") as f:
-        rows = list(csv.DictReader(f))
+        rows = [upgrade_keys(r) for r in csv.DictReader(f)]
         header = rows[0].keys() if rows else None
     if header is None or list(header) == FIELDS:
         return
@@ -183,7 +185,7 @@ def _upgrade_header(results_path):
 def refuse_seed_engine(engine, meta):
     """Exit if `engine` seeded this gold: scoring it would flatter it."""
     if meta.get("pass1_source") == "seeded" and engine == meta.get("seed_engine"):
-        sys.exit(f"Refusing: case {meta['case_id']}'s gold was seeded from {engine} "
+        sys.exit(f"Refusing: recording {meta['recording_id']}'s gold was seeded from {engine} "
                  f"({meta.get('seed_model')}), so scoring {engine} against it would be "
                  "biased in its favour (docs/transcription_standards.md §9). Score it on "
                  "blind gold, or on gold seeded by another engine.")
@@ -229,7 +231,7 @@ def load_result(args, audio_sha256, cache_root=None):
                 f"{transcript_path} has no 'engine' field recorded -- it was likely "
                 "produced by calling a transcribe_*() function directly rather than "
                 "asr.transcribe(), which stamps this. Pass --engine explicitly so the "
-                "provenance row isn't a silent guess (this bit Kate on case 261456: "
+                "provenance row isn't a silent guess (this bit Kate on recording 261456: "
                 "two rows silently recorded as faster_whisper when the transcript was "
                 "actually whisperx_disfluent)."
             )
@@ -263,7 +265,7 @@ def load_result(args, audio_sha256, cache_root=None):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--case", required=True)
+    ap.add_argument("--recording", required=True)
     ap.add_argument("--audio", required=True,
                      help="for provenance hashing (doc §8a) -- required even with --transcript")
     ap.add_argument("--engine", default=None, choices=sorted(asr.ENGINES),
@@ -275,18 +277,18 @@ def main():
                           "own model size, so this isn't inferred from --transcript")
     ap.add_argument("--transcript",
                      help="score an existing transcript JSON instead of running --engine live "
-                          "(e.g. data/transcripts/<case>/<camera>_<engine>_<model>.json)")
-    ap.add_argument("--reference", help="defaults to benchmarks/references/<case>.gold.txt")
+                          "(e.g. data/transcripts/<recording>/<camera>_<engine>_<model>.json)")
+    ap.add_argument("--reference", help="defaults to benchmarks/references/<recording>.gold.txt")
     ap.add_argument("--span-start", type=float, default=None,
                      help="seconds -- for excerpt gold (standards §3), trims the hypothesis "
                           "to this window before scoring, since the reference only covers "
                           "the excerpt but the hypothesis normally covers the whole audio. "
-                          "Default: the span recorded in <case>.gold.json, if any. "
+                          "Default: the span recorded in <recording>.gold.json, if any. "
                           "Requires --span-end.")
     ap.add_argument("--span-end", type=float, default=None)
     ap.add_argument("--notes", default="")
     ap.add_argument("--manifest", default=str(ROOT / "manifest.sqlite"),
-                     help="source of the case's names, redacted from both sides before scoring")
+                     help="source of the recording's names, redacted from both sides before scoring")
     ap.add_argument("--out-root", default=str(RUNS_ROOT),
                      help=f"default: {RUNS_ROOT} -- per-run directory holding the resolved "
                           "config, the normalized record, and scores.json (implementation "
@@ -310,11 +312,11 @@ def main():
     span = (args.span_start, args.span_end) if args.span_start is not None else None
     cache_root = None if args.no_cache else args.cache_root
 
-    reference_path = Path(args.reference or REFERENCES / f"{args.case}.gold.txt")
+    reference_path = Path(args.reference or REFERENCES / f"{args.recording}.gold.txt")
     if not reference_path.exists():
         sys.exit(f"No gold reference at {reference_path} — see docs/transcription_standards.md")
     ref = reference_path.read_text()
-    meta = seeding.read_gold_meta(args.case, reference_path.parent)
+    meta = seeding.read_gold_meta(args.recording, reference_path.parent)
     if span is None and meta.get("span"):
         span = tuple(meta["span"])
         print(f"excerpt gold: scoring only {span[0]:.1f}s-{span[1]:.1f}s (from the .gold.json)")
@@ -327,16 +329,16 @@ def main():
 
     hyp = hypothesis_text(result, span=span)
     try:
-        names = manifest.names_for_case(args.case, args.manifest)
+        names = manifest.names_for_recording(args.recording, args.manifest)
     except KeyError:
         names = None
-        print(f"WARNING: no manifest row for {args.case}: names not redacted before scoring",
+        print(f"WARNING: no manifest row for {args.recording}: names not redacted before scoring",
               file=sys.stderr)
     scores = score(ref, hyp, names)
 
     row = {
         "timestamp": datetime.datetime.now().isoformat(),
-        "case_id": args.case,
+        "recording_id": args.recording,
         "engine": engine,
         "model": args.model,
         "audio_sha256": audio_sha256,
@@ -355,7 +357,7 @@ def main():
     record(row, results_path=args.results)
 
     run_config = {
-        "case_id": args.case, "engine": engine, "model": args.model, "source": source,
+        "recording_id": args.recording, "engine": engine, "model": args.model, "source": source,
         "audio_sha256": audio_sha256, "reference": str(reference_path),
         "span": list(span) if span else None, "transcript": args.transcript,
     }

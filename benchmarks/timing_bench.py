@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """Quick wall-clock timing experiment: model size x acceleration, one short
-case (252851, ~7.6 min audio) -- NOT the WER/CER benchmark in
+recording (252851, ~7.6 min audio) -- NOT the WER/CER benchmark in
 run_benchmark.py. This measures speed only, to inform local-vs-NVIDIA-box
 decisions, not accuracy.
 
@@ -39,7 +39,7 @@ WHISPER_DEVICE = "cuda" if best_torch_device() == "cuda" else "cpu"
 # whatever's fastest here (mps > cuda > cpu).
 ACCEL_DEVICE = best_torch_device()
 
-FIELDS = ["timestamp", "case_id", "audio_s", "engine", "model", "device",
+FIELDS = ["timestamp", "recording_id", "audio_s", "engine", "model", "device",
           "accel_device", "phase", "seconds", "realtime_factor", "machine"]
 
 MACHINE = platform.platform()
@@ -60,7 +60,7 @@ def record(engine, model, device, accel_device, phase, seconds, audio_s):
     is_new = not RESULTS.exists()
     row = {
         "timestamp": datetime.datetime.now().isoformat(),
-        "case_id": "252851",
+        "recording_id": "252851",
         "audio_s": round(audio_s, 1),
         "engine": engine,
         "model": model,

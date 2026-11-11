@@ -124,7 +124,7 @@ class TestTranscriptMode:
         assert source == "cached"
 
     def test_missing_transcript_engine_and_no_explicit_arg_refuses(self, tmp_path):
-        # The exact bug this guards against (case 261456): a transcript with
+        # The exact bug this guards against (recording 261456): a transcript with
         # no "engine" field, and the user didn't type --engine either --
         # must refuse rather than silently recording asr.DEFAULT_ENGINE.
         transcript = tmp_path / "t.json"
@@ -211,7 +211,7 @@ class TestHypothesisTextSpan:
 class TestSpanCliValidation:
     def test_span_start_without_end_exits(self, monkeypatch, capsys):
         monkeypatch.setattr(sys, "argv", [
-            "run_benchmark.py", "--case", "x", "--audio", "fake.wav", "--span-start", "1.0",
+            "run_benchmark.py", "--recording", "x", "--audio", "fake.wav", "--span-start", "1.0",
         ])
         with pytest.raises(SystemExit):
             run_benchmark.main()
@@ -225,8 +225,8 @@ class TestRecord:
 
     def test_writes_header_and_row_on_first_call(self, tmp_path):
         target = tmp_path / "runs.csv"
-        run_benchmark.record({"case_id": "x"} | {f: "" for f in run_benchmark.FIELDS
-                                                  if f != "case_id"},
+        run_benchmark.record({"recording_id": "x"} | {f: "" for f in run_benchmark.FIELDS
+                                                  if f != "recording_id"},
                               results_path=target)
         lines = target.read_text().splitlines()
         assert lines[0] == ",".join(run_benchmark.FIELDS)

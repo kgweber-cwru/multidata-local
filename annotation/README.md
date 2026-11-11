@@ -1,6 +1,6 @@
 # annotation/: the coordinator's runbook
 
-The exact steps, with commands, to take a case from a kit to a gold reference
+The exact steps, with commands, to take a recording from a kit to a gold reference
 and its scores. For what each step is for, read
 [../docs/asr_evaluation_methods.md](../docs/asr_evaluation_methods.md) first.
 For what annotators do, see [../docs/annotator_guide.md](../docs/annotator_guide.md).
@@ -14,18 +14,18 @@ to correct). Pass 2 adjudicates it.
 
 | Place | Holds |
 |---|---|
-| **processing host** `annotation/kits/<case>/<annotator>/` | every kit as built, and every pass once it's back: the master copies |
-| **processing host** `data/gold/<case>/<case>.gold.eaf` | the adjudicated file (written by step 6) |
-| **Box** `Audio and Labeling/<annotator's folder>/<case>/<annotator>/` | kits that are out for work. A courier, not an archive |
+| **processing host** `annotation/kits/<recording>/<annotator>/` | every kit as built, and every pass once it's back: the master copies |
+| **processing host** `data/gold/<recording>/<recording>.gold.eaf` | the adjudicated file (written by step 6) |
+| **Box** `Audio and Labeling/<annotator's folder>/<recording>/<annotator>/` | kits that are out for work. A courier, not an archive |
 | **git** `annotation/assignments.csv` | who has which pass, and its status. Update it at every step |
-| **git** `benchmarks/references/<case>.gold.*` | the redacted reference. The only annotation output in git |
+| **git** `benchmarks/references/<recording>.gold.*` | the redacted reference. The only annotation output in git |
 
 Kits and `data/gold/` contain real names. They stay on the processing host
 and Box: never email them, and never commit them (both are gitignored).
 
 ## The steps
 
-`<C>` is the case, `<A>` the pass-1 annotator, `<B>` the pass-2 annotator
+`<C>` is the recording, `<A>` the pass-1 annotator, `<B>` the pass-2 annotator
 (never the same person). `$BOX` is the Box Drive folder
 `Audio and Labeling` on your laptop (on a Mac,
 `~/Library/CloudStorage/Box-Box/Audio and Labeling`). `$HOST` is the
@@ -38,10 +38,10 @@ commands marked *laptop* run where Box Drive is.
 For an excerpt, add `--span-start S --span-end E` (seconds) to either route.
 
 - **Route A, blind:**
-  `python annotation/make_kit.py --case <C> --annotator <A>`
+  `python annotation/make_kit.py --recording <C> --annotator <A>`
 - **Route B, seeded:** three moves.
-  1. `python annotation/make_kit.py --case <C> --annotator <A> --seed`
-     lists the draft's speakers, with talk time and sample lines. If the case
+  1. `python annotation/make_kit.py --recording <C> --annotator <A> --seed`
+     lists the draft's speakers, with talk time and sample lines. If the recording
      has no pipeline transcript yet, this makes one (GPU, about a minute).
      Once a kit uses a seed, it is never regenerated.
   2. Decide each speaker's role (`LEARNER`, `PATIENT`, `PRECEPTOR`,
@@ -52,7 +52,7 @@ For an excerpt, add `--span-start S --span-end E` (seconds) to either route.
      `--roles SPEAKER_00=PATIENT,SPEAKER_01=LEARNER,...`
 
 Add a row to `assignments.csv`: pass `1`, the route, status `assigned`, and
-in `notes`, why this case was chosen.
+in `notes`, why this recording was chosen.
 
 ### 2. Send it (laptop)
 
@@ -84,7 +84,7 @@ If it refuses, send it back with the message. Once it passes, that copy is
 ### 5. Build and send the pass-2 kit (host, then laptop)
 
 ```bash
-python annotation/make_pass2_kit.py --case <C> --from <A> --to <B>
+python annotation/make_pass2_kit.py --recording <C> --from <A> --to <B>
 ```
 
 This copies A's kit to `kits/<C>/<B>/` (same media) with the pass-1 file
@@ -92,9 +92,9 @@ renamed `<C>.pass2.eaf`, and writes kit.json and a pass-2 README. A's kit is
 left untouched. Send it as in step 2, to `"$BOX/<B's folder>/<C>/"`. Add a
 row: pass `2`, same route, `assigned`.
 
-For a **blind** case you may also give B the pipeline's machine transcript
+For a **blind** recording you may also give B the pipeline's machine transcript
 (`data/elan/<C>/`), to point at places worth re-listening. For a **seeded**
-case, don't: it comes from the seed's engine, so it adds no independent
+recording, don't: it comes from the seed's engine, so it adds no independent
 opinion.
 
 ### 6. Bring pass 2 back and make it gold (laptop, then host)
@@ -123,7 +123,7 @@ committing. The export redacts the names in the manifest. It warns when a
 speaker tier has speech and the manifest has no name for that role. It
 misses names heard differently from the record. If a name escaped, mask it
 by hand in the `.gold.txt` (replace it with the role's tag, such as
-`[LEARNER_NAME]`), and say in the case's `assignments.csv` notes that you
+`[LEARNER_NAME]`), and say in the recording's `assignments.csv` notes that you
 did, without writing the name. A re-export undoes the mask.
 
 Set the pass-2 row's status to `gold`, then commit:
@@ -139,7 +139,7 @@ git push
 For each engine (see `python scripts/bench_status.py` for the empty cells):
 
 ```bash
-python benchmarks/run_benchmark.py --case <C> --audio data/audio/<C>/<camera>.wav \
+python benchmarks/run_benchmark.py --recording <C> --audio data/audio/<C>/<camera>.wav \
     --transcript data/transcripts/<C>/<camera>_<engine>_<model>.json --model <model>
 ```
 
@@ -147,7 +147,7 @@ Or leave out `--transcript` and give `--engine <engine>` to run the engine
 now. The excerpt window, if any, is read from the `.gold.json`. Commit
 `benchmarks/results/runs.csv`.
 
-When a case is finished, tidy its Box folders away (a `complete/` folder is
+When a recording is finished, tidy its Box folders away (a `complete/` folder is
 fine).
 
 ## assignments.csv
@@ -156,24 +156,24 @@ One row per pass per annotator.
 
 | Column | Meaning |
 |---|---|
-| `case_id`, `camera`, `duration_min` | the case, its audio camera, and its video length (an excerpt says so in `notes`) |
+| `recording_id`, `camera`, `duration_min` | the recording, its audio camera, and its video length (an excerpt says so in `notes`) |
 | `pass` | `1` = making the transcript, `2` = adjudication |
-| `route` | `blind` or `seeded`: how the case's pass 1 started (the same on both of its rows) |
+| `route` | `blind` or `seeded`: how the recording's pass 1 started (the same on both of its rows) |
 | `annotator` | who has the pass (their kit folder name) |
 | `status` | `assigned` → `in_progress` → `returned` (back on the host and checked) → `gold` (pass 2 only: exported). `abandoned` if dropped |
 | `assigned_on`, `returned_on` | `YYYY-MM-DD` |
 | `file` | the master copy on the processing host |
-| `notes` | why the case was chosen; anything unusual. Never a name |
+| `notes` | why the recording was chosen; anything unusual. Never a name |
 
-Two pass-1 rows for one case, both blind, are a double annotation for
+Two pass-1 rows for one recording, both blind, are a double annotation for
 agreement (methods §2.4).
 
 ## The tools
 
 | | |
 |---|---|
-| `make_kit.py` | Manifest + template + media → a pass-1 kit: the `.eaf` with the template tiers and both media linked, a 480p proxy video, the case WAV, `kit.json` and a README. `--seed`/`--roles` fill the tiers from the seed transcript (route B). |
+| `make_kit.py` | Manifest + template + media → a pass-1 kit: the `.eaf` with the template tiers and both media linked, a 480p proxy video, the recording WAV, `kit.json` and a README. `--seed`/`--roles` fill the tiers from the seed transcript (route B). |
 | `make_pass2_kit.py` | A checked pass 1 → a pass-2 kit for a different person. |
 | `submit_checks.py` | Refuses a file with an empty annotation or anything left on `UNASSIGNED`; warns about annotations outside an excerpt window. Standard library only. |
 | `../scripts/eaf_to_gold.py` | A returned pass 2 → the gold files and the manifest row (step 6). |
-| `../scripts/bench_status.py` | Which cases have gold, their current scores, and which engines are still unscored. |
+| `../scripts/bench_status.py` | Which recordings have gold, their current scores, and which engines are still unscored. |

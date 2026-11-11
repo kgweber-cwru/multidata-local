@@ -1,8 +1,8 @@
 """Stage: audio — extract 16 kHz mono WAV for ASR/diarization (doc §5).
 
 Whisper and pyannote both want 16 kHz mono. This runs on one video file at a
-time; which camera's file to use for a given case is decided once by
-`manifest.ensure_audio_camera` (a case's two cameras share the same audio
+time; which camera's file to use for a given recording is decided once by
+`manifest.ensure_audio_camera` (a recording's two cameras share the same audio
 feed — confirmed empirically, not assumed — so it's an arbitrary but
 permanent pick, not a quality judgment) and applied by `run_stage.py`'s
 `stage_audio`.
@@ -21,7 +21,7 @@ SAMPLE_RATE = 16000
 def extract(video_path, out_path, loudnorm=False, overwrite=True):
     """ffmpeg-demux one video's audio track to 16 kHz mono s16 WAV.
 
-    `loudnorm=True` levels cases against each other, which matters for
+    `loudnorm=True` levels recordings against each other, which matters for
     benchmark comparability; keep it consistent across a benchmark set.
     """
     out_path = Path(out_path)

@@ -37,9 +37,9 @@ never a separately-maintained file. One source, three renderings (§7).
 
 | Layer | For metric | Output |
 |---|---|---|
-| **Verbatim transcript** | WER / CER | `<case_id>.gold.txt` |
-| **Speaker turns** | DER / JER | `<case_id>.gold.rttm` |
-| **Word timing** | boundary error | `<case_id>.gold.ctm` — *not built* |
+| **Verbatim transcript** | WER / CER | `<recording_id>.gold.txt` |
+| **Speaker turns** | DER / JER | `<recording_id>.gold.rttm` |
+| **Word timing** | boundary error | `<recording_id>.gold.ctm` — *not built* |
 
 Annotators produce the first two from a single ELAN file. **Nobody times
 individual words by hand.** WER ignores timing entirely; DER needs turn
@@ -51,14 +51,14 @@ worth building only if alignment accuracy becomes a research question in itself.
 ## 3. Sampling
 
 You will not hand-annotate 300–400 encounters. Draw a **stratified sample**
-(start 5–10 cases) spanning the conditions that actually break ASR:
+(start 5–10 recordings) spanning the conditions that actually break ASR:
 
 - quiet vs. noisy rooms
 - number of speakers and how often they overlap
 - learner accent and speech rate
 - audio source (which camera mic)
 
-**Record why each case was chosen.** Report results as estimates over this sample
+**Record why each recording was chosen.** Report results as estimates over this sample
 with the strata named — never imply the whole corpus is gold.
 
 ### Excerpts are valid references
@@ -69,15 +69,15 @@ span — WER is a rate, not a total.
 
 This matters because annotator time is the binding constraint. For a fixed
 budget, **six 5-minute excerpts across varied conditions beat two full 20-minute
-encounters**: better strata coverage, more cases, same cost. Prefer breadth over
+encounters**: better strata coverage, more recordings, same cost. Prefer breadth over
 completeness unless a specific question needs whole-encounter continuity.
 
 Record the span bounds with the reference, so scoring can restrict to it and so
 nobody later mistakes an excerpt for a full transcript.
 
-**Constraint:** gold annotation is human-local and could be done on any case, but
-cross-provider scoring requires a case that's cloud-releasable
-(`cases.cloud_release`, provider spec §9). Draw the sample from releasable cases
+**Constraint:** gold annotation is human-local and could be done on any recording, but
+cross-provider scoring requires a recording that's cloud-releasable
+(`recordings.cloud_release`, provider spec §9). Draw the sample from releasable recordings
 only, so every reference scores every engine. Today that's no constraint at all —
 the corpus is uniformly simulated encounters — but note it before the pool stops being uniform.
 
@@ -106,7 +106,7 @@ penalized. So transcribe them like any other speech (until 1.1 their text was
 left out of `gold.txt`; see §12).
 
 **`NOTES` is sparse and non-exhaustive.** Free text, no timing precision required.
-It exists to answer "why did this case score badly?" — noise bursts, very quiet
+It exists to answer "why did this recording score badly?" — noise bursts, very quiet
 stretches, heavy crosstalk, unfamiliar accents, equipment problems. It feeds error
 analysis and sampling rationale at near-zero cost.
 
@@ -332,8 +332,8 @@ sanctioned hand edit is masking a name the mechanical redaction missed, which
 is recorded (without the name) in `annotation/assignments.csv`
 ([asr_evaluation_methods.md](asr_evaluation_methods.md) §3.2).
 
-The redaction map is **in the manifest**: `cases.learner_name`,
-`cases.sp_name`, `cases.preceptor_name` (often empty). No separate name file.
+The redaction map is **in the manifest**: `recordings.learner_name`,
+`recordings.sp_name`, `recordings.preceptor_name` (often empty). No separate name file.
 
 Redaction is applied to both reference and hypothesis before scoring, so the
 reported number belongs to text you can actually publish.
@@ -371,7 +371,7 @@ never be mistaken for blind gold.
 
 The annotator works from the template and the audio alone. No draft, no
 existing transcript, no other annotator's work. Output is
-`<case_id>.pass1.eaf`, **frozen and immutable** on completion.
+`<recording_id>.pass1.eaf`, **frozen and immutable** on completion.
 
 ### Pass 1, route B — draft-seeded
 
@@ -386,11 +386,11 @@ The annotator **corrects every line against the audio**: boundaries, words,
 speaker, and all of §6's markup, which the machine doesn't produce. Nothing
 in the draft is trusted; a line left unchanged must be one the annotator
 listened to and found right. `UNASSIGNED` must end empty (moved or deleted).
-Output is `<case_id>.pass1.eaf`, frozen like route A's.
+Output is `<recording_id>.pass1.eaf`, frozen like route A's.
 
 Rules that keep route B reproducible:
 
-1. **One seed engine and model**, never per case. Changing it is a standards
+1. **One seed engine and model**, never per recording. Changing it is a standards
    change (§12); gold seeded by different engines is never pooled without
    saying so.
 2. **The seed doesn't change once used**: its file is never regenerated, and
@@ -398,12 +398,12 @@ Rules that keep route B reproducible:
 3. **The conversion is mechanical** (`annotation/make_kit.py --seed`): the
    same seed file and role map always give the same pass-1 file.
 4. **Provenance travels**: kit.json, the `.eaf` header, the manifest's `gold`
-   row and the tracked `<case_id>.gold.json` all say how pass 1 was made.
+   row and the tracked `<recording_id>.gold.json` all say how pass 1 was made.
 
 ### Pass 2 — adjudication (both routes)
 
 A different person works on a copy of the frozen pass 1
-(`<case_id>.pass2.eaf`); the result becomes `<case_id>.gold.eaf`. The
+(`<recording_id>.pass2.eaf`); the result becomes `<recording_id>.gold.eaf`. The
 reviewer's job is to decide what the audio actually contains, not to
 reconcile two documents. In route A, a machine draft may be consulted, but
 only once pass 1 is frozen and only to flag spots to **re-listen**, never to
@@ -421,7 +421,7 @@ a genuine engine weakness worth reporting.
 - Results against seeded gold are reported **separately** from results
   against blind gold (`bench_status.py`, and `runs.csv`'s `gold_pass1`
   column), never averaged together.
-- Engine rankings rest on blind gold. Seeded gold adds cases, not authority.
+- Engine rankings rest on blind gold. Seeded gold adds recordings, not authority.
 
 **Never let a pipeline re-run overwrite human work.** Gold files carry distinct
 names and are treated as immutable.
@@ -431,7 +431,7 @@ names and are treated as immutable.
 ## 10. Quality control
 
 **Double-annotate a subset** (target ~20%) fully independently — two blind pass 1s
-on the same case, neither annotator seeing the other's work. Agreement comes
+on the same recording, neither annotator seeing the other's work. Agreement comes
 from **blind** passes only: two corrections of the same seed agree partly
 because they started from the same text, which would overstate agreement.
 
@@ -467,22 +467,22 @@ the report, and it belongs next to them.
 elan/
 └── template.etf                        # the versioned annotation template
 
-annotation/kits/<case_id>/<annotator>/  # GITIGNORED — each pass as built and returned
-├── <case_id>.pass1.eaf                 # frozen pass 1 (blind or seeded), or
-├── <case_id>.pass2.eaf                 #   the adjudication, in the pass-2 annotator's kit
+annotation/kits/<recording_id>/<annotator>/  # GITIGNORED — each pass as built and returned
+├── <recording_id>.pass1.eaf                 # frozen pass 1 (blind or seeded), or
+├── <recording_id>.pass2.eaf                 #   the adjudication, in the pass-2 annotator's kit
 └── kit.json                            # what the kit is, incl. how pass 1 was made
 
-data/gold/<case_id>/                    # GITIGNORED — Layer 1, real names
-└── <case_id>.gold.eaf                  # adjudicated
+data/gold/<recording_id>/                    # GITIGNORED — Layer 1, real names
+└── <recording_id>.gold.eaf                  # adjudicated
 
 benchmarks/
 ├── configs/
 │   ├── glossary.yaml                   # canonical spellings + provider biasing
 │   └── providers.yaml                  # capability registry
 ├── references/                         # TRACKED — Layer 2, de-identified
-│   ├── <case_id>.gold.txt
-│   ├── <case_id>.gold.rttm
-│   └── <case_id>.gold.json             # how pass 1 was made (blind/seeded + seed), version, span
+│   ├── <recording_id>.gold.txt
+│   ├── <recording_id>.gold.rttm
+│   └── <recording_id>.gold.json             # how pass 1 was made (blind/seeded + seed), version, span
 ├── runs/                               # GITIGNORED — per-run outputs
 └── results/
     └── runs.csv                        # TRACKED — append-only, one row per scored run

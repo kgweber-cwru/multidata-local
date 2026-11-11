@@ -59,10 +59,10 @@ HEAD = [0, 1, 2, 3, 4, 17]
 
 def case_info(case):
     db = sqlite3.connect(f"file:{ROOT / 'manifest.sqlite'}?mode=ro", uri=True)
-    room, audio_cam = db.execute("SELECT room_number, audio_camera FROM cases WHERE case_id=?",
+    room, audio_cam = db.execute("SELECT room_number, audio_camera FROM recordings WHERE recording_id=?",
                                  (case,)).fetchone()
     vids = db.execute("SELECT camera, filepath, duration_s, sync_offset_s FROM videos "
-                      "WHERE case_id=? ORDER BY camera", (case,)).fetchall()
+                      "WHERE recording_id=? ORDER BY camera", (case,)).fetchall()
     labels = {(c, v): lab for c, v, lab in db.execute("SELECT camera, view_id, label FROM camera_views")}
     return room, audio_cam, vids, labels
 

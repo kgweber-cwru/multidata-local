@@ -20,7 +20,7 @@ whoever maintains them.
 >   the tiers. Do Step 1 (open the file: never make a new one, or you lose the draft), then [Correcting a seeded draft](#correcting-a-seeded-draft-seeded-kits-only)
 >   instead of Steps 2–4, then Steps 5–7. **[S§9]**
 > - **Pass 2**: your file is someone else's finished pass 1
->   (`<case_id>.pass2.eaf`). Read Steps 1–6 for the rules, then follow
+>   (`<recording_id>.pass2.eaf`). Read Steps 1–6 for the rules, then follow
 >   [Pass 2: adjudication](#pass-2-adjudication). **[S§9]**
 
 ---
@@ -30,7 +30,7 @@ whoever maintains them.
 You need:
 
 - **ELAN 7.x** installed
-- Your **kit** for the case: a folder holding `<case_id>.pass1.eaf` (or
+- Your **kit** for the recording: a folder holding `<recording_id>.pass1.eaf` (or
   `.pass2.eaf` for pass 2), a
   `media/` folder with the video (`.mp4`) and audio (`.wav`), and a
   `README.txt` saying which kind of pass it is. Keep the folder whole: the
@@ -46,8 +46,8 @@ most of a day. That's normal and it is not a sign you're doing it wrong.
 
 ## Step 1 — Open your file
 
-Your kit already contains the file: open **`<case_id>.pass1.eaf`** (pass 2:
-**`<case_id>.pass2.eaf`**) from the
+Your kit already contains the file: open **`<recording_id>.pass1.eaf`** (pass 2:
+**`<recording_id>.pass2.eaf`**) from the
 kit folder in ELAN. It was made from the project template with the video and
 audio linked, so ELAN shouldn't ask where the media is. You should see the
 template's six tiers: `LEARNER`, `PATIENT`, `PRECEPTOR`, `ANNOUNCEMENT`,
@@ -58,11 +58,11 @@ Save in place (same name, same folder), and save often.
 
 *Without a kit:* **File → New**, add **both** media files (the `.mp4` shows
 who is speaking; the `.wav` gives a real waveform), select
-**`elan/template.etf`** as the template, and save as `<case_id>.pass1.eaf`.
+**`elan/template.etf`** as the template, and save as `<recording_id>.pass1.eaf`.
 
 > **Never create a tier** unless someone genuinely present fits none of the five
 > speaker tiers. If that happens, stop and ask — it usually means something about
-> the case is unusual and worth recording.
+> the encounter is unusual and worth noting.
 
 ---
 
@@ -232,7 +232,7 @@ very quiet stretch, heavy crosstalk, an unfamiliar accent, a mic problem, an
 interruption.
 
 Free text, rough timing, **not exhaustive**. This is how anyone later explains why
-a case scored the way it did. **[S§4]**
+a recording scored the way it did. **[S§4]**
 
 Don't use NOTES for transcription content.
 
@@ -355,5 +355,5 @@ how the list grows.
 ## Questions
 
 Anything this guide doesn't cover, ask rather than improvise — an improvised
-convention applied across a whole case is expensive to undo, and usually means the
+convention applied across a whole recording is expensive to undo, and usually means the
 standards need a fix that helps every annotator. **[S§12]**

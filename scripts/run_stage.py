@@ -12,21 +12,21 @@ restartable: kill it, rerun it, it picks up where it left off.
 Stage modules are imported lazily, one per stage, so this script runs in either
 conda env — `pose` needs md-pose, everything else needs md-speech.
 
-`audio`/`asr`/`diarize`/`elan` are per-case, not per-camera: a case's two
+`audio`/`asr`/`diarize`/`elan` are per-recording, not per-camera: a recording's two
 camera files share one audio feed (see `manifest.ensure_audio_camera`), so
-only the case's canonical camera does the work — the other camera's row for
+only the recording's canonical camera does the work — the other camera's row for
 these stages gets marked `skipped`, not run twice. `pose` stays per-camera;
 the two viewpoints are genuinely different data.
 
 `sync` (md-speech) writes each camera's frame timestamps to
-`data/sync/<case_id>/<camera>.npz` and its audio offset from the case's
+`data/sync/<recording_id>/<camera>.npz` and its audio offset from the recording's
 reference camera to `videos.sync_offset_s` -- what triangulation needs to pair
 the two cameras' frames by time. See `multidata.sync`.
 
-`asr` writes `data/transcripts/<case_id>/<camera>_<engine>_<model>.json` (plus
+`asr` writes `data/transcripts/<recording_id>/<camera>_<engine>_<model>.json` (plus
 a `.txt` sibling for a quick read) — always word-level speaker-labeled
 regardless of engine, taking speakers from
-`data/diarization/<case_id>/<camera>.rttm` (run `diarize` first; asr makes it
+`data/diarization/<recording_id>/<camera>.rttm` (run `diarize` first; asr makes it
 if missing). Default engine is `whisperx_disfluent` (`--model large-v3
 --language en`), which keeps disfluencies; others via `--engine` for
 comparison. It never overwrites a transcript a seeded annotation kit was
@@ -89,8 +89,8 @@ def _setup_logging(verbose=False):
 
 
 def _out(kind, row, suffix):
-    """data/<kind>/<case_id>/<camera><suffix>, parents created."""
-    p = DATA / kind / row["case_id"] / f"{row['camera']}{suffix}"
+    """data/<kind>/<recording_id>/<camera><suffix>, parents created."""
+    p = DATA / kind / row["recording_id"] / f"{row['camera']}{suffix}"
     p.parent.mkdir(parents=True, exist_ok=True)
     return p
 
@@ -136,18 +136,18 @@ def asr_language_default():
 
 
 def _skip_if_not_audio_camera(row, args, stage):
-    """None if this row is the case's canonical audio camera (proceed);
+    """None if this row is the recording's canonical audio camera (proceed);
     otherwise the `{stage}_status: skipped` dict a stage function should
     return immediately.
 
-    audio/asr/diarize/elan are per-*case*, not per-camera — a case's two
+    audio/asr/diarize/elan are per-*recording*, not per-camera — a recording's two
     camera files share one audio feed (confirmed empirically; see
     `manifest.ensure_audio_camera`), so only the chosen camera's row does the
     work. `pose` doesn't call this; it's per-camera.
     """
     from multidata import manifest
 
-    chosen = manifest.ensure_audio_camera(row["case_id"], args.manifest)
+    chosen = manifest.ensure_audio_camera(row["recording_id"], args.manifest)
     if row["camera"] != chosen:
         return {f"{stage}_status": "skipped"}
     return None
@@ -160,7 +160,7 @@ def stage_audio(row, args):
     if skip is not None:
         return skip
 
-    log.info("extracting audio: %s/%s", row["case_id"], row["camera"])
+    log.info("extracting audio: %s/%s", row["recording_id"], row["camera"])
     audio.extract(_abs(row["filepath"]), _out("audio", row, ".wav"), loudnorm=args.loudnorm)
     return {"audio_path": str(_out("audio", row, ".wav").relative_to(ROOT))}
 
@@ -193,7 +193,7 @@ def stage_asr(row, args):
         return {"asr_model": f"{args.engine}/{args.model}"}
 
     log.info("transcribing (%s/%s): %s/%s",
-             args.engine, args.model, row["case_id"], row["camera"])
+             args.engine, args.model, row["recording_id"], row["camera"])
 
     # Every engine takes speakers from the diarize stage's RTTM (made here if
     # missing), so transcript, RTTM and prosody agree on speaker labels.
@@ -213,7 +213,7 @@ def stage_diarize(row, args):
         return skip
 
     wav = _abs(row["audio_path"]) if row["audio_path"] else _out("audio", row, ".wav")
-    log.info("diarizing: %s/%s", row["case_id"], row["camera"])
+    log.info("diarizing: %s/%s", row["recording_id"], row["camera"])
     diarize.diarize(wav, _out("diarization", row, ".rttm"),
                     max_speakers=args.max_speakers, device=args.accel_device)
     return {}
@@ -242,8 +242,8 @@ def stage_elan(row, args):
         pitch = prosody.voiced_stretches(prosody.load(pros))
     else:
         log.warning("no prosody for %s/%s yet: ELAN file gets no pitch tier "
-                    "(run prosody, then elan again)", row["case_id"], row["camera"])
-    log.info("building ELAN file: %s/%s", row["case_id"], row["camera"])
+                    "(run prosody, then elan again)", row["recording_id"], row["camera"])
+    log.info("building ELAN file: %s/%s", row["recording_id"], row["camera"])
     elan.build_eaf(transcript, row["filepath"], _out("elan", row, ".eaf"), wav_path=wav_rel,
                    pitch=pitch)
     return {"_details": {"pitch_stretches": len(pitch) if pitch else 0}}
@@ -252,7 +252,7 @@ def stage_elan(row, args):
 def stage_pose(row, args):
     from multidata import pose
 
-    log.info("extracting pose: %s/%s/%s seconds", row["case_id"], row["camera"], row["duration_s"])
+    log.info("extracting pose: %s/%s/%s seconds", row["recording_id"], row["camera"], row["duration_s"])
     _, details = pose.extract(_abs(row["filepath"]), _out("pose", row, ".npz"),
                               device=args.accel_device, profile=args.profile,
                               detect_every=args.detect_every)
@@ -260,45 +260,45 @@ def stage_pose(row, args):
 
 
 def stage_sync(row, args):
-    """Frame timestamps for this file, and its audio offset from the case's
-    reference camera (`cases.audio_camera`, offset 0) -- see multidata.sync.
+    """Frame timestamps for this file, and its audio offset from the recording's
+    reference camera (`recordings.audio_camera`, offset 0) -- see multidata.sync.
     Each row is independent: the non-reference row measures itself against
     the reference camera's audio. Audio for a camera without a kept wav is
     extracted to a temp dir and thrown away."""
     from multidata import sync
 
-    case_id, camera = row["case_id"], row["camera"]
+    recording_id, camera = row["recording_id"], row["camera"]
     video = _abs(row["filepath"])
 
     times = sync.frame_times(video)
     sync.save_frame_times(times, _out("sync", row, ".npz"))
     d = sync.dropped(times)
     log.info("frame times: %s/%s  %d frames, %d gaps, %.1f s lost (max gap %.2f s)",
-             case_id, camera, len(times), d["gaps"], d["lost_s"], d["max_gap_s"])
+             recording_id, camera, len(times), d["gaps"], d["lost_s"], d["max_gap_s"])
 
-    ref = manifest.ensure_audio_camera(case_id, args.manifest)
+    ref = manifest.ensure_audio_camera(recording_id, args.manifest)
     if camera == ref:
         # the reference defines the clock; nothing to measure
         return {"sync_offset_s": 0.0, "sync_agreement": None}
 
-    ref_video = manifest.get_video(case_id, ref, args.manifest)
+    ref_video = manifest.get_video(recording_id, ref, args.manifest)
     if ref_video is None:
-        raise KeyError(f"reference camera {ref} has no video row for case {case_id}")
+        raise KeyError(f"reference camera {ref} has no video row for recording {recording_id}")
     ref_row = {"camera": ref, "audio_path": ref_video.audio_path, "filepath": ref_video.filepath}
     with sync.tempdir() as tmp:
         wavs = []
         for r in (ref_row, row):
-            kept = _abs(r["audio_path"]) if r["audio_path"] else DATA / "audio" / case_id / f"{r['camera']}.wav"
+            kept = _abs(r["audio_path"]) if r["audio_path"] else DATA / "audio" / recording_id / f"{r['camera']}.wav"
             if not kept.exists():
                 kept = sync.extract_audio(_abs(r["filepath"]), Path(tmp) / f"{r['camera']}.wav")
             wavs.append(kept)
         offset, m = sync.offset_from_audio(*wavs)
 
-    log.info("audio offset: %s/%s vs %s  %s", case_id, camera, ref, sync.summary(m))
+    log.info("audio offset: %s/%s vs %s  %s", recording_id, camera, ref, sync.summary(m))
     if offset is None or m["agreement"] < sync.MIN_AGREEMENT:
         log.warning("sync FAILED for %s/%s: audio windows don't agree on one offset "
                     "(agreement %.2f, %d windows) -- not writing an offset",
-                    case_id, camera, m["agreement"], m["windows"])
+                    recording_id, camera, m["agreement"], m["windows"])
         return {"sync_status": "failed", "sync_offset_s": None,
                 "sync_agreement": m["agreement"]}
     return {"sync_offset_s": round(offset, 6), "sync_agreement": m["agreement"]}
@@ -306,7 +306,7 @@ def stage_sync(row, args):
 
 def stage_prosody(row, args):
     """Pitch, loudness and voice quality (multidata.prosody): frame features
-    plus a per-speaker summary from the diarization. Per case, audio camera
+    plus a per-speaker summary from the diarization. Per recording, audio camera
     only; needs the audio and asr (or diarize) stages first."""
     from multidata import prosody
 
@@ -317,13 +317,13 @@ def stage_prosody(row, args):
     rttm = _out("diarization", row, ".rttm")
     if not rttm.exists():
         raise FileNotFoundError(f"{rttm} -- run asr (or diarize) first")
-    log.info("prosody: %s/%s", row["case_id"], row["camera"])
+    log.info("prosody: %s/%s", row["recording_id"], row["camera"])
     feats = prosody.frame_features(wav)
     prosody.save(feats, _out("prosody", row, ".npz"))
     rows = prosody.speaker_summary(feats, prosody.read_rttm(rttm))
     prosody.write_speakers_csv(rows, _out("prosody", row, "_speakers.csv"))
     prosody.export_praat(feats, prosody.read_rttm(rttm), _out("prosody", row, ".npz"))
-    manifest.set_speaker_prosody(row["case_id"], row["camera"], rows, args.manifest)
+    manifest.set_speaker_prosody(row["recording_id"], row["camera"], rows, args.manifest)
     voiced = sum(1 for x in feats["f0_hz"] if x == x) / max(len(feats["f0_hz"]), 1)  # x == x: not NaN
     return {"_details": {"frames": len(feats["time_s"]), "speakers": len(rows),
                          "voiced_frac": round(voiced, 3), **feats["params"]}}
@@ -341,18 +341,18 @@ def stage_views(row, args):
     if cam not in _view_libraries:
         _view_libraries[cam] = views.Library(DATA / "views" / "library", cam)
     lib = _view_libraries[cam]
-    log.info("finding camera views: %s/%s", row["case_id"], cam)
+    log.info("finding camera views: %s/%s", row["recording_id"], cam)
     result, new = views.process(_abs(row["filepath"]), cam, lib, row["sync_offset_s"])
     views.save(result, _out("views", row, ".json"))
     for vid in new:
-        manifest.add_camera_view(cam, vid, row["case_id"],
+        manifest.add_camera_view(cam, vid, row["recording_id"],
                                  (lib.dir / f"{vid}.png").relative_to(ROOT), args.manifest)
-    manifest.set_video_views(row["case_id"], cam, views.usage(result), args.manifest)
+    manifest.set_video_views(row["recording_id"], cam, views.usage(result), args.manifest)
     st = result["stretches"]
     details = {"keyframes": result["keyframes"], "stretches": len(st),
                "moves": len(st) - 1, "new_views": new,
                "seconds_unassigned": round(sum(s["dur_s"] for s in st if not s["view"]), 1)}
-    log.info("%s/%s: %d stretches, %d new view(s) %s", row["case_id"], cam, len(st),
+    log.info("%s/%s: %d stretches, %d new view(s) %s", row["recording_id"], cam, len(st),
              len(new), new)
     return {"_details": details}
 
@@ -431,7 +431,7 @@ def _run_params(args):
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("stage", choices=sorted(STAGES))
-    ap.add_argument("--only", help="restrict to one case_id")
+    ap.add_argument("--only", help="restrict to one recording_id")
     ap.add_argument("--manifest", default=str(ROOT / "manifest.sqlite"))
     ap.add_argument("--engine", default=asr_default(), help="asr/elan: which ASR engine")
     ap.add_argument("--model", default=asr_model_default(),
@@ -477,7 +477,7 @@ def main():
 
     rows = manifest.pending(args.stage, args.manifest)
     if args.stage in PILOT_SMALL_ROOMS and not args.all_rooms:
-        from multidata.casematch import is_large_room
+        from multidata.filematch import is_large_room
 
         large = [r for r in rows if is_large_room(r["room_number"])]
         if large:
@@ -485,7 +485,7 @@ def main():
                      "--all-rooms to include)", args.stage, len(large))
         rows = [r for r in rows if not is_large_room(r["room_number"])]
     if args.only:
-        rows = [r for r in rows if r["case_id"] == args.only]
+        rows = [r for r in rows if r["recording_id"] == args.only]
     # Shortest videos first: on a long unattended batch, this clears the most
     # rows early and surfaces a representative failure sooner than working in
     # arbitrary (created-order) order would.
@@ -505,7 +505,7 @@ def main():
     env = _run_env()
     ok = failed = 0
     for row in rows:
-        label = f"{row['case_id']}/{row['camera']}"
+        label = f"{row['recording_id']}/{row['camera']}"
         log.info("--- %s", label)
         started = datetime.now().isoformat(timespec="seconds")
         t0 = time.perf_counter()
@@ -514,7 +514,7 @@ def main():
             extra = STAGES[args.stage](row, args) or {}
             details = extra.pop("_details", {})
             status = extra.pop(f"{args.stage}_status", "done")
-            manifest.update(row["case_id"], row["camera"], args.manifest,
+            manifest.update(row["recording_id"], row["camera"], args.manifest,
                             **{f"{args.stage}_status": status}, **extra)
             if status == "failed":   # a stage can fail without raising (e.g. sync)
                 failed += 1
@@ -522,14 +522,14 @@ def main():
                 ok += 1
         except Exception as exc:
             status, error = "failed", f"{type(exc).__name__}: {exc}"
-            manifest.update(row["case_id"], row["camera"], args.manifest,
+            manifest.update(row["recording_id"], row["camera"], args.manifest,
                             **{f"{args.stage}_status": "failed"})
             log.error("FAILED %s %s: %s", args.stage, label, error)
             log.debug("full traceback for %s %s:\n%s", args.stage, label, traceback.format_exc())
             failed += 1
         wall = time.perf_counter() - t0
         manifest.record_stage_run(
-            args.stage, row["case_id"], row["camera"], status, started, wall,
+            args.stage, row["recording_id"], row["camera"], status, started, wall,
             media_s=row["duration_s"], params=_run_params(args), details=details,
             error=error, device=args.accel_device or args.device or "",
             path=args.manifest, **env)

@@ -75,7 +75,7 @@ def seeded_kit(tmp_path):
     eaf = kit / "c1.pass1.eaf"
     make_kit.write_eaf(eaf, "c1", seeded=make_kit.seeded_annotations(
         seeding.utterances(SEED), roles), seed_prov=prov)
-    (kit / "kit.json").write_text(json.dumps({"case_id": "c1", **prov}))
+    (kit / "kit.json").write_text(json.dumps({"recording_id": "c1", **prov}))
     return kit, eaf, prov
 
 
@@ -112,14 +112,14 @@ def test_eaf_to_gold_provenance_cross_check(seeded_kit, tmp_path):
 
 def test_gold_meta_round_trip_and_legacy_default(tmp_path):
     assert seeding.read_gold_meta("x", tmp_path)["pass1_source"] == "blind"
-    seeding.write_gold_meta("x", tmp_path, {"case_id": "x", "pass1_source": "seeded",
+    seeding.write_gold_meta("x", tmp_path, {"recording_id": "x", "pass1_source": "seeded",
                                             "seed_engine": "whisperx_disfluent"})
     assert seeding.read_gold_meta("x", tmp_path)["seed_engine"] == "whisperx_disfluent"
 
 
 def test_benchmark_refuses_seed_engine_only():
     import run_benchmark
-    meta = {"case_id": "x", "pass1_source": "seeded", "seed_engine": "whisperx_disfluent",
+    meta = {"recording_id": "x", "pass1_source": "seeded", "seed_engine": "whisperx_disfluent",
             "seed_model": "large-v3"}
     with pytest.raises(SystemExit):
         run_benchmark.refuse_seed_engine("whisperx_disfluent", meta)
@@ -138,16 +138,16 @@ def test_ledger_header_upgrade_keeps_rows(tmp_path):
     run_benchmark.record({k: "n" for k in run_benchmark.FIELDS}, results_path=old)
     rows = list(csv.DictReader(open(old)))
     assert list(rows[0].keys()) == run_benchmark.FIELDS
-    assert rows[0]["gold_pass1"] == "" and rows[0]["case_id"] == "v" and rows[1]["gold_pass1"] == "n"
+    assert rows[0]["gold_pass1"] == "" and rows[0]["recording_id"] == "v" and rows[1]["gold_pass1"] == "n"
 
 
 def test_kit_seed_transcripts_lists_only_seeded_kits(tmp_path):
     kits, data = tmp_path / "kits", tmp_path / "data"
-    for case, ann, kit in [("c1", "a", {"case_id": "c1", "pass1_source": "seeded",
+    for recording, ann, kit in [("c1", "a", {"recording_id": "c1", "pass1_source": "seeded",
                                         "seed_transcript": "9_x_y.json"}),
-                           ("c2", "b", {"case_id": "c2"})]:
-        (kits / case / ann).mkdir(parents=True)
-        (kits / case / ann / "kit.json").write_text(json.dumps(kit))
+                           ("c2", "b", {"recording_id": "c2"})]:
+        (kits / recording / ann).mkdir(parents=True)
+        (kits / recording / ann / "kit.json").write_text(json.dumps(kit))
     assert seeding.kit_seed_transcripts(kits, data) == \
         {(data / "transcripts" / "c1" / "9_x_y.json").resolve()}
 

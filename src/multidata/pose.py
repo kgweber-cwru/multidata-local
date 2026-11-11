@@ -12,7 +12,7 @@ same keypoint set is Pose2Sim's default, so its later steps accept it as is.
 Tracker is OFF: slot `s` is the s-th detection in that frame, not the same
 person across frames. Identity is solved later, in 3D.
 
-Output per camera: `data/pose/<case_id>/<camera>.npz` (`save()`/`load()`):
+Output per camera: `data/pose/<recording_id>/<camera>.npz` (`save()`/`load()`):
 
   keypoint        (M, T, 26, 2)  pixel x, y         stored float16
   keypoint_score  (M, T, 26)     0-1 confidence     stored float16

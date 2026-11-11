@@ -1,4 +1,4 @@
-timestamp,case_id,audio_s,engine,model,device,accel_device,phase,seconds,realtime_factor,machine
+timestamp,recording_id,audio_s,engine,model,device,accel_device,phase,seconds,realtime_factor,machine
 2026-07-29T14:06:15.449381,252851,455.1,faster_whisper,tiny,cpu,,load,0.11,0.0,macOS-26.2-arm64-arm-64bit
 2026-07-29T14:06:25.169061,252851,455.1,faster_whisper,tiny,cpu,,transcribe,9.72,0.021,macOS-26.2-arm64-arm-64bit
 2026-07-29T14:06:25.605887,252851,455.1,faster_whisper,small,cpu,,load,0.43,0.001,macOS-26.2-arm64-arm-64bit

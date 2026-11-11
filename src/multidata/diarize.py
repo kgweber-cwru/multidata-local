@@ -18,7 +18,7 @@ from multidata.hf_auth import hf_token
 
 log = logging.getLogger(__name__)
 
-# community-1 replaced 3.1 on 2026-11-02: on four human-annotated cases it
+# community-1 replaced 3.1 on 2026-11-02: on four human-annotated recordings it
 # cut speaker confusion (right speech, wrong speaker) from 2-8% to 2-4% of
 # speech, with the same missed speech. It is also what whisperx uses itself.
 MODEL = "pyannote/speaker-diarization-community-1"
@@ -29,7 +29,7 @@ def diarize(audio_path, out_rttm=None, num_speakers=None,
     """Run pyannote on one WAV -> pyannote Annotation, optionally written as RTTM.
 
     Speaker-count hints are a benchmark axis, not a constant (doc §8c): our
-    cases are typically 3-4 people, but pinning it can help or hurt.
+    recordings are typically 3-4 people, but pinning it can help or hurt.
 
     `device` defaults to the best available (`multidata.device.best_torch_device`
     — mps > cuda > cpu) — confirmed empirically ~7x faster under CoreML/MPS
@@ -86,7 +86,7 @@ def load_rttm(path):
 
     Lets `asr.py` reuse an already-computed diarization instead of paying for
     pyannote again when both the `diarize` and `asr` stages touch the same
-    case (doc §6).
+    recording (doc §6).
     """
     from pyannote.database.util import load_rttm as _load_rttm
 

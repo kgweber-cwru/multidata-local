@@ -11,7 +11,7 @@ N = 2 or 3 could cut pose cost a lot -- if accuracy holds. This measures it.
 Design (fixed 2026-11-01, before any results):
   - Clips: one per room that has finished pose, up to CLIPS_MAX, each
     CLIP_S long, from the video with the most people, at the window where
-    people move most (largest frame-to-frame keypoint motion). Hardest case
+    people move most (largest frame-to-frame keypoint motion). Hardest recording
     for reused boxes, which lag a fast mover.
   - Each clip runs with N = 1, 2, 3 in this one process, one after another,
     so timings compare fairly. N = 1 is the reference.
@@ -103,19 +103,19 @@ def pick_clips():
     """One clip per room: the busiest video, at its most active window."""
     c = sqlite3.connect(f"file:{ROOT / 'manifest.sqlite'}?mode=ro", uri=True)
     rows = c.execute(
-        "SELECT v.case_id, v.camera, v.filepath, cs.room_number FROM videos v "
-        "JOIN cases cs USING (case_id) WHERE v.pose_status = 'done' "
-        "ORDER BY CAST(cs.room_number AS INT), v.case_id, v.camera").fetchall()
+        "SELECT v.recording_id, v.camera, v.filepath, cs.room_number FROM videos v "
+        "JOIN recordings cs USING (recording_id) WHERE v.pose_status = 'done' "
+        "ORDER BY CAST(cs.room_number AS INT), v.recording_id, v.camera").fetchall()
     best = {}
-    for case_id, cam, path, room in rows:
-        e = pose.load(ROOT / "data" / "pose" / case_id / f"{cam}.npz")
+    for recording_id, cam, path, room in rows:
+        e = pose.load(ROOT / "data" / "pose" / recording_id / f"{cam}.npz")
         sc, kp = e["keypoint_score"], e["keypoint"]
         n = (sc > KPT_THR).sum(axis=2) >= MIN_KPTS          # (M, T) people
         busy = n.sum(axis=0)
         if busy.mean() > best.get(room, (None, -1))[1]:
-            best[room] = ((case_id, cam, path, kp, sc, n), busy.mean())
+            best[room] = ((recording_id, cam, path, kp, sc, n), busy.mean())
     clips = []
-    for room, ((case_id, cam, path, kp, sc, n), _) in sorted(best.items(), key=lambda x: int(x[0])):
+    for room, ((recording_id, cam, path, kp, sc, n), _) in sorted(best.items(), key=lambda x: int(x[0])):
         T, fps = kp.shape[1], 30
         win = min(CLIP_S * fps, T)
         # motion per frame: mean keypoint displacement of present people
@@ -124,7 +124,7 @@ def pick_clips():
         disp = np.clip(disp, 0, 50)        # a slot switching people isn't motion
         score = np.convolve(disp, np.ones(win), "valid") if T > win else np.array([0.0])
         start = int(np.argmax(score))
-        clips.append({"room": room, "case_id": case_id, "camera": cam, "path": path,
+        clips.append({"room": room, "recording_id": recording_id, "camera": cam, "path": path,
                       "start_frame": start, "frames": win})
     return clips[:CLIPS_MAX]
 
@@ -154,7 +154,7 @@ def main():
                                   for N, (_, d, w) in runs.items()},
                "vs_every_frame": {N: compare(runs[1][0], runs[N][0]) for N in NS if N != 1}}
         results.append(res)
-        print(f"room {clip['room']} {clip['case_id']}/{clip['camera']}: "
+        print(f"room {clip['room']} {clip['recording_id']}/{clip['camera']}: "
               + "  ".join(f"N={N} {v['median_px']:.2f}/{v['p95_px']:.1f}px "
                           f"miss {100 * v['missed_frac']:.2f}%"
                           for N, v in res["vs_every_frame"].items()), flush=True)
@@ -220,7 +220,7 @@ def write_report(out, md_path):
     lines += ["", "## Clips", "",
               f"One per room: the video with the most people, at its {CLIP_S} s of most "
               "movement (the hardest case for reused detector boxes).", "",
-              "| Room | Case/camera | Start (s) | Every 2: median / p95 px, missed | "
+              "| Room | Recording/camera | Start (s) | Every 2: median / p95 px, missed | "
               "Every 3: median / p95 px, missed |",
               "|---|---|---|---|---|"]
     for r in out["clips"]:
@@ -229,7 +229,7 @@ def write_report(out, md_path):
             v = r["vs_every_frame"].get(N) or r["vs_every_frame"].get(str(N))
             cells.append(f"{v['median_px']:.2f} / {v['p95_px']:.1f}, "
                          f"{100 * v['missed_frac']:.2f}%")
-        lines.append(f"| {r['room']} | {r['case_id']}/{r['camera']} | "
+        lines.append(f"| {r['room']} | {r['recording_id']}/{r['camera']} | "
                      f"{r['start_frame'] / 30:.0f} | {cells[0]} | {cells[1]} |")
     lines += ["", "Caveat: this measures change from the every-frame run, not error "
               "against hand-marked truth. A passing stride gives the same answer as "

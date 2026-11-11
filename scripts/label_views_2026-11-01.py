@@ -48,7 +48,7 @@ LABELS = [
     ("34", "v5", PC, "high", "desk zoom; paired with 17 v8"),
     # room 06
     ("14", "v1", B, "high", "bed-side wide; paired with 4 v1"),
-    ("14", "v4", BD, "medium", "reclined bed; paired with 4 v5 (4 cases)"),
+    ("14", "v4", BD, "medium", "reclined bed; paired with 4 v5 (4 recordings)"),
     ("14", "v8", PC, "high", "desk zoom; paired with 4 v14"),
     ("4", "v1", B, "high", "sink-side wide; paired with 14 v1"),
     ("4", "v5", BD, "medium", "sink-side, near-wide; recalled with 14 v4 (Bed)"),

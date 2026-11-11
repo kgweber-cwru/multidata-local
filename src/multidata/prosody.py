@@ -1,11 +1,11 @@
-"""Stage: prosody -- pitch, loudness and voice quality from a case's audio.
+"""Stage: prosody -- pitch, loudness and voice quality from a recording's audio.
 
 Runs in the **md-speech** env (CPU only; needs `praat-parselmouth`). One run
-per case, on the case's audio camera (like asr), after diarization.
+per recording, on the recording's audio camera (like asr), after diarization.
 
 Two outputs:
 
-1. **Frame features**, `data/prosody/<case_id>/<camera>.npz`, one row per
+1. **Frame features**, `data/prosody/<recording_id>/<camera>.npz`, one row per
    Praat pitch frame (10 ms with the default 75 Hz pitch floor):
      time_s        frame centre, seconds from the start of the file
      f0_hz         fundamental frequency (pitch); NaN where unvoiced
@@ -17,8 +17,8 @@ Two outputs:
    "-200 dB" silence code for HNR becomes NaN, stored compressed.
 
 2. **Per-speaker summary**, from the diarization turns
-   (`data/diarization/<case_id>/<camera>.rttm`), written to the manifest's
-   `speaker_prosody` table and `data/prosody/<case_id>/<camera>_speakers.csv`.
+   (`data/diarization/<recording_id>/<camera>.rttm`), written to the manifest's
+   `speaker_prosody` table and `data/prosody/<recording_id>/<camera>_speakers.csv`.
    Frames where two diarized speakers overlap are left out of every
    speaker's figures. Pitch spread is in semitones, so voices of different
    register compare fairly. `pitch_bucket` is the rough vocal-register label
@@ -28,8 +28,8 @@ Two outputs:
    `.IntensityTier` and a `.TextGrid` of speaker turns (`export_praat`).
    `voiced_stretches()` feeds the ELAN pitch tier (`elan.PITCH_TIER`).
 
-Diarization speaker labels (SPEAKER_00, ...) are per case: the same label in
-two cases is not the same person. Field-by-field reference:
+Diarization speaker labels (SPEAKER_00, ...) are per recording: the same label in
+two recordings is not the same person. Field-by-field reference:
 docs/data_formats.md.
 """
 import csv
@@ -162,7 +162,7 @@ def write_speakers_csv(rows, out_path):
 # --- Praat and ELAN exports ------------------------------------------------
 #
 # Written next to the frame features by the prosody stage, for opening the
-# case in Praat together with its WAV (data/audio/<case_id>/<camera>.wav):
+# recording in Praat together with its WAV (data/audio/<recording_id>/<camera>.wav):
 #   <camera>.PitchTier      pitch (Hz) at every voiced frame
 #   <camera>.IntensityTier  loudness (dB) at every frame
 #   <camera>.TextGrid       one interval tier per diarized speaker (who spoke when)

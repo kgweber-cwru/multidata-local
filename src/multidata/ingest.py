@@ -9,29 +9,29 @@ from pathlib import Path
 from multidata.tools import which
 
 FILENAME_RE = re.compile(
-    r"^(?P<date>\d{8})-(?P<time>\d{6})-(?P<recording_id>v\d+)-(?P<camera>\d+)$"
+    r"^(?P<date>\d{8})-(?P<time>\d{6})-(?P<file_number>v\d+)-(?P<camera>\d+)$"
 )
 
 
 def parse_filename(path) -> dict:
     """Parse the source-system naming spec (doc §2):
 
-        <date:YYYYMMDD>-<time:HHMMSS>-<recording_id>-<camera>.<ext>
+        <date:YYYYMMDD>-<time:HHMMSS>-<file_number>-<camera>.<ext>
         e.g. 20260224-132704-v308933-41.mp4
 
-    The second field is a timestamp (13:27:04 here), NOT a case_id — there is
-    no case_id anywhere in the filename. `data/raw/` is a flat directory of
+    The second field is a timestamp (13:27:04 here), NOT a recording_id — there is
+    no recording_id anywhere in the filename. `data/raw/` is a flat directory of
     files named to this convention; nothing here cross-checks a containing
-    folder. To find which case a file belongs to, match `date`+`time` (the
-    cases table only carries minute precision — see `casematch` module
+    folder. To find which recording a file belongs to, match `date`+`time` (the
+    recordings table only carries minute precision — see `filematch` module
     docstring) and `camera`'s room (via the manifest's `cameras` table)
-    against the cases table: `multidata.casematch.resolve()`.
+    against the recordings table: `multidata.filematch.resolve()`.
     """
     path = Path(path)
     m = FILENAME_RE.match(path.stem)
     if not m:
         raise ValueError(
-            f"{path.name} doesn't match <date>-<time>-<recording_id>-<camera> "
+            f"{path.name} doesn't match <date>-<time>-<file_number>-<camera> "
             f"(doc §2), e.g. 20260224-132704-v308933-41.mp4"
         )
     parsed = m.groupdict()
@@ -39,7 +39,7 @@ def parse_filename(path) -> dict:
     return {
         "date": datetime.strptime(parsed["date"], "%Y%m%d").date().isoformat(),
         "time": f"{time_str[0:2]}:{time_str[2:4]}:{time_str[4:6]}",
-        "recording_id": parsed["recording_id"],
+        "file_number": parsed["file_number"],
         "camera": parsed["camera"],
     }
 
@@ -64,13 +64,13 @@ def sha256(path, buf: int = 1 << 20) -> str:
 
 
 def summarize(path) -> dict:
-    """Ingest-time facts: identity (camera/recording_id/video_date/video_time,
+    """Ingest-time facts: identity (camera/file_number/video_date/video_time,
     parsed from the filename) plus duration, fps, size, audio presence (ffprobe
     + sha256).
 
-    No `case_id` here — the filename doesn't carry one (see `parse_filename`).
-    Resolve it separately with `multidata.casematch.resolve()` and pass it to
-    `manifest.add_video(case_id=..., **summarize(path))`.
+    No `recording_id` here — the filename doesn't carry one (see `parse_filename`).
+    Resolve it separately with `multidata.filematch.resolve()` and pass it to
+    `manifest.add_video(recording_id=..., **summarize(path))`.
 
     `path` can be given any way that actually resolves from the caller's own
     working directory (absolute, `data/raw/x.mp4` from the repo root,
@@ -98,7 +98,7 @@ def summarize(path) -> dict:
 
     return {
         "camera": parsed["camera"],
-        "recording_id": parsed["recording_id"],
+        "file_number": parsed["file_number"],
         "video_date": parsed["date"],
         "video_time": parsed["time"],
         "filepath": stored_path,
