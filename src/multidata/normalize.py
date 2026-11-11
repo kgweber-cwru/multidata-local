@@ -108,13 +108,17 @@ _VARIANTS = (
     (re.compile(r"^m+-m+$"), "mm-mm"),          # mmm-mm
     (re.compile(r"^h+m+$"), "hmm"),             # hm, hmmm
     (re.compile(r"^m{2,}$"), "mm"),             # mmm, mmmm
+    (re.compile(r"^ok$"), "okay"),              # OK, O.K. (dots already gone)
 )
 
 
 def _canonical(tok):
+    # Keep a trailing markup mark ("ok-", "mhm:") so _unmark still sees it.
+    mark = tok[-1] if len(tok) > 1 and tok[-1] in "-:" else ""
+    word = tok[:-1] if mark else tok
     for pattern, form in _VARIANTS:
-        if pattern.match(tok):
-            return form
+        if pattern.match(word):
+            return form + mark
     return tok
 
 

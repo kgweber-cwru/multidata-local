@@ -160,7 +160,7 @@ class TestSharedTransformIdenticalBothSides:
 
 class TestFreeStandingMarks:
     def test_free_standing_dash_is_not_a_word(self):
-        assert normalize.scoring_base("I - I think -- so … ok") == "i i think so ok"
+        assert normalize.scoring_base("I - I think -- so … ok") == "i i think so okay"
 
     def test_attached_dashes_become_the_word(self):
         assert normalize.scoring_base("wh- mm-hmm") == "wh mm-hmm"
@@ -189,6 +189,19 @@ class TestSpellingVariants:
 
     def test_ordinary_words_untouched(self):
         assert normalize.scoring_base("hum mum ham uh um") == "hum mum ham uh um"
+
+
+class TestOkay:
+    @pytest.mark.parametrize("variant", ["OK", "ok", "O.K.", "okay", "Okay,"])
+    def test_ok_spellings_become_okay(self, variant):
+        assert normalize.scoring_base(variant) == "okay"
+
+    def test_marked_ok(self):
+        assert normalize.scoring_base("ok: ok-") == "okay okay"
+        assert normalize.to_filler_neutral("ok- OK so") == "okay so"
+
+    def test_ok_inside_other_words_untouched(self):
+        assert normalize.scoring_base("okra book oko") == "okra book oko"
 
 
 class TestContinuer:

@@ -232,8 +232,8 @@ The same steps are applied to the reference and the hypothesis
      pause mark);
    - map unambiguous spelling variants of backchannels and hums to one form
      (`mhm`, `mmhmm`, `mmm-hmm` → `mm-hmm`; `uhhuh` → `uh-huh`; `hmmm` →
-     `hmm`; `mmm` → `mm`). A run-together `uhuh` is left alone: it could be
-     yes or no;
+     `hmm`; `mmm` → `mm`), and `ok` (`OK`, `O.K.`) to `okay`. A run-together
+     `uhuh` is left alone: it could be yes or no;
    - take the annotators' markup off words: the prolongation colon (`so:` →
      `so`) and the cut-off hyphen (`I-` → `I`). No engine writes these marks,
      so an engine that wrote the word gets credit, and one that left out a
@@ -295,8 +295,8 @@ Current as of 2026-11-11. When one is fixed, delete it here.
 - **Numbers are not canonicalized.** Gold writes "one twenty over eighty";
   an engine writing "120/80" is counted wrong.
 - **Spelling variants of ordinary words count as errors.** For example
-  `ok`/`okay`, `kinda`/`kind of`, `follow-up`/`follow up`. Only backchannel
-  and hum spellings are unified.
+  `kinda`/`kind of`, `follow-up`/`follow up`. Only backchannel and hum
+  spellings, and `ok`/`okay`, are unified.
 - **A true partial word still counts.** `th-` becomes `th` at L0, which no
   engine writes. Rare in practice: most cut-offs in our gold are whole words.
 - **Uncertain spans still cost the engine.** Removing `[unintelligible]`

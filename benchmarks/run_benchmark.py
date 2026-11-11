@@ -74,7 +74,7 @@ FIELDS = ["timestamp", "case_id", "engine", "model", "audio_sha256",
 
 # Names the scoring method in each ledger row. Change it whenever score()
 # changes in a way that moves numbers, so old and new rows aren't compared.
-SCORING = "redact+L0/L1 v2"  # v2: markup off words at L0; L1 drops cut-off words
+SCORING = "redact+L0/L1 v3"  # v2: markup off words at L0; L1 drops cut-off words. v3: ok -> okay
 
 
 def score(ref, hyp, names):

@@ -61,7 +61,7 @@ ROLE_TIERS = {"learner": "LEARNER", "patient": "PATIENT", "preceptor": "PRECEPTO
 # The latest version in transcription_standards.md §12's changelog. Not
 # auto-read from the doc (parsing a markdown table for one string is more
 # fragile than it's worth): bump it here whenever the changelog gets a row.
-CURRENT_STANDARDS_VERSION = "1.3"
+CURRENT_STANDARDS_VERSION = "1.4"
 
 
 def main():

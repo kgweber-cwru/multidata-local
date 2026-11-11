@@ -300,6 +300,7 @@ huh?     "say that again?"
 mm       "go on, I'm listening"   (not mm-hmm: write the one you heard)
 ```
 Spell them exactly like this: `mm-hmm`, not `mhm` or `mmhmm`.
+Write `okay`, not `OK`.
 
 ### Marks
 ```
