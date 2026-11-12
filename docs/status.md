@@ -69,7 +69,7 @@ the scores don't yet account for.
 
 **Annotation** runs through Box: kits built on the processing host
 (`annotation/make_kit.py`), shared per annotator, returned there; who has
-which pass is in `annotation/assignments.csv` ([../annotation/README.md](../annotation/README.md)).
+which pass is in the manifest's `assignments` table (`annotation/assignments.py list`) ([../annotation/README.md](../annotation/README.md)).
 Annotators are scarce, so pass 1 can now start from a machine draft (route B,
 standards §9): seeded gold adds recordings, but engine rankings rest on blind gold.
 

@@ -8,7 +8,8 @@ The two tables matching the two models in `multidata.models`:
           what every processing stage actually reads/writes
 
 ...plus `cameras`, `file_matches` (ingest bookkeeping, §2), `stage_runs`
-(what each stage run cost, for scaling estimates) and `gold`
+(what each stage run cost, for scaling estimates), `assignments` (who has
+which annotation pass) and `gold`
 (one row per gold reference produced, possibly several per recording for excerpt
 gold — implementation plan Phase 2.4), none of which have their own
 dataclass; `Recording`/`Video`/`Camera` exist because their columns get
@@ -118,6 +119,25 @@ CREATE TABLE IF NOT EXISTS gold (
     seed_engine TEXT NOT NULL DEFAULT '',
     seed_model TEXT NOT NULL DEFAULT '',
     seed_sha256 TEXT NOT NULL DEFAULT ''
+);
+
+-- Who has which annotation pass of which recording (annotation/README.md).
+-- One kit folder per (recording, annotator) -- kits/<recording>/<annotator>/
+-- -- so that pair is the key and `pass` is an attribute: one person never
+-- does both passes of a recording. Written by make_kit.py, make_pass2_kit.py,
+-- eaf_to_gold.py and annotation/assignments.py; never edited by hand. No
+-- foreign key to recordings: an abandoned row may outlive its recording.
+CREATE TABLE IF NOT EXISTS assignments (
+    recording_id TEXT NOT NULL,
+    annotator TEXT NOT NULL,
+    pass INTEGER NOT NULL CHECK (pass IN (1, 2)),
+    route TEXT NOT NULL CHECK (route IN ('blind', 'seeded')),
+    camera TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'assigned',
+    assigned_on TEXT NOT NULL DEFAULT '',
+    returned_on TEXT NOT NULL DEFAULT '',
+    notes TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (recording_id, annotator)
 );
 
 -- Camera views (multidata.views): one row per view a camera has been seen
@@ -465,6 +485,108 @@ def all_gold(path=DEFAULT_PATH):
     with closing(connect(path)) as conn:
         rows = conn.execute("SELECT * FROM gold ORDER BY recording_id, id").fetchall()
     return [dict(r) for r in rows]
+
+
+# --- annotation assignments ------------------------------------------------
+#
+# The tracker that used to be annotation/assignments.csv, edited by hand at
+# every step and wrong more than once. Now the scripts that move a pass along
+# write it; `annotation/assignments.py` covers the rest (return, note, check).
+
+ASSIGNMENT_STATUSES = ("assigned", "in_progress", "returned", "gold", "abandoned")
+ASSIGNMENT_COLUMNS = ("recording_id", "annotator", "pass", "route", "camera", "status",
+                      "assigned_on", "returned_on", "notes")
+
+
+def _check_assignment_fields(fields):
+    unknown = set(fields) - set(ASSIGNMENT_COLUMNS)
+    if unknown:
+        raise ValueError(f"Unknown columns {sorted(unknown)}")
+    if "status" in fields and fields["status"] not in ASSIGNMENT_STATUSES:
+        raise ValueError(f"Invalid status {fields['status']!r}; allowed: {ASSIGNMENT_STATUSES}")
+
+
+def add_assignment(recording_id, annotator, pass_no, route, path=DEFAULT_PATH, **fields):
+    """Insert one assignment row. Refuses a second row for the same
+    (recording, annotator)."""
+    row = {"recording_id": str(recording_id), "annotator": annotator, "pass": int(pass_no),
+           "route": route, **fields}
+    _check_assignment_fields(row)
+    with closing(connect(path)) as conn, conn:
+        try:
+            conn.execute(f"INSERT INTO assignments ({', '.join(row)}) "
+                         f"VALUES ({', '.join('?' * len(row))})", tuple(row.values()))
+        except sqlite3.IntegrityError as e:
+            if "UNIQUE" in str(e):
+                raise ValueError(f"{annotator} already has an assignment for {recording_id}") from None
+            raise
+    return get_assignment(recording_id, annotator, path)
+
+
+def get_assignment(recording_id, annotator, path=DEFAULT_PATH):
+    with closing(connect(path)) as conn:
+        row = conn.execute("SELECT * FROM assignments WHERE recording_id = ? AND annotator = ?",
+                           (str(recording_id), annotator)).fetchone()
+    return dict(row) if row else None
+
+
+def update_assignment(recording_id, annotator, path=DEFAULT_PATH, **fields):
+    """Set columns on one assignment row. Returns the row as it now is."""
+    _check_assignment_fields(fields)
+    if fields:
+        with closing(connect(path)) as conn, conn:
+            cur = conn.execute(
+                f"UPDATE assignments SET {', '.join(f'{k} = ?' for k in fields)} "
+                "WHERE recording_id = ? AND annotator = ?",
+                (*fields.values(), str(recording_id), annotator))
+            if cur.rowcount != 1:
+                raise KeyError(f"no assignment for {annotator} on {recording_id}")
+    return get_assignment(recording_id, annotator, path)
+
+
+def all_assignments(path=DEFAULT_PATH, recording_id=None):
+    """Every assignment row (or one recording's), in recording then pass order."""
+    sql, args = "SELECT * FROM assignments", ()
+    if recording_id is not None:
+        sql, args = sql + " WHERE recording_id = ?", (str(recording_id),)
+    with closing(connect(path)) as conn:
+        rows = conn.execute(sql + " ORDER BY recording_id, pass, assigned_on, annotator",
+                            args).fetchall()
+    return [dict(r) for r in rows]
+
+
+def export_assignments(out_csv, path=DEFAULT_PATH):
+    """Dump the table to CSV -- the git-tracked backup
+    (`db_seed/assignments.csv`), since the database itself is gitignored."""
+    import csv
+
+    out_csv = Path(out_csv)
+    out_csv.parent.mkdir(parents=True, exist_ok=True)
+    with open(out_csv, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=ASSIGNMENT_COLUMNS)
+        writer.writeheader()
+        writer.writerows(all_assignments(path))
+    return out_csv
+
+
+def import_assignments(in_csv, path=DEFAULT_PATH):
+    """Load an `export_assignments` CSV into an empty table (restoring the
+    backup, or the one-time move from annotation/assignments.csv). Refuses
+    if the table already has rows. Returns the number of rows loaded."""
+    import csv
+
+    with open(in_csv, newline="") as f:
+        rows = [{k: row[k] for k in ASSIGNMENT_COLUMNS} for row in csv.DictReader(f)]
+    for row in rows:
+        _check_assignment_fields(row)
+    with closing(connect(path)) as conn, conn:
+        if conn.execute("SELECT 1 FROM assignments LIMIT 1").fetchone():
+            raise ValueError(f"assignments in {path} is not empty -- not importing over it")
+        conn.executemany(
+            f"INSERT INTO assignments ({', '.join(ASSIGNMENT_COLUMNS)}) "
+            f"VALUES ({', '.join('?' * len(ASSIGNMENT_COLUMNS))})",
+            [tuple(r.values()) for r in rows])
+    return len(rows)
 
 
 def _camera_sort_key(camera):
@@ -861,6 +983,7 @@ def prune_recordings_without_videos(path=DEFAULT_PATH, dry_run=True):
     sql = """SELECT recording_id FROM recordings c
              WHERE NOT EXISTS (SELECT 1 FROM videos v WHERE v.recording_id = c.recording_id)
                AND NOT EXISTS (SELECT 1 FROM gold g WHERE g.recording_id = c.recording_id)
+               AND NOT EXISTS (SELECT 1 FROM assignments a WHERE a.recording_id = c.recording_id)
                AND NOT EXISTS (SELECT 1 FROM recording_scores s WHERE s.recording_id = c.recording_id)
                AND NOT EXISTS (SELECT 1 FROM stage_runs r WHERE r.recording_id = c.recording_id)
                AND NOT EXISTS (SELECT 1 FROM file_matches m WHERE m.recording_id = c.recording_id)

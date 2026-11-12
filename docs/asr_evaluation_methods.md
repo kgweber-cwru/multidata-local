@@ -19,7 +19,7 @@ for it. The others hold the detail.
 | this file | anyone; paper readers | the whole procedure, end to end, and its known limitations |
 | [transcription_standards.md](transcription_standards.md) | annotators, reviewers | the conventions: tiers, segmentation, what to type, normalization levels, change control |
 | [annotator_guide.md](annotator_guide.md) | annotators | how to do pass 1 and pass 2 in ELAN, step by step |
-| [../annotation/README.md](../annotation/README.md) | the coordinator | the exact commands at each step, and the tracker (`assignments.csv`) |
+| [../annotation/README.md](../annotation/README.md) | the coordinator | the exact commands at each step, and the tracker (the manifest's `assignments` table, `annotation/assignments.py`) |
 | [asr_provider_spec.md](asr_provider_spec.md) | developers | how engines plug in, and the design for cloud providers |
 | [status.md](status.md) | everyone | what exists today, and the open problems |
 
@@ -47,7 +47,7 @@ a 20-minute encounter takes most of a day. Recordings are therefore chosen
 deliberately rather than at random, to cover the conditions that break ASR:
 quiet against noisy rooms, number of speakers and amount of overlap, learner
 accent and speech rate, and microphone. The reason for choosing each recording is
-recorded in the `notes` column of `annotation/assignments.csv`. A reference
+recorded in the `notes` of its row in the manifest's `assignments` table. A reference
 can be an **excerpt** of an encounter (a time window) rather than all of it.
 WER is a rate, so an excerpt is scored only within its window. Results are
 reported as estimates over the named sample, never as properties of the
@@ -182,8 +182,8 @@ This is a best-effort first line, not a guarantee. Two recordings need a human:
 
 So **the coordinator reads every `.gold.txt` before committing it.** A name
 that escaped is masked by hand in the `.gold.txt`, the only sanctioned hand
-edit, and the fact (never the name) is recorded in that case's
-`assignments.csv` row. A re-export undoes the mask, so it must be re-applied.
+edit, and the fact (never the name) is recorded in that recording's
+assignments row (`annotation/assignments.py note`). A re-export undoes the mask, so it must be re-applied.
 
 ### 3.3 Where files live
 

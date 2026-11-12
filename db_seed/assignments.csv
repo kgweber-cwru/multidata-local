@@ -1,0 +1,17 @@
+recording_id,annotator,pass,route,camera,status,assigned_on,returned_on,notes
+252848,kate,1,blind,24,returned,,2026-11-05,"Whole encounter since 2026-11-05 (patient encounter added; kit span cleared). Before that an excerpt: 2880.955 s to the end (16 min, the feedback section), made against a redacted copy of that excerpt with times shifted to the full recording; was exported as gold without a pass 2 and moved back to pass 1 2026-10-28."
+255048,kate,1,seeded,12,assigned,2026-11-02,,"Kit built under kate as a placeholder. 2025 format: encounter, then an oral presentation to camera; no preceptor. History-taking (learner + patient) diarized as one speaker, seeded on PATIENT."
+255387,shruti,1,blind,15,abandoned,2026-10-28,,Annotator left 2026-10-30. Case dropped with all large-room (L) data 2026-10-30; kit deleted.
+261041,kate,1,blind,10,returned,2026-10-05,2026-10-26,
+261041,kelli,2,blind,10,assigned,2026-10-28,,
+261320,kate,1,seeded,9,assigned,2026-11-02,,Kit built under kate as a placeholder. Patient's history answers mostly on LEARNER (diarization); exam answers on PATIENT.
+261411,kate,1,seeded,37,assigned,,,Diarization put most patient speech on the learner's speaker (pyannote 3.1 and community-1 alike); expect heavy speaker fixing.
+261456,kate,1,blind,16,returned,,2026-08-25,Was exported as gold without a pass 2; moved back to pass 1 2026-10-28.
+261456,shruti,1,blind,16,abandoned,2026-10-05,,Dropped 2026-10-28 before she started; removed from Box.
+261473,kate,1,blind,23,returned,,2026-08-31,Was exported as gold without a pass 2; moved back to pass 1 2026-10-28.
+261495,kate,1,seeded,22,returned,2026-11-01,2026-11-12,Kit built under kate as a placeholder; rebuild for another annotator if reassigned.
+261495,kelli,2,seeded,22,assigned,2026-11-12,,"Reviewed by Kate after seeding, needs review"
+261498,kelli,1,blind,20,returned,2026-10-05,2026-10-21,
+261498,kate,2,blind,20,gold,2026-10-28,2026-10-28,Approved 2026-10-28; exported to benchmarks/references/. Re-exported 2026-11-11 with the preceptor name from LearningSpace; the preceptor's short first name (self-introduction) escaped redaction and is masked by hand in the .gold.txt.
+261505,xiaomei,1,blind,16,returned,2026-10-05,2026-11-03,XS finished first draft; ready for review
+261505,kate,2,blind,16,gold,2026-11-05,2026-11-10,Approved 2026-11-11; exported to benchmarks/references/. A misheard surname spelling escaped redaction; masked by hand in the .gold.txt. Re-exported 2026-11-11 with the preceptor name from LearningSpace; hand mask reapplied.

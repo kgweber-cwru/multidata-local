@@ -16,7 +16,9 @@ needs and nothing else:
     kit.json           what this kit is, for the record
     README.txt         two paragraphs for the annotator
 
-Runs on the private side (needs the manifest and the raw media).
+and adds the pass-1 row to the manifest's `assignments` table (`--notes`:
+why this recording was chosen). Runs on the private side (needs the manifest
+and the raw media).
 
 Seeded kits (docs/transcription_standards.md §9, route B; multidata.seeding):
 the seed is always `seeding.SEED_ENGINE`/`SEED_MODEL`, made on first use
@@ -58,6 +60,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from multidata import manifest, seeding  # noqa: E402
 from multidata.tools import which  # noqa: E402
+import assignments  # noqa: E402
 
 TEMPLATE = ROOT / "elan" / "template.etf"
 KITS_DIR = ROOT / "annotation" / "kits"
@@ -180,6 +183,24 @@ def write_eaf(out_path, recording_id, span=None, seeded=None, seed_prov=None):
     eaf.to_file(str(out_path))
 
 
+def record_assignment(recording_id, annotator, camera, route, notes, manifest_path):
+    """The kit's pass-1 row in `assignments`. A rebuilt kit keeps its row
+    (status and dates as they were) and says so in the notes; an abandoned
+    one is reassigned from today."""
+    row = manifest.get_assignment(recording_id, annotator, manifest_path)
+    if row is None:
+        manifest.add_assignment(recording_id, annotator, 1, route, manifest_path,
+                                camera=camera, assigned_on=assignments.today(), notes=notes)
+    else:
+        fields = {"camera": camera, "route": route, "notes": assignments.append_note(
+            row["notes"], f"Kit rebuilt {assignments.today()}. {notes}".strip())}
+        if row["status"] == "abandoned":
+            fields.update(status="assigned", assigned_on=assignments.today(), returned_on="")
+        manifest.update_assignment(recording_id, annotator, manifest_path, **fields)
+    assignments.backup(manifest_path)
+    return manifest.get_assignment(recording_id, annotator, manifest_path)
+
+
 def make_proxy(src_mp4, dest_mp4):
     subprocess.run([which("ffmpeg"), "-y", "-loglevel", "error", "-i", str(src_mp4)]
                    + PROXY_FFMPEG + [str(dest_mp4)], check=True)
@@ -231,6 +252,8 @@ def main():
     ap.add_argument("--span-end", type=float, default=None)
     ap.add_argument("--force", action="store_true",
                     help="overwrite an existing kit")
+    ap.add_argument("--notes", default="",
+                    help="for the assignments row: why this recording was chosen (never a name)")
     ap.add_argument("--seed", action="store_true",
                     help=f"draft-seeded pass 1 (standards §9 route B): pre-fill the tiers "
                          f"from the {seeding.SEED_ENGINE}/{seeding.SEED_MODEL} transcript")
@@ -292,6 +315,10 @@ def main():
     kit = Path(args.out_dir) / args.recording / args.annotator
     if kit.exists() and not args.force:
         raise SystemExit(f"{kit} already exists -- pass --force to replace it")
+    row = manifest.get_assignment(args.recording, args.annotator, manifest_path)
+    if row and row["pass"] != 1:
+        raise SystemExit(f"{args.annotator} already has pass {row['pass']} of {args.recording}; "
+                         "one person never does both passes")
     (kit / "media").mkdir(parents=True, exist_ok=True)
 
     dest_wav = kit / "media" / f"{args.recording}.wav"
@@ -342,8 +369,12 @@ def main():
         (kit / "README.txt").write_text(
             README.format(recording_id=args.recording, window=window))
 
+    row = record_assignment(args.recording, args.annotator, camera,
+                            "seeded" if seeded is not None else "blind", args.notes, manifest_path)
+
     size_mb = sum(f.stat().st_size for f in kit.rglob("*") if f.is_file()) / 1e6
     print(f"\nkit ready: {kit}  ({size_mb:.0f} MB)")
+    print(f"  assignments: pass 1, {row['route']}, {row['status']} since {row['assigned_on']}")
     print("  no delivery mechanism is wired up right now -- see "
           "docs/status.md")
 

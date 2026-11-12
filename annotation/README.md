@@ -17,7 +17,8 @@ to correct). Pass 2 adjudicates it.
 | **processing host** `annotation/kits/<recording>/<annotator>/` | every kit as built, and every pass once it's back: the master copies |
 | **processing host** `data/gold/<recording>/<recording>.gold.eaf` | the adjudicated file (written by step 6) |
 | **Box** `Audio and Labeling/<annotator's folder>/<recording>/<annotator>/` | kits that are out for work. A courier, not an archive |
-| **git** `annotation/assignments.csv` | who has which pass, and its status. Update it at every step |
+| **processing host** `manifest.sqlite`, table `assignments` | who has which pass, and its status. The scripts below keep it up to date; `assignments.py` does the rest |
+| **git** `db_seed/assignments.csv` | a backup of that table, rewritten whenever a script changes it. Never edit it by hand |
 | **git** `benchmarks/references/<recording>.gold.*` | the redacted reference. The only annotation output in git |
 
 Kits and `data/gold/` contain real names. They stay on the processing host
@@ -51,8 +52,8 @@ For an excerpt, add `--span-start S --span-end E` (seconds) to either route.
   3. Run the same command with the map added:
      `--roles SPEAKER_00=PATIENT,SPEAKER_01=LEARNER,...`
 
-Add a row to `assignments.csv`: pass `1`, the route, status `assigned`, and
-in `notes`, why this recording was chosen.
+Add `--notes "why this recording was chosen"` to the command that builds the
+kit. It adds the pass-1 row (route, `assigned`, today's date).
 
 ### 2. Send it (laptop)
 
@@ -67,7 +68,8 @@ folder beside it. Tell the annotator it's there.
 ### 3. The annotator works
 
 They save in place (same file name, same folder) and tell you when they're
-done. Set status `in_progress` if you want to track that.
+done. To track that they've started:
+`python annotation/assignments.py set <C> <A> --status in_progress`.
 
 ### 4. Bring pass 1 back and check it (laptop, then host)
 
@@ -75,11 +77,12 @@ done. Set status `in_progress` if you want to track that.
 scp "$BOX/<A's folder>/<C>/<A>/<C>.pass1.eaf" $HOST:projects/multidata-local/annotation/kits/<C>/<A>/
 ```
 ```bash
-python annotation/submit_checks.py annotation/kits/<C>/<A>/<C>.pass1.eaf
+python annotation/assignments.py return <C> <A>
 ```
 
-If it refuses, send it back with the message. Once it passes, that copy is
-**frozen**: nobody edits it again. Set status `returned` and `returned_on`.
+That runs `submit_checks.py` on the file. If it refuses, send it back with the
+message. Once it passes, the row is `returned` with today's date, and that
+copy is **frozen**: nobody edits it again.
 
 ### 5. Build and send the pass-2 kit (host, then laptop)
 
@@ -89,8 +92,8 @@ python annotation/make_pass2_kit.py --recording <C> --from <A> --to <B>
 
 This copies A's kit to `kits/<C>/<B>/` (same media) with the pass-1 file
 renamed `<C>.pass2.eaf`, and writes kit.json and a pass-2 README. A's kit is
-left untouched. Send it as in step 2, to `"$BOX/<B's folder>/<C>/"`. Add a
-row: pass `2`, same route, `assigned`.
+left untouched. It adds B's pass-2 row (and marks A's pass 1 returned, if
+step 4 was skipped). Send it as in step 2, to `"$BOX/<B's folder>/<C>/"`.
 
 For a **blind** recording you may also give B the pipeline's machine transcript
 (`data/elan/<C>/`), to point at places worth re-listening. For a **seeded**
@@ -111,7 +114,8 @@ That one command:
 - copies it to `data/gold/<C>/<C>.gold.eaf`;
 - writes `benchmarks/references/<C>.gold.txt`, `.gold.rttm` and `.gold.json`
   with names redacted;
-- adds a row to the manifest's `gold` table.
+- adds a row to the manifest's `gold` table;
+- sets B's assignment row to `gold`.
 
 It refuses to overwrite a different `.gold.eaf` unless you add
 `--replace-gold`. Kits made before `make_pass2_kit.py` existed don't name
@@ -123,13 +127,14 @@ committing. The export redacts the names in the manifest. It warns when a
 speaker tier has speech and the manifest has no name for that role. It
 misses names heard differently from the record. If a name escaped, mask it
 by hand in the `.gold.txt` (replace it with the role's tag, such as
-`[LEARNER_NAME]`), and say in the recording's `assignments.csv` notes that you
-did, without writing the name. A re-export undoes the mask.
+`[LEARNER_NAME]`), and record that you did, without writing the name:
+`python annotation/assignments.py note <C> <B> "A misheard surname masked by hand in the .gold.txt."`
+A re-export undoes the mask.
 
-Set the pass-2 row's status to `gold`, then commit:
+Then commit:
 
 ```bash
-git add benchmarks/references/<C>.gold.* annotation/assignments.csv
+git add benchmarks/references/<C>.gold.* db_seed/assignments.csv
 git commit -m "<C> gold"     # never put a name in a commit message
 git push
 ```
@@ -150,23 +155,43 @@ now. The excerpt window, if any, is read from the `.gold.json`. Commit
 When a recording is finished, tidy its Box folders away (a `complete/` folder is
 fine).
 
-## assignments.csv
+## The assignments table
 
-One row per pass per annotator.
+One row per pass per annotator, in the manifest (`manifest.sqlite`). A row is
+keyed by recording and annotator, like the kit folder
+`annotation/kits/<recording>/<annotator>/`, whose `<recording>.pass<N>.eaf` is
+the master copy.
 
 | Column | Meaning |
 |---|---|
-| `recording_id`, `camera`, `duration_min` | the recording, its audio camera, and its video length (an excerpt says so in `notes`) |
+| `recording_id`, `annotator` | the recording, and who has the pass (their kit folder name) |
 | `pass` | `1` = making the transcript, `2` = adjudication |
 | `route` | `blind` or `seeded`: how the recording's pass 1 started (the same on both of its rows) |
-| `annotator` | who has the pass (their kit folder name) |
+| `camera` | the audio camera the kit was built from |
 | `status` | `assigned` → `in_progress` → `returned` (back on the host and checked) → `gold` (pass 2 only: exported). `abandoned` if dropped |
 | `assigned_on`, `returned_on` | `YYYY-MM-DD` |
-| `file` | the master copy on the processing host |
 | `notes` | why the recording was chosen; anything unusual. Never a name |
 
 Two pass-1 rows for one recording, both blind, are a double annotation for
 agreement (methods §2.4).
+
+```bash
+python annotation/assignments.py list                 # the table, with each video's length
+python annotation/assignments.py check                # anything that disagrees with the kits and gold
+python annotation/assignments.py note <C> <A> "..."   # append to notes
+python annotation/assignments.py set <C> <A> --status abandoned   # any other change
+python annotation/assignments.py add <C> <A> --pass 1 --route blind   # a row no script made
+```
+
+Run `check` after moving files around. It reports kit folders with no row,
+rows with no file, returned files that fail `submit_checks.py` or changed
+after they were returned, routes or cameras that disagree with `kit.json`,
+a pass 2 with no returned pass 1, and gold rows without their gold file or
+gold-table row (or the reverse).
+
+Every change rewrites `db_seed/assignments.csv`; commit it with the work it
+records. If the table is ever lost, `python annotation/assignments.py import`
+loads that file back into an empty table.
 
 ## The tools
 
@@ -174,6 +199,7 @@ agreement (methods §2.4).
 |---|---|
 | `make_kit.py` | Manifest + template + media → a pass-1 kit: the `.eaf` with the template tiers and both media linked, a 480p proxy video, the recording WAV, `kit.json` and a README. `--seed`/`--roles` fill the tiers from the seed transcript (route B). |
 | `make_pass2_kit.py` | A checked pass 1 → a pass-2 kit for a different person. |
+| `assignments.py` | The assignments table: list, return, note, set, add, check, import/export. |
 | `submit_checks.py` | Refuses a file with an empty annotation or anything left on `UNASSIGNED`; warns about annotations outside an excerpt window. Standard library only. |
-| `../scripts/eaf_to_gold.py` | A returned pass 2 → the gold files and the manifest row (step 6). |
+| `../scripts/eaf_to_gold.py` | A returned pass 2 → the gold files, the gold-table row, and the assignment set to `gold` (step 6). |
 | `../scripts/bench_status.py` | Which recordings have gold, their current scores, and which engines are still unscored. |
