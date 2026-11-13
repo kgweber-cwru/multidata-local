@@ -14,8 +14,14 @@ wasn't yet, and adds the pass-2 row.
 Refuses when the two annotators are the same person, when the pass-2 kit or
 row already exists, when pass 1 has no row or was abandoned, or when the
 pass-1 file fails `submit_checks.py`.
+
+`--overwrite` rebuilds an existing pass-2 kit from an updated pass 1,
+discarding whatever is in the pass-2 kit on the host. It keeps the pass-2
+row (noting the rebuild) and, if the pass-1 file changed after its return
+date, re-freezes pass 1 today. It refuses once pass 2 is returned or gold.
 """
 import argparse
+import datetime
 import json
 import shutil
 import subprocess
@@ -50,6 +56,9 @@ def main():
     ap.add_argument("--from", dest="src", required=True, help="pass-1 annotator")
     ap.add_argument("--to", dest="dst", required=True, help="pass-2 annotator")
     ap.add_argument("--manifest", default=str(ROOT / "manifest.sqlite"))
+    ap.add_argument("--overwrite", action="store_true",
+                    help="rebuild an existing pass-2 kit from an updated pass 1 "
+                         "(discards the pass-2 kit on the host)")
     args = ap.parse_args()
 
     if args.src == args.dst:
@@ -58,16 +67,22 @@ def main():
     pass1 = src / f"{args.recording}.pass1.eaf"
     if not pass1.exists():
         sys.exit(f"no returned pass 1 at {pass1}")
-    if dst.exists():
-        sys.exit(f"{dst} already exists -- not overwriting it")
+    if dst.exists() and not args.overwrite:
+        sys.exit(f"{dst} already exists -- pass --overwrite to rebuild it")
     first = manifest.get_assignment(args.recording, args.src, args.manifest)
     if first is None or first["pass"] != 1:
         sys.exit(f"no pass-1 assignment for {args.src} on {args.recording} -- add it with "
                  "annotation/assignments.py add")
     if first["status"] == "abandoned":
         sys.exit(f"{args.src}'s pass 1 of {args.recording} was abandoned")
-    if manifest.get_assignment(args.recording, args.dst, args.manifest):
+    second = manifest.get_assignment(args.recording, args.dst, args.manifest)
+    if second and not args.overwrite:
         sys.exit(f"{args.dst} already has an assignment for {args.recording}")
+    if second and second["pass"] != 2:
+        sys.exit(f"{args.dst} has pass {second['pass']} of {args.recording}, not pass 2")
+    if second and second["status"] in ("returned", "gold"):
+        sys.exit(f"{args.dst}'s pass 2 of {args.recording} is {second['status']} -- "
+                 "not overwriting an adjudication")
 
     check = subprocess.run([sys.executable, str(ROOT / "annotation" / "submit_checks.py"),
                             str(pass1)])
@@ -76,7 +91,20 @@ def main():
     if first["status"] in ("assigned", "in_progress"):
         first = assignments.mark_returned(args.recording, args.src, args.manifest)
         print(f"marked {args.src}'s pass 1 returned {first['returned_on']}")
+    elif args.overwrite:
+        changed = datetime.date.fromtimestamp(pass1.stat().st_mtime).isoformat()
+        if changed > first["returned_on"]:
+            today = assignments.today()
+            first = manifest.update_assignment(
+                args.recording, args.src, args.manifest, returned_on=today,
+                notes=assignments.append_note(
+                    first["notes"], f"Pass 1 updated and re-frozen {today} "
+                                    f"(first returned {first['returned_on'] or 'undated'})."))
+            print(f"pass 1 changed since it was returned: re-frozen {today}")
 
+    if dst.exists():
+        shutil.rmtree(dst)
+        print(f"removed the old {dst}")
     shutil.copytree(src, dst, ignore=shutil.ignore_patterns(
         "*.pfsx", "*.eaf.0*", "README.txt", ".DS_Store"))
     (dst / f"{args.recording}.pass1.eaf").rename(dst / f"{args.recording}.pass2.eaf")
@@ -94,9 +122,15 @@ def main():
     (dst / "README.txt").write_text(README_PASS2.format(
         recording_id=args.recording, pass1_annotator=args.src, window=window))
 
-    manifest.add_assignment(args.recording, args.dst, 2, kit["pass1_source"], args.manifest,
-                            camera=str(kit.get("camera", first["camera"])),
-                            assigned_on=assignments.today())
+    camera = str(kit.get("camera", first["camera"]))
+    if second:
+        manifest.update_assignment(
+            args.recording, args.dst, args.manifest, route=kit["pass1_source"], camera=camera,
+            notes=assignments.append_note(
+                second["notes"], f"Kit rebuilt {assignments.today()} from an updated pass 1."))
+    else:
+        manifest.add_assignment(args.recording, args.dst, 2, kit["pass1_source"], args.manifest,
+                                camera=camera, assigned_on=assignments.today())
     assignments.backup(args.manifest)
 
     print(f"pass-2 kit ready: {dst}")

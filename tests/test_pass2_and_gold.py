@@ -101,6 +101,40 @@ class TestMakePass2Kit:
         run_pass2(monkeypatch, tmp_path, db, "--recording", "999", "--from", "ann", "--to", "rev")
         assert manifest.get_assignment("999", "ann", db)["returned_on"] == "2026-10-20"
 
+    def test_overwrite_rebuilds_from_updated_pass1(self, tmp_path, monkeypatch, db):
+        src = pass1_kit(tmp_path)
+        run_pass2(monkeypatch, tmp_path, db, "--recording", "999", "--from", "ann", "--to", "rev")
+        dst = tmp_path / "999" / "rev"
+        (dst / "stale.txt").write_text("from the old kit")
+        manifest.update_assignment("999", "ann", db, returned_on="2026-01-01")
+        manifest.update_assignment("999", "rev", db, assigned_on="2026-01-02")
+        (src / "999.pass1.eaf").write_text(eaf([("LEARNER", 0, 1000, "hello there, fixed")]))
+        run_pass2(monkeypatch, tmp_path, db, "--recording", "999", "--from", "ann", "--to", "rev",
+                  "--overwrite")
+        assert (dst / "999.pass2.eaf").read_bytes() == (src / "999.pass1.eaf").read_bytes()
+        assert not (dst / "stale.txt").exists()
+        first = manifest.get_assignment("999", "ann", db)
+        second = manifest.get_assignment("999", "rev", db)
+        assert first["returned_on"] == assignments.today() and "2026-01-01" in first["notes"]
+        assert second["assigned_on"] == "2026-01-02" and "rebuilt" in second["notes"]
+
+    def test_existing_kit_needs_overwrite(self, tmp_path, monkeypatch, db):
+        pass1_kit(tmp_path)
+        run_pass2(monkeypatch, tmp_path, db, "--recording", "999", "--from", "ann", "--to", "rev")
+        with pytest.raises(SystemExit):
+            run_pass2(monkeypatch, tmp_path, db, "--recording", "999", "--from", "ann", "--to", "rev")
+
+    @pytest.mark.parametrize("status", ["returned", "gold"])
+    def test_overwrite_refused_after_pass2_is_back(self, tmp_path, monkeypatch, db, status):
+        pass1_kit(tmp_path)
+        run_pass2(monkeypatch, tmp_path, db, "--recording", "999", "--from", "ann", "--to", "rev")
+        manifest.update_assignment("999", "rev", db, status=status)
+        before = (tmp_path / "999" / "rev" / "999.pass2.eaf").read_bytes()
+        with pytest.raises(SystemExit):
+            run_pass2(monkeypatch, tmp_path, db, "--recording", "999", "--from", "ann", "--to", "rev",
+                      "--overwrite")
+        assert (tmp_path / "999" / "rev" / "999.pass2.eaf").read_bytes() == before
+
     @pytest.mark.parametrize("problem", ["no row", "abandoned"])
     def test_pass1_without_a_live_row_refused(self, tmp_path, monkeypatch, db, problem):
         pass1_kit(tmp_path)

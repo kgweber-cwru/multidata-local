@@ -21,15 +21,16 @@ to correct). Pass 2 adjudicates it.
 | **git** `db_seed/assignments.csv` | a backup of that table, rewritten whenever a script changes it. Never edit it by hand |
 | **git** `benchmarks/references/<recording>.gold.*` | the redacted reference. The only annotation output in git |
 
-Kits and `data/gold/` contain real names. They stay on the processing host
-and Box: never email them, and never commit them (both are gitignored).
+Kits and `data/gold/` contain real names. They stay on the processing host,
+Box and `~/Documents/transcription` on the laptop: never email them, and
+never commit them (both are gitignored).
 
 ## The steps
 
 `<C>` is the recording, `<A>` the pass-1 annotator, `<B>` the pass-2 annotator
 (never the same person). `$BOX` is the Box Drive folder
-`Audio and Labeling` on your laptop (on a Mac,
-`~/Library/CloudStorage/Box-Box/Audio and Labeling`). `$HOST` is the
+`Audio_and_Labeling` on your laptop (on a Mac,
+`Users/[username]/Library/CloudStorage/Box-Box/Audio_and_Labeling`). `$HOST` is the
 processing host's ssh name. Commands marked *host* run on the processing
 host in `~/projects/multidata-local` with the `md-speech` environment active;
 commands marked *laptop* run where Box Drive is.
@@ -95,6 +96,10 @@ renamed `<C>.pass2.eaf`, and writes kit.json and a pass-2 README. A's kit is
 left untouched. It adds B's pass-2 row (and marks A's pass 1 returned, if
 step 4 was skipped). Send it as in step 2, to `"$BOX/<B's folder>/<C>/"`.
 
+If you fix A's pass 1 after the pass-2 kit is built, rebuild it with
+`--overwrite`. This replaces B's kit on the host, so do it before B starts,
+and send the new kit. It refuses once pass 2 is returned or gold.
+
 For a **blind** recording you may also give B the pipeline's machine transcript
 (`data/elan/<C>/`), to point at places worth re-listening. For a **seeded**
 recording, don't: it comes from the seed's engine, so it adds no independent
@@ -154,6 +159,18 @@ now. The excerpt window, if any, is read from the `.gold.json`. Commit
 
 When a recording is finished, tidy its Box folders away (a `complete/` folder is
 fine).
+
+## Syncing all kits with the laptop (laptop)
+
+```bash
+# host -> laptop
+rsync -av --update $USER@$HOST:projects/multidata-local/annotation/kits/ ~/Documents/transcription/
+# laptop -> host
+rsync -av --update ~/Documents/transcription/ $USER@$HOST:projects/multidata-local/annotation/kits/
+```
+
+Add `-n` first to see what would change. Use `--update` to stop an older
+copy overwriting a newer one.
 
 ## The assignments table
 
