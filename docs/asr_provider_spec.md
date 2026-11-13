@@ -54,22 +54,18 @@ Fields per provider:
 | `no_train_flag` | how to assert zero-retention / no-training on each request |
 | `cost_per_minute` | non-trivial at 300–400 videos |
 
-### Capability matrix — **unverified, needs a docs pass**
+### Capability matrix — checked 2026-11-13
 
-> ⚠️ **Do not build against this table.** It was written from knowledge current
-> to roughly January 2026; AssemblyAI Universal-3 Pro and ElevenLabs Scribe v2
-> are at or past that horizon, and every vendor here ships changes faster than
-> this file gets edited. Verify each row against live documentation and record
-> the date you checked it. Treated as fact, this table will silently corrupt the
-> benchmark.
+`providers.yaml` is the authority, with sources and contradictions in each
+row's notes; this is the summary.
 
-| Provider | Diarizes | Word timings | Glossary mechanism | Keeps fillers | Notes to verify |
+| Provider | Diarizes | Word timings | Glossary mechanism | Keeps fillers | Watch for |
 |---|---|---|---|---|---|
 | `faster_whisper` (local) | no — pyannote merged | yes | `initial_prompt` (lossy — prose, not terms) | inconsistently | baseline; fully pinned |
 | `whisperx` (local) | yes (pyannote) | yes (wav2vec2 forced alignment) | `initial_prompt` | inconsistently | best local word timing |
-| `google` | model-dependent | yes | `phrase_set` + boost | largely **no** | Chirp variants differ on diarization *and* adaptation; >1 min needs GCS |
-| `assemblyai` | yes (`speaker_labels`) | yes | `word_boost` / keyterms prompt | **yes** (`disfluencies`) | Universal-3 Pro + Medical Mode unconfirmed |
-| `elevenlabs` | yes (`diarize`) | yes | possibly none | partially | emits audio-event tags natively — see §6 bracket rule |
+| `google` (`chirp_3`) | yes, batch | yes, but caps a batch request at 20 min | `phrase_set` (up to 1,000) | largely **no** | GCS staging; long audio is chunked, and speaker labels don't link across chunks |
+| `assemblyai` | yes (`speaker_labels`) | yes | `keyterms_prompt` (1,000 on universal-3-5-pro) | **yes** (`disfluencies`) — docs disagree for universal-3-5-pro | no retention flag; the adapter deletes after download |
+| `elevenlabs` | yes (`diarize`) | yes | `keyterms` (1,000) | yes unless `no_verbatim` | zero retention (`enable_logging=false`) is enterprise-only; audio-event tags (§6 bracket rule) |
 
 The **"keeps fillers"** column is the one with teeth: it drives which scoring
 profile a provider can be fairly compared on (§6).
@@ -345,7 +341,7 @@ carries forward is the interlock and `baa_available` as a selection criterion.
 
 Before any of this is built:
 
-- [ ] Verify every row of §2's capability matrix against live vendor docs; record check dates
+- [x] Verify every row of §2's capability matrix against live vendor docs; record check dates (2026-11-13)
 - [ ] Confirm AssemblyAI Universal-3 Pro + Medical Mode availability and params
 - [ ] Confirm ElevenLabs Scribe v2 — diarization, word timings, any keyterm mechanism
 - [ ] Confirm which Google STT v2 / Chirp variants support diarization *and* adaptation together

@@ -58,9 +58,11 @@ vendor, a key, or a gold file.
       Phase 3.3) with a starting config — this item is about actually running
       the sweep against real audio and picking a winner, not building the
       engine.
-- [ ] **0.4 Verify the capability matrix** against live vendor docs; record the
+- [x] **0.4 Verify the capability matrix** against live vendor docs; record the
       check date per row. *Gates Phase 4 only.*
-      *Done when:* spec §2's ⚠️ can be removed.
+      *Done 2026-11-13* for google, assemblyai and elevenlabs (`providers.yaml`).
+      Where the vendors' own pages contradict each other, the row's notes say
+      so; Google's pricing page didn't load, so its cost wasn't rechecked.
 - [x] **0.5 IRB position** on third-party processing of learner/preceptor voice
       — **cleared 2026-09-10**: inference with online vendors is approved.
       Does not cover *storing* the corpus with a third party, which is settled
@@ -211,7 +213,12 @@ The shared layer, end to end, at zero marginal cost.
 > No ordering violation — it's provider-independent, same reasoning as
 > Phase 0's parallelism.
 
-- [ ] **3.1 Adapter contract** — the minimal protocol a provider implements.
+- [x] **3.1 Adapter contract** — the minimal protocol a provider implements.
+      *Done 2026-11-13:* `multidata.transcribers` — a `Transcriber` with a
+      `Params` dataclass, `call()` and `normalize()`, returning a
+      `Transcription` (native response, normalized record, resolved params).
+      Built once there were four implementations to generalize from, as below
+      advised. The original note:
       Resist a base class until there are three implementations to generalize
       from. **Deliberately still not built**: today's `whisperx_disfluent`
       addition used the existing sibling-function pattern
@@ -219,8 +226,11 @@ The shared layer, end to end, at zero marginal cost.
       rather than introducing a protocol, per this exact "resist a base class"
       note. Revisit once a cloud adapter (Phase 4) needs shape enforcement
       that four sibling functions can no longer provide informally.
-- [ ] **3.2 Port `faster_whisper` onto it** — blocked on 3.1 (no adapter
-      contract to port onto yet). **Not the same as** the device-portability
+- [x] **3.2 Port `faster_whisper` onto it** — done by wrapping rather than
+      moving: `transcribers.whisper.WhisperTranscriber` runs any `asr.ENGINES`
+      entry through `asr.transcribe`, taking its parameters from the engine
+      function's signature. `run_stage.py` still calls `asr.transcribe`
+      directly. The original note: **Not the same as** the device-portability
       change already made to `transcribe_faster_whisper` (now routes through
       `device.best_ct2_device`/`best_ct2_compute_type` instead of hardcoding
       cpu/int8) — that change needed no contract, it's still the same
@@ -250,9 +260,14 @@ The shared layer, end to end, at zero marginal cost.
 Gated on 0.4 (matrix verified) and 0.6 (keys). Everything new here is
 cloud-specific.
 
-- [ ] **4.1 Credentials** from `.env`; never in configs or the manifest.
-- [ ] **4.2 `cloud_release` enforcement** in the adapter path.
-- [ ] **4.3 Google STT v2 adapter** — request construction, data logging
+- [x] **4.1 Credentials** from `.env`; never in configs or the manifest.
+      (`ELEVENLABS_API_KEY`, `ASSEMBLYAI_API_KEY`, `GOOGLE_CLOUD_PROJECT`,
+      `GOOGLE_STT_BUCKET`, plus Google application-default credentials.)
+- [x] **4.2 `cloud_release` enforcement** in the adapter path.
+      `CloudTranscriber.preflight` refuses before the audio is located;
+      `test_transcribers.py::TestInterlock` checks that for every cloud engine.
+- [ ] **4.3 Google STT v2 adapter** — *written, not yet run against the live
+      API* (`transcribers/google.py`); `run_stage.py` isn't wired to it. — request construction, data logging
       off (the no-train condition), GCS staging for audio over the sync
       limit, raw response persisted, normalization to the §4 record. Confirm
       which Chirp variants allow diarization and adaptation together before
@@ -322,15 +337,20 @@ Blocked on Phases 1, 2, and 5. First real numbers.
 
 ## Phase 7 — Remaining providers, then the bake-off
 
-- [ ] **7.1 AssemblyAI** — `disfluencies` switch: the most informative
+- [ ] **7.1 AssemblyAI** — *adapter written, not yet run live*
+      (`transcribers/assemblyai.py`) — `disfluencies` switch: the most informative
       comparison under the keep-disfluencies standard.
 - [ ] **7.2 Google Medical Conversation** — registry entry
       `google_medical_conversation`; filters disfluencies aggressively, so
       score it on the clean profile only.
-- [ ] **7.3 ElevenLabs Scribe v2** — likely `glossary_mechanism: none`; the real
-      test of whether lossiness reporting is honest.
+- [ ] **7.3 ElevenLabs Scribe** — *adapter written, not yet run live*
+      (`transcribers/elevenlabs.py`; default `scribe_v3`). It does have a
+      glossary mechanism after all (`keyterms`, up to 1000).
 - [ ] **7.4 Long-audio handling** — if any adapter chunks, it sets
-      `chunked: true` and records boundaries.
+      `chunked: true` and records boundaries. *Google does* (chirp_3 caps
+      word-timestamped batch requests at 20 minutes): 19-minute pieces,
+      offsets kept in the native response, speaker labels not linked across
+      pieces.
 - [ ] **7.5 Headline sweep** — glossary-off, all providers, all gold.
 - [ ] **7.6 Glossary-on sweep.**
 - [ ] **7.7 Selection report** — WER/DER **beside `baa_available` and

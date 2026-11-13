@@ -98,10 +98,9 @@ class TestRealProvidersYaml:
                      if entry.get("verified") and not entry.get("checked_on")]
         assert unstamped == []
 
-    def test_at_least_one_cloud_row_is_unverified(self):
-        # Loose on purpose: today every cloud row is a draft (Phase 0.4 is
-        # unstarted), but this only needs to hold until the *last* one gets
-        # checked -- unlike the exact-match version this replaced, verifying
-        # one more provider can never break it.
+    def test_every_cloud_adapter_has_a_verified_row(self):
+        # Plan 0.4: no adapter is built against an unchecked row.
+        from multidata import transcribers
+
         providers = load_providers(REAL_PROVIDERS_YAML)
-        assert unverified(providers)
+        assert set(transcribers.CLOUD).isdisjoint(unverified(providers))

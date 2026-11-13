@@ -124,7 +124,7 @@ class Transcriber:
             "recording_id": recording_id,
             "camera": camera,
             "audio": _repo_relative(audio),
-            "audio_duration_s": meta.get("audio_duration_s"),
+            "audio_duration_s": meta.get("audio_duration_s") or _duration(audio),
             "started_at": started.isoformat(timespec="seconds"),
             "wall_s": wall_s,
             "software": _versions(self.packages),
@@ -178,6 +178,15 @@ def _repo_relative(path):
         return str(Path(path).resolve().relative_to(ROOT))
     except ValueError:
         return str(path)
+
+
+def _duration(audio):
+    try:
+        import soundfile
+
+        return round(soundfile.info(str(audio)).duration, 3)
+    except Exception:
+        return None
 
 
 def _versions(packages):
