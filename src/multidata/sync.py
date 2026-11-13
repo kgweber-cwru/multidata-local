@@ -1,15 +1,15 @@
-"""Stage: sync — put a case's camera files on one clock, for triangulation.
+"""Stage: sync — put a recording's camera files on one clock, for triangulation.
 
 Two facts about the raw files make this necessary (measured 2026-10-29; see
 docs/pipeline.md §9b):
 
-1. **The two files of a case start up to ~1 s apart, by a fixed amount.**
+1. **The two files of a recording start up to ~1 s apart, by a fixed amount.**
    Both carry the same audio feed (see `manifest.ensure_audio_camera`), so
    cross-correlating the audio gives the offset to the sample. Once both
-   cameras are recording they stay together: across 14 cases, no measurable
+   cameras are recording they stay together: across 14 recordings, no measurable
    drift over 10-60 minutes.
 2. **Files drop video frames**, usually one or two per recording, but camera
-   16 in room 11 lost ~229 s in 324 gaps on case 261456. Pose files are
+   16 in room 11 lost ~229 s in 324 gaps on recording 261456. Pose files are
    indexed by frame number, so frame number is not time. Each frame's real
    time is its presentation timestamp in the file, which `frame_times()`
    reads.
@@ -18,7 +18,7 @@ Together: a frame `i` of camera `c` happened at reference time
 
     frame_time_s[i] + sync_offset_s[c]
 
-on the clock of the case's reference camera (`cases.audio_camera`, whose own
+on the clock of the recording's reference camera (`recordings.audio_camera`, whose own
 offset is 0). `reference_times()` does that sum. For pose, use
 `pose_reference_times()`: pose stores the time of every frame it read
 (`frame_ms`), which stays right where OpenCV skipped frames the file has.
@@ -27,14 +27,14 @@ Outputs:
   - `videos.sync_offset_s`   seconds to add to this file's own time to get
                              reference time. NULL until measured.
   - `videos.sync_agreement`  fraction of audio windows agreeing with that
-                             offset (1.0 on a clean case). The offset is only
+                             offset (1.0 on a clean recording). The offset is only
                              written when it's high enough (MIN_AGREEMENT).
-  - `data/sync/<case_id>/<camera>.npz` with `frame_time_s` (one per decoded
+  - `data/sync/<recording_id>/<camera>.npz` with `frame_time_s` (one per decoded
     frame, in order: entry i is pose frame i).
 
 Measurement: GCC-PHAT on WINDOW_S-second windows every STEP_S seconds. Each
 confident window gives one lag. The offset is the median, and windows count as
-agreeing when within AGREE_TOL_S of it. A case whose audio has gaps (room 11)
+agreeing when within AGREE_TOL_S of it. A recording whose audio has gaps (room 11)
 gives scattered lags and fails, so a bad offset is never written.
 
 numpy + stdlib only (wav via `wave`); `ffmpeg`/`ffprobe` found by `tools.which`, as in
@@ -197,7 +197,7 @@ def snap_to_pts(decoder_times, pts):
 
 
 def reference_times(frame_time_s, sync_offset_s, n_frames=None):
-    """Per-frame times on the case's reference clock.
+    """Per-frame times on the recording's reference clock.
 
     Pass `n_frames` (e.g. a pose entry's T) to check that the frame-indexed
     data lines up with the file's frames: a mismatch means frame i of that

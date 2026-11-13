@@ -14,7 +14,7 @@ import pytest
 
 from multidata import learningspace as ls
 from multidata import manifest
-from multidata.models import Case
+from multidata.models import Recording
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -61,14 +61,14 @@ class FakeClient:
     def cases(self): return self.data["cases"]
     def events(self, activity_id): return self.data["events"]
     def students_named(self, name): return self.data["students"]
-    def recordings(self, event_id, case_id, student_id): return self.data["recordings"]
+    def recordings(self, event_id, recording_id, student_id): return self.data["recordings"]
     def video_files(self, rid): return self.data["files"].get(rid, [])
     def responses(self, a, c, l): return self.data["responses"]
 
 
-def case_row(**over):
-    row = {"case_id": "900001", "event_name": " CSE 9Z Station (2026) ",
-           "case_name": "CSE 9Z Case 1 Cough (2026)", "room_number": "11",
+def recording_row(**over):
+    row = {"recording_id": "900001", "activity_title": " CSE 9Z Station (2026) ",
+           "case_title": "CSE 9Z Case 1 Cough (2026)", "room_number": "11",
            "learner_name": "Pat Example", "preceptor_name": "",
            "recording_start_time": "2026-02-26T16:22:00"}
     row.update(over)
@@ -76,9 +76,9 @@ def case_row(**over):
 
 
 def video_rows():
-    return [{"camera": "16", "recording_id": "v309407", "video_date": "2026-02-26",
+    return [{"camera": "16", "file_number": "v309407", "video_date": "2026-02-26",
              "video_time": "16:22:04", "filepath": "", "duration_s": 1208.6},
-            {"camera": "31", "recording_id": "v309408", "video_date": "2026-02-26",
+            {"camera": "31", "file_number": "v309408", "video_date": "2026-02-26",
              "video_time": "16:22:04", "filepath": "data/raw/900001/20260226-162204-v309408-31.mp4",
              "duration_s": 1208.5}]
 
@@ -261,11 +261,11 @@ class TestHelpers:
 
 class TestResolve:
     def test_full_link(self):
-        r = ls.resolve(case_row(), video_rows(), FakeClient())
+        r = ls.resolve(recording_row(), video_rows(), FakeClient())
         assert r.ok and r.linked and not r.problems and not r.warnings
-        assert r.case_fields == {
-            "ls_activity_id": "act1", "ls_case_guid": "scen1", "ls_learner_id": "stu1",
-            "ls_recording_guid": "rec1", "ls_event_id": "77", "ls_room_id": "room-guid-1",
+        assert r.recording_fields == {
+            "ls_activity_id": "act1", "ls_case_id": "scen1", "ls_learner_id": "stu1",
+            "ls_recording_id": "rec1", "ls_event_id": "77", "ls_room_id": "room-guid-1",
             "recording_start_utc": "2026-02-26T21:22:04Z", "preceptor_name": "Dr Observer"}
         assert r.video_fields["16"] == {"ls_file_id": "f16", "ls_server": "LS-1", "size_bytes": 80,
                                         "download_url": "https://ls.example/dl/a.mp4"}
@@ -273,32 +273,32 @@ class TestResolve:
         assert r.room == ("room-guid-1", "11")
 
     def test_only_observer_scores_kept(self):
-        r = ls.resolve(case_row(), video_rows(), FakeClient())
+        r = ls.resolve(recording_row(), video_rows(), FakeClient())
         assert {s["case_part"] for s in r.scores} == {"Faculty Observation and Narrative"}
 
     def test_extra_ls_file_reported(self):
-        r = ls.resolve(case_row(), video_rows()[:1], FakeClient())
+        r = ls.resolve(recording_row(), video_rows()[:1], FakeClient())
         assert r.ok and r.extra_files == [FILES[1]["Filename"]]
 
     def test_our_file_missing_from_recording_blocks(self):
         vids = video_rows()
-        vids[0]["recording_id"] = "v999999"
-        r = ls.resolve(case_row(), vids, FakeClient())
+        vids[0]["file_number"] = "v999999"
+        r = ls.resolve(recording_row(), vids, FakeClient())
         assert not r.ok and "camera 16" in r.problems[0]
 
     def test_no_event_gives_partial_link(self):
-        r = ls.resolve(case_row(), video_rows(), FakeClient(events=[]))
+        r = ls.resolve(recording_row(), video_rows(), FakeClient(events=[]))
         assert r.ok and not r.linked
-        assert set(r.case_fields) == {"ls_activity_id", "ls_case_guid", "ls_learner_id",
+        assert set(r.recording_fields) == {"ls_activity_id", "ls_case_id", "ls_learner_id",
                                       "preceptor_name"}
         assert not r.video_fields and "scheduled event" in r.warnings[0]
 
     def test_twin_recordings_resolved_by_filename(self):
         twin = dict(REC, ID="rec0")
         other = [dict(f, Filename="x" + f["Filename"]) for f in FILES]
-        r = ls.resolve(case_row(), video_rows(),
+        r = ls.resolve(recording_row(), video_rows(),
                        FakeClient(recordings=[twin, REC], files={"rec0": other, "rec1": FILES}))
-        assert r.linked and r.case_fields["ls_recording_guid"] == "rec1"
+        assert r.linked and r.recording_fields["ls_recording_id"] == "rec1"
 
     @pytest.mark.parametrize("over, msg", [
         ({"students": []}, "learner: 0"),
@@ -308,23 +308,23 @@ class TestResolve:
         ({"cases": [SCEN, dict(SCEN, ID="scen2")]}, "case: 2"),
     ])
     def test_unmatched_identity_blocks(self, over, msg):
-        r = ls.resolve(case_row(), video_rows(), FakeClient(**over))
+        r = ls.resolve(recording_row(), video_rows(), FakeClient(**over))
         assert not r.ok and len(r.problems) == 1 and r.problems[0].startswith(msg)
 
     def test_length_mismatch_is_a_warning(self):
         vids = video_rows()
         vids[0]["duration_s"] = 1100
-        r = ls.resolve(case_row(), vids, FakeClient())
+        r = ls.resolve(recording_row(), vids, FakeClient())
         assert r.ok and any("length" in w for w in r.warnings)
 
     def test_two_observers_leave_preceptor_unset(self):
         resp = [response(), response(submitter="Dr Second", submit="s9")]
-        r = ls.resolve(case_row(), video_rows(), FakeClient(responses=resp))
-        assert "preceptor_name" not in r.case_fields and "2 different observers" in r.warnings[0]
+        r = ls.resolve(recording_row(), video_rows(), FakeClient(responses=resp))
+        assert "preceptor_name" not in r.recording_fields and "2 different observers" in r.warnings[0]
 
     def test_no_recording_near_start(self):
         late = dict(REC, RecordingDateTime="2026-02-26T23:00:00.000Z")
-        r = ls.resolve(case_row(), video_rows(), FakeClient(recordings=[late]))
+        r = ls.resolve(recording_row(), video_rows(), FakeClient(recordings=[late]))
         assert r.ok and not r.linked
 
 
@@ -332,28 +332,28 @@ class TestResolve:
 
 class TestPlan:
     def test_fills_only_empty(self):
-        res = ls.resolve(case_row(), video_rows(), FakeClient())
-        plan = ls.plan_updates(case_row(ls_room_id="room-guid-1"), video_rows(), res)
-        assert "ls_room_id" not in plan.case_set and plan.conflicts == []
-        assert plan.case_set["preceptor_name"] == "Dr Observer"
+        res = ls.resolve(recording_row(), video_rows(), FakeClient())
+        plan = ls.plan_updates(recording_row(ls_room_id="room-guid-1"), video_rows(), res)
+        assert "ls_room_id" not in plan.recording_set and plan.conflicts == []
+        assert plan.recording_set["preceptor_name"] == "Dr Observer"
 
     def test_conflict_kept_and_reported(self):
-        res = ls.resolve(case_row(), video_rows(), FakeClient())
-        plan = ls.plan_updates(case_row(preceptor_name="Dr Someone"), video_rows(), res)
-        assert "preceptor_name" not in plan.case_set
-        assert plan.conflicts == [("case", "preceptor_name", "Dr Someone", "Dr Observer")]
+        res = ls.resolve(recording_row(), video_rows(), FakeClient())
+        plan = ls.plan_updates(recording_row(preceptor_name="Dr Someone"), video_rows(), res)
+        assert "preceptor_name" not in plan.recording_set
+        assert plan.conflicts == [("recording", "preceptor_name", "Dr Someone", "Dr Observer")]
 
     def test_video_conflict(self):
-        res = ls.resolve(case_row(), video_rows(), FakeClient())
+        res = ls.resolve(recording_row(), video_rows(), FakeClient())
         vids = video_rows()
         vids[0]["ls_file_id"] = "old"
-        plan = ls.plan_updates(case_row(), vids, res)
+        plan = ls.plan_updates(recording_row(), vids, res)
         assert ("camera 16", "ls_file_id", "old", "f16") in plan.conflicts
         assert "ls_file_id" not in plan.video_set["16"]
 
     def test_failed_resolution_plans_nothing(self):
-        res = ls.resolve(case_row(), video_rows(), FakeClient(students=[]))
-        assert ls.plan_updates(case_row(), video_rows(), res).empty
+        res = ls.resolve(recording_row(), video_rows(), FakeClient(students=[]))
+        assert ls.plan_updates(recording_row(), video_rows(), res).empty
 
     def test_describe_masks_names(self):
         assert ls.describe("preceptor_name", "Dr Observer") == "(name)"
@@ -364,14 +364,14 @@ class TestPlan:
 
 def make_db(tmp_path):
     db = tmp_path / "m.sqlite"
-    manifest.add_case(Case(case_id="900001", event_name=ACT["Title"], case_name=SCEN["Patient"],
+    manifest.add_recording(Recording(recording_id="900001", activity_title=ACT["Title"], case_title=SCEN["Patient"],
                            room_number="11", learner_name="Pat Example",
                            recording_start_time="2026-02-26T16:22:00"), db)
-    manifest.add_case(Case(case_id="900002"), db)   # no video: prunable
-    manifest.add_case(Case(case_id="900003"), db)   # no video, but has gold
+    manifest.add_recording(Recording(recording_id="900002"), db)   # no video: prunable
+    manifest.add_recording(Recording(recording_id="900003"), db)   # no video, but has gold
     manifest.record_gold("900003", path=db)
     for v in video_rows():
-        manifest.add_video("900001", v["camera"], db, recording_id=v["recording_id"],
+        manifest.add_video("900001", v["camera"], db, file_number=v["file_number"],
                            video_date=v["video_date"], video_time=v["video_time"],
                            filepath=v["filepath"], duration_s=v["duration_s"])
     return db
@@ -386,32 +386,84 @@ class TestManifest:
         con.close()
         manifest.connect(db).close()
         con = sqlite3.connect(db)
-        ccols = {r[1] for r in con.execute("PRAGMA table_info(cases)")}
+        ccols = {r[1] for r in con.execute("PRAGMA table_info(recordings)")}
         vcols = {r[1] for r in con.execute("PRAGMA table_info(videos)")}
-        assert {"ls_recording_guid", "recording_start_utc", "ls_synced_at"} <= ccols
+        assert {"ls_recording_id", "recording_start_utc", "ls_synced_at"} <= ccols
         assert {"ls_file_id", "size_bytes", "download_url"} <= vcols
-        assert {"case_scores", "ls_rooms"} <= {r[0] for r in con.execute(
+        assert {"recording_scores", "ls_rooms"} <= {r[0] for r in con.execute(
             "SELECT name FROM sqlite_master WHERE type='table'")}
 
-    def test_update_case(self, tmp_path):
+    def test_renames_old_terms_keeping_values(self, tmp_path):
+        """A manifest from before the rename: every table and column under its
+        old name, with data. After connect, same values under new names."""
+        db = tmp_path / "old.sqlite"
+        con = sqlite3.connect(db)
+        con.executescript("""
+            CREATE TABLE cases (case_id TEXT PRIMARY KEY, event_name TEXT, case_name TEXT,
+                group_name TEXT, ls_recording_guid TEXT, ls_case_guid TEXT);
+            CREATE TABLE videos (case_id TEXT REFERENCES cases(case_id), camera TEXT,
+                recording_id TEXT, PRIMARY KEY (case_id, camera));
+            CREATE TABLE video_case_matches (filename TEXT PRIMARY KEY, status TEXT,
+                case_id TEXT, camera TEXT, video_date TEXT, video_time TEXT, matched_at TEXT);
+            CREATE TABLE case_scores (case_id TEXT, case_part TEXT, section TEXT, submit_id TEXT);
+            CREATE TABLE gold (id INTEGER PRIMARY KEY, case_id TEXT REFERENCES cases(case_id));
+            CREATE TABLE stage_runs (id INTEGER PRIMARY KEY, stage TEXT, case_id TEXT,
+                camera TEXT, status TEXT, started_at TEXT, wall_s REAL);
+            CREATE TABLE camera_views (camera TEXT, view_id TEXT, first_case_id TEXT,
+                created_at TEXT, PRIMARY KEY (camera, view_id));
+            CREATE TABLE video_views (case_id TEXT, camera TEXT, view_id TEXT, seconds REAL,
+                stretches INTEGER);
+            CREATE TABLE speaker_prosody (case_id TEXT, camera TEXT, speaker TEXT);
+            INSERT INTO cases VALUES ('261505', 'Act', 'Scenario', 'Group', 'g-rec', 'g-case');
+            INSERT INTO videos VALUES ('261505', '16', 'v309407');
+            INSERT INTO video_case_matches VALUES ('f.mp4', 'matched', '261505', '16', 'd', 't', 'm');
+            INSERT INTO case_scores VALUES ('261505', 'Faculty Observation', 'S', 's1');
+            INSERT INTO gold VALUES (1, '261505');
+            INSERT INTO stage_runs VALUES (1, 'asr', '261505', '16', 'done', 'x', 1.0);
+            INSERT INTO camera_views VALUES ('16', 'v1', '261505', 'x');
+            INSERT INTO video_views VALUES ('261505', '16', 'v1', 1.0, 1);
+            INSERT INTO speaker_prosody VALUES ('261505', '16', 'SPEAKER_00');
+        """)
+        con.close()
+        manifest.connect(db).close()
+        manifest.connect(db).close()   # idempotent
+        con = sqlite3.connect(db)
+        con.row_factory = sqlite3.Row
+        tables = {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        assert not {"cases", "video_case_matches", "case_scores"} & tables
+        r = dict(con.execute("SELECT * FROM recordings").fetchone())
+        assert (r["recording_id"], r["activity_title"], r["case_title"], r["learner_group"],
+                r["ls_recording_id"], r["ls_case_id"]) == \
+            ("261505", "Act", "Scenario", "Group", "g-rec", "g-case")
+        v = dict(con.execute("SELECT * FROM videos").fetchone())
+        assert (v["recording_id"], v["file_number"]) == ("261505", "v309407")
+        for table in ("file_matches", "recording_scores", "gold", "stage_runs",
+                      "video_views", "speaker_prosody"):
+            assert con.execute(f"SELECT recording_id FROM {table}").fetchone()[0] == "261505"
+        assert con.execute("SELECT first_recording_id FROM camera_views").fetchone()[0] == "261505"
+        # foreign keys follow the renamed table
+        assert "recordings" in con.execute(
+            "SELECT sql FROM sqlite_master WHERE name='videos'").fetchone()[0]
+
+    def test_update_recording(self, tmp_path):
         db = make_db(tmp_path)
-        manifest.update_case("900001", db, ls_recording_guid="rec1")
-        assert manifest.get_case("900001", db).ls_recording_guid == "rec1"
+        manifest.update_recording("900001", db, ls_recording_id="rec1")
+        assert manifest.get_recording("900001", db).ls_recording_id == "rec1"
 
     def test_update_case_refuses_unknown_columns(self, tmp_path):
         with pytest.raises(ValueError, match="nope"):
-            manifest.update_case("900001", make_db(tmp_path), nope=1)
+            manifest.update_recording("900001", make_db(tmp_path), nope=1)
 
-    def test_update_case_unknown_case(self, tmp_path):
-        with pytest.raises(ValueError, match="no case"):
-            manifest.update_case("nope", make_db(tmp_path), ls_event_id="1")
+    def test_update_recording_unknown(self, tmp_path):
+        with pytest.raises(ValueError, match="no recording"):
+            manifest.update_recording("nope", make_db(tmp_path), ls_event_id="1")
 
     def test_scores_replaced_not_appended(self, tmp_path):
         db = make_db(tmp_path)
         rows = ls.summarize_scores(RESPONSES)
-        manifest.set_case_scores("900001", rows, db)
-        manifest.set_case_scores("900001", rows[:1], db)
-        assert len(manifest.case_scores("900001", db)) == 1
+        manifest.set_recording_scores("900001", rows, db)
+        manifest.set_recording_scores("900001", rows[:1], db)
+        assert len(manifest.recording_scores("900001", db)) == 1
 
     def test_room_conflict_reported_and_kept(self, tmp_path):
         db = make_db(tmp_path)
@@ -422,10 +474,10 @@ class TestManifest:
 
     def test_prune_keeps_videos_and_references(self, tmp_path):
         db = make_db(tmp_path)
-        assert manifest.prune_cases_without_videos(db) == ["900002"]
-        assert len(manifest.all_cases(db)) == 3            # dry run
-        assert manifest.prune_cases_without_videos(db, dry_run=False) == ["900002"]
-        assert {c.case_id for c in manifest.all_cases(db)} == {"900001", "900003"}
+        assert manifest.prune_recordings_without_videos(db) == ["900002"]
+        assert len(manifest.all_recordings(db)) == 3            # dry run
+        assert manifest.prune_recordings_without_videos(db, dry_run=False) == ["900002"]
+        assert {c.recording_id for c in manifest.all_recordings(db)} == {"900001", "900003"}
 
 
 # -- the backfill script ---------------------------------------------------------
@@ -453,19 +505,19 @@ class TestBackfill:
         db, go = run
         code, out = go("--prune")
         assert code == 0 and "1 linked" in out and "would drop 1" in out
-        c = manifest.get_case("900001", db)
-        assert c.ls_recording_guid == "" and c.preceptor_name == ""
-        assert len(manifest.all_cases(db)) == 3
+        c = manifest.get_recording("900001", db)
+        assert c.ls_recording_id == "" and c.preceptor_name == ""
+        assert len(manifest.all_recordings(db)) == 3
 
     def test_apply_writes_everything(self, run):
         db, go = run
         code, out = go("--apply", "--prune")
-        c = manifest.get_case("900001", db)
-        assert (c.ls_recording_guid, c.preceptor_name, c.recording_start_utc) == \
+        c = manifest.get_recording("900001", db)
+        assert (c.ls_recording_id, c.preceptor_name, c.recording_start_utc) == \
             ("rec1", "Dr Observer", "2026-02-26T21:22:04Z")
         assert c.ls_synced_at
         assert manifest.get_video("900001", "16", db).ls_file_id == "f16"
-        assert len(manifest.case_scores("900001", db)) == 1
+        assert len(manifest.recording_scores("900001", db)) == 1
         assert manifest.all_ls_rooms(db) == {"room-guid-1": "11"}
         assert "dropped 1" in out
 
@@ -474,7 +526,7 @@ class TestBackfill:
         go("--apply")
         code, out = go("--apply")
         assert "!" not in out  # no conflicts with our own earlier write
-        assert len(manifest.case_scores("900001", db)) == 1
+        assert len(manifest.recording_scores("900001", db)) == 1
 
     def test_output_never_shows_names(self, run):
         _, go = run
@@ -485,4 +537,4 @@ class TestBackfill:
     def test_unknown_case_refused(self, run):
         _, go = run
         with pytest.raises(SystemExit, match="not in the manifest"):
-            go("--case", "123")
+            go("--recording", "123")

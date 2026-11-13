@@ -71,7 +71,7 @@ def test_view_tables_and_preset_rule(tmp_path):
     manifest.set_video_views("c2", "14", {"v1": (310.0, 2)}, db)   # re-run replaces
     manifest.set_view_label("14", "v1", "exam table", "confirmed", path=db)
     s = {r["view_id"]: r for r in manifest.view_summary(db)}
-    assert s["v1"]["seconds"] == 910.0 and s["v1"]["cases"] == 2 and s["v1"]["is_preset"]
+    assert s["v1"]["seconds"] == 910.0 and s["v1"]["recordings"] == 2 and s["v1"]["is_preset"]
     assert s["v1"]["label"] == "exam table"
     assert not s["v2"]["is_preset"]
     with pytest.raises(KeyError):

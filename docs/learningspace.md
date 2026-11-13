@@ -9,21 +9,30 @@ reporting interface described in
 
 ## Their words and ours
 
-| LearningSpace | Example | In our manifest today |
+Our names follow LearningSpace's (renamed 2026-11-11; the manifest renames
+itself the first time it is opened).
+
+| LearningSpace | Example | Manifest |
 |---|---|---|
-| **Activity** | "CSE 2B Short Station (2026)" | `cases.event_name`; GUID `ls_activity_id` |
-| **Event**: one scheduled session of an activity | "Standard Exam Wednesday", 26 Feb 2026 | GUID `ls_event_id` |
-| **Case**: the scenario | "CSE 2B Case 4 Short Station Wellness (2026)" | `cases.case_name`; GUID `ls_case_guid` |
-| **Video recording**: one learner, one case, one room | front-end number 261505; GUID `32693b92…` | a `cases` row: `case_id` is the front-end number, `ls_recording_guid` the GUID |
-| **Video file**: one camera's file of a recording | `20260226-162204-v309407-16.mp4` | a `videos` row; `ls_file_id` |
-| **Room** | GUID only in the API | `cases.room_number`; `ls_rooms` maps GUID to number |
+| **Activity**: an exam series | "CSE 2B Short Station (2026)" | `recordings.activity_title`; GUID `ls_activity_id` |
+| **Event**: one scheduled session of an activity | "Standard Exam Wednesday", 26 Feb 2026 | `ls_event_id` |
+| **Case**: the scenario | "CSE 2B Case 4 Short Station Wellness (2026)" | `recordings.case_title`; GUID `ls_case_id` |
+| **Video recording**: one learner, one case, one room | 261505; GUID `32693b92…` | a `recordings` row: `recording_id` is the export's number, `ls_recording_id` the GUID |
+| **Video file**: one camera's file of a recording | `20260226-162204-v309407-16.mp4` | a `videos` row: `file_number` (`v309407`), `ls_file_id` |
+| **Room** | GUID only in the API | `recordings.room_number`; `ls_rooms` maps GUID to number |
+| **Learner group** | "CWRU SoM Class of 2028" | `recordings.learner_group` |
 | **Student / learner** | | `learner_name`; `ls_learner_id` |
 | **Observer**: the faculty member who submits the observation checklist | | `preceptor_name` (the observer *is* the preceptor) |
 
-The six-digit number we call `case_id` is the front end's identifier for a
-video recording. The API never returns it; the API identifies a recording by
-its GUID. So intake needs both: the export for the number, the API for the
-rest. Both are stored, side by side, in the same row.
+`recording_id`, the six-digit number on every folder, kit and gold file, is
+the front end's identifier for a video recording. The API never returns it;
+the API identifies a recording by its GUID. So intake needs both: the export
+for the number, the API for the rest. Both are stored side by side. If the
+export ever goes away, the GUID can become the key without breaking a link.
+
+Files written before the rename still say `case_id` (kit.json, `.gold.json`,
+older ledgers); readers accept either (`models.upgrade_keys`). The fixed
+kit media path `/srv/multidata/case/<id>` is inside existing kits and stays.
 
 ## How a recording is linked
 
@@ -40,8 +49,8 @@ rest. Both are stored, side by side, in the same row.
    its own files);
 5. the recording's files, matched to our `videos` rows **by filename**;
 6. the learner's responses for the case: only the faculty-observation part
-   is kept, as points per section and submission in `case_scores`. Its
-   submitter is the preceptor.
+   is kept, as points per section and submission in `recording_scores`.
+   Its submitter is the preceptor.
 
 It only fills empty fields. A different existing value is a conflict: it is
 printed and left alone. The run is a dry run unless `--apply` is given.
@@ -57,7 +66,7 @@ but no recording GUID or file links.
 sqlite3 manifest.sqlite ".backup data/backups/manifest_$(date +%F).sqlite"
 python scripts/ls_backfill.py                 # dry run, every recording with video
 python scripts/ls_backfill.py --apply         # write
-python scripts/ls_backfill.py --case 261505   # just one
+python scripts/ls_backfill.py --recording 261505   # just one
 ```
 
 `LS_API_KEY` goes in `.env` (gitignored). The key is generated in

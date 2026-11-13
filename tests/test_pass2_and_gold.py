@@ -17,15 +17,15 @@ from test_submit_checks import eaf  # noqa: E402
 import make_pass2_kit  # noqa: E402
 
 
-def pass1_kit(kits, case="999", who="ann", text="hello there"):
-    kit = kits / case / who
+def pass1_kit(kits, recording="999", who="ann", text="hello there"):
+    kit = kits / recording / who
     (kit / "media").mkdir(parents=True)
     (kit / "media" / "x.wav").write_bytes(b"wav")
-    (kit / f"{case}.pass1.eaf").write_text(eaf([("LEARNER", 0, 1000, text)]))
-    (kit / f"{case}.pass1.pfsx").write_text("prefs")
+    (kit / f"{recording}.pass1.eaf").write_text(eaf([("LEARNER", 0, 1000, text)]))
+    (kit / f"{recording}.pass1.pfsx").write_text("prefs")
     (kit / "README.txt").write_text("blind pass 1")
     (kit / "kit.json").write_text(json.dumps({
-        "case_id": case, "annotator": who, "eaf": f"{case}.pass1.eaf",
+        "recording_id": recording, "annotator": who, "eaf": f"{recording}.pass1.eaf",
         "span_start": None, "span_end": None}))
     return kit
 
@@ -40,7 +40,7 @@ class TestMakePass2Kit:
     def test_builds_kit_and_leaves_pass1_alone(self, tmp_path, monkeypatch):
         src = pass1_kit(tmp_path)
         before = (src / "999.pass1.eaf").read_bytes()
-        run_pass2(monkeypatch, tmp_path, "--case", "999", "--from", "ann", "--to", "rev")
+        run_pass2(monkeypatch, tmp_path, "--recording", "999", "--from", "ann", "--to", "rev")
         dst = tmp_path / "999" / "rev"
         assert (dst / "999.pass2.eaf").read_bytes() == before
         assert not (dst / "999.pass1.eaf").exists()
@@ -56,18 +56,18 @@ class TestMakePass2Kit:
     def test_same_person_refused(self, tmp_path, monkeypatch):
         pass1_kit(tmp_path)
         with pytest.raises(SystemExit):
-            run_pass2(monkeypatch, tmp_path, "--case", "999", "--from", "ann", "--to", "ann")
+            run_pass2(monkeypatch, tmp_path, "--recording", "999", "--from", "ann", "--to", "ann")
 
     def test_existing_pass2_kit_refused(self, tmp_path, monkeypatch):
         pass1_kit(tmp_path)
         (tmp_path / "999" / "rev").mkdir()
         with pytest.raises(SystemExit):
-            run_pass2(monkeypatch, tmp_path, "--case", "999", "--from", "ann", "--to", "rev")
+            run_pass2(monkeypatch, tmp_path, "--recording", "999", "--from", "ann", "--to", "rev")
 
     def test_pass1_failing_checks_refused(self, tmp_path, monkeypatch):
         pass1_kit(tmp_path, text="")
         with pytest.raises(SystemExit):
-            run_pass2(monkeypatch, tmp_path, "--case", "999", "--from", "ann", "--to", "rev")
+            run_pass2(monkeypatch, tmp_path, "--recording", "999", "--from", "ann", "--to", "rev")
         assert not (tmp_path / "999" / "rev").exists()
 
 
@@ -82,13 +82,13 @@ class TestFromPass2Kit:
 
     def _args(self, eaf_to_gold, kit_dir, **kw):
         import argparse
-        base = dict(from_kit=str(kit_dir), replace_gold=False, eaf=None, case=None,
+        base = dict(from_kit=str(kit_dir), replace_gold=False, eaf=None, recording=None,
                     kit=None, annotator="", gold_notes="", span_start=None, span_end=None)
         return argparse.Namespace(**(base | kw))
 
     def _pass2(self, tmp_path, monkeypatch):
         pass1_kit(tmp_path / "kits")
-        run_pass2(monkeypatch, tmp_path / "kits", "--case", "999", "--from", "ann", "--to", "rev")
+        run_pass2(monkeypatch, tmp_path / "kits", "--recording", "999", "--from", "ann", "--to", "rev")
         return tmp_path / "kits" / "999" / "rev"
 
     def test_fills_args_and_copies_to_gold(self, eaf_to_gold, tmp_path, monkeypatch):
@@ -97,7 +97,7 @@ class TestFromPass2Kit:
         eaf_to_gold.from_pass2_kit(args)
         gold = tmp_path / "gold" / "999" / "999.gold.eaf"
         assert gold.read_bytes() == (kit / "999.pass2.eaf").read_bytes()
-        assert args.case == "999" and args.eaf == str(gold)
+        assert args.recording == "999" and args.eaf == str(gold)
         assert args.kit == str(tmp_path / "kits" / "999" / "ann")
         assert args.annotator == "ann" and args.gold_notes == "pass 2: rev"
 
@@ -124,8 +124,8 @@ class TestBenchStatusCurrent:
         import run_benchmark
         (tmp_path / "1.gold.txt").write_text("hello")
         sha = run_benchmark.sha256(tmp_path / "1.gold.txt")
-        ok = {"case_id": "1", "scoring": run_benchmark.SCORING, "gold_sha256": sha}
+        ok = {"recording_id": "1", "scoring": run_benchmark.SCORING, "gold_sha256": sha}
         assert bench_status.is_current(ok, tmp_path)
         assert not bench_status.is_current(ok | {"scoring": ""}, tmp_path)
         assert not bench_status.is_current(ok | {"gold_sha256": "old"}, tmp_path)
-        assert not bench_status.is_current(ok | {"case_id": "2"}, tmp_path)
+        assert not bench_status.is_current(ok | {"recording_id": "2"}, tmp_path)

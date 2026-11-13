@@ -56,7 +56,7 @@ def main():
     ap.add_argument("--top", type=int, default=42)
     args = ap.parse_args()
     db = sqlite3.connect(f"file:{ROOT / 'manifest.sqlite'}?mode=ro", uri=True)
-    vids = db.execute("SELECT camera, filepath FROM videos WHERE case_id=?", (args.case,)).fetchall()
+    vids = db.execute("SELECT camera, filepath FROM videos WHERE recording_id=?", (args.case,)).fetchall()
     out = ROOT / "data" / "demo" / "sheets"
     out.mkdir(parents=True, exist_ok=True)
     for cam, path in vids:

@@ -54,7 +54,7 @@ def redact_names(text, names, threshold=0.78):
 
     `names` — e.g. `{"learner": "Jamie Smith", "patient": "Alex Rivera",
     "preceptor": ""}` — role -> full name, from
-    `manifest.names_for_case()`. A falsy name is skipped (nothing to redact
+    `manifest.names_for_recording()`. A falsy name is skipped (nothing to redact
     for that role).
 
     Matching is per word token: exact case-insensitive match always redacts;
@@ -62,7 +62,7 @@ def redact_names(text, names, threshold=0.78):
     (`difflib.SequenceMatcher`) to any name part meets `threshold` (default
     0.78 -- chosen so a single-letter substitution like "Jamie"/"Jamey" or
     "Smith"/"Smyth", both ratio 0.8, still catches; see `tests/test_redact.py`
-    for the calibration cases). Consecutive redacted tokens collapse into one
+    for the calibration recordings). Consecutive redacted tokens collapse into one
     tag (`"Jamie Smith"` -> one `[LEARNER_NAME]`, not two).
 
     Returns `(redacted_text, substitutions)`, where `substitutions` is a list

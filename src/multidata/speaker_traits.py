@@ -11,7 +11,7 @@ bucket labels as a rough stratification knob, never as a fact recorded about
 a real person.
 
 Runs in **md-speech** (needs `praat-parselmouth`). The `prosody` stage
-(`multidata.prosody`) now computes these figures for every case and labels
+(`multidata.prosody`) now computes these figures for every recording and labels
 each speaker with `pitch_bucket()`.
 """
 

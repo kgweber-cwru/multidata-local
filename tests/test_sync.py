@@ -96,9 +96,9 @@ class TestManifestColumns:
     def test_migration_adds_sync_columns_to_an_old_videos_table(self, tmp_path):
         db = tmp_path / "old.sqlite"
         conn = sqlite3.connect(db)
-        conn.execute("CREATE TABLE videos (case_id TEXT NOT NULL, camera TEXT NOT NULL, "
-                     "pose_status TEXT NOT NULL DEFAULT 'pending', PRIMARY KEY (case_id, camera))")
-        conn.execute("INSERT INTO videos (case_id, camera) VALUES ('1', '15')")
+        conn.execute("CREATE TABLE videos (recording_id TEXT NOT NULL, camera TEXT NOT NULL, "
+                     "pose_status TEXT NOT NULL DEFAULT 'pending', PRIMARY KEY (recording_id, camera))")
+        conn.execute("INSERT INTO videos (recording_id, camera) VALUES ('1', '15')")
         conn.commit(); conn.close()
 
         conn = manifest.connect(db)
@@ -109,7 +109,7 @@ class TestManifestColumns:
     def test_sync_is_a_stage(self, tmp_path):
         db = tmp_path / "m.sqlite"
         conn = manifest.connect(db)
-        conn.execute("INSERT INTO cases (case_id) VALUES ('1')")
+        conn.execute("INSERT INTO recordings (recording_id) VALUES ('1')")
         conn.commit(); conn.close()
         manifest.add_video("1", "15", path=db)
         assert [r["camera"] for r in manifest.pending("sync", db)] == ["15"]

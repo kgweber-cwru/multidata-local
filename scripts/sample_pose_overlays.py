@@ -14,7 +14,7 @@ front); one video is picked at random from each. `pose.render_overlay()`
 draws directly from the already-extracted keypoints -- no detector/pose
 network re-run.
 
-Output: `data/pose_overlays/sample/<bucket>_<case_id>_<camera>.mp4`.
+Output: `data/pose_overlays/sample/<bucket>_<recording_id>_<camera>.mp4`.
 
 Not a manifest-driven stage (no status column, nothing resumable) -- this is
 a one-off inspection tool, unlike run_stage.py.
@@ -44,7 +44,7 @@ def _candidates(manifest_path):
         if v.pose_status != "done" or not v.duration_s:
             continue
         for suffix in (".npz", ".pkl"):
-            path = DATA_DIR / "pose" / v.case_id / f"{v.camera}{suffix}"
+            path = DATA_DIR / "pose" / v.recording_id / f"{v.camera}{suffix}"
             if path.exists():
                 candidates.append((v, path))
                 break
@@ -103,9 +103,9 @@ def main():
 
     for bucket, (video, pose_path) in picks.items():
         video_path = ROOT / video.filepath
-        out_path = out_dir / f"{bucket}_{video.case_id}_{video.camera}.mp4"
+        out_path = out_dir / f"{bucket}_{video.recording_id}_{video.camera}.mp4"
         log.info("%-6s %5.0fs  %s/%s  ->  %s",
-                 bucket, video.duration_s, video.case_id, video.camera, out_path)
+                 bucket, video.duration_s, video.recording_id, video.camera, out_path)
         entry = pose.load(pose_path)
         pose.render_overlay(video_path, entry, out_path, **render_kwargs)
 

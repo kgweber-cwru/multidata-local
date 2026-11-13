@@ -26,7 +26,7 @@ you want to change one, change it here first.
 | 5 | Scoring is **dual-report**: L0 verbatim and L1 filler-neutral (§6). |
 | 6 | The **glossary is a swept axis**, not a fixed control. Headline cross-provider numbers run glossary-off (§3). |
 | 7 | Testing writes under `benchmarks/runs/<run_id>/`; the default pipeline writes under `data/`. **Same layout, swapped root** (§7). |
-| 8 | `cases.cloud_release` is a **safety interlock**, default false. No audio leaves this machine for a row that hasn't got it (§9). |
+| 8 | `recordings.cloud_release` is a **safety interlock**, default false. No audio leaves this machine for a row that hasn't got it (§9). |
 | 9 | **BAA availability is a selection criterion**, reported beside WER. A provider you can't deploy shouldn't win. |
 
 ---
@@ -165,7 +165,7 @@ words *or* speaker assignment, and you can't tell which.
 So: **`--diarizer {provider,pyannote}`**. The pyannote arm discards provider
 speaker labels and merges the cached RTTM through the existing
 `asr._diarize_and_merge` path. Free at inference — the RTTM is already cached per
-case (pipeline doc §6).
+recording (pipeline doc §6).
 
 Provenance carries `diarizer` as a **column distinct from `engine`**, so
 "universal + own diarizer" and "universal + pyannote@version" are never confused.
@@ -227,13 +227,13 @@ Same relative layout, swapped root — one writer, one `--out-root` flag. That's
 what makes every tool usable from both paths without special-casing.
 
 ```
-data/transcripts/<case_id>/<camera>_<engine>_<model>.json    # default pipeline
-data/transcripts/<case_id>/<camera>_<engine>_<model>.raw.json
+data/transcripts/<recording_id>/<camera>_<engine>_<model>.json    # default pipeline
+data/transcripts/<recording_id>/<camera>_<engine>_<model>.raw.json
 
 benchmarks/runs/<run_id>/                                    # testing
 ├── config.resolved.yaml     # every param actually sent, post-defaults
-├── <case_id>.json           # normalized record
-├── <case_id>.raw.json       # verbatim provider response
+├── <recording_id>.json           # normalized record
+├── <recording_id>.raw.json       # verbatim provider response
 └── scores.json
 ```
 
@@ -264,7 +264,7 @@ exact config is noise (pipeline doc §8d). Beyond the existing columns:
 | `gold_sha256` (built) | hash of the reference actually used — gold gets revised, and a re-export silently invalidates old numbers |
 | `wer` / `wer_l1` (built) | dual report (§6) |
 | `cost_usd` | non-trivial at corpus scale |
-| `cloud_release_basis` | why this case was eligible (§9) |
+| `cloud_release_basis` | why this recording was eligible (§9) |
 
 Local engines are pinned and reproducible. Cloud providers are **not** — a model
 id is a moving target. `provider_model_returned` is the only defense, and it's
@@ -304,7 +304,7 @@ people**, and two things follow:
 
 ### The interlock
 
-`cases.cloud_release`, defaulting false. Cloud adapters refuse any row without
+`recordings.cloud_release`, defaulting false. Cloud adapters refuse any row without
 it. **The column exists; the refusal does not yet** — no code reads it (see the
 implementation plan's 4.2). Build the check before the first adapter, not after. Today it sorts nothing — the corpus is uniformly simulated encounters. Its
 job is to **already exist**, on the day real clinical data lands, so nothing
@@ -316,8 +316,8 @@ Store the *basis* alongside it, not just a boolean: `simulated_patient`,
 
 ### Names
 
-The redaction map is **in the manifest**: `cases.learner_name`,
-`cases.sp_name` and `cases.preceptor_name` (often empty). No separate `names.csv`.
+The redaction map is **in the manifest**: `recordings.learner_name`,
+`recordings.sp_name` and `recordings.preceptor_name` (often empty). No separate `names.csv`.
 `manifest.sqlite` is gitignored, which is correct — it holds names.
 
 Redaction is applied to **both** reference and hypothesis before scoring, so the
@@ -352,4 +352,4 @@ Before any of this is built:
 - [ ] Confirm BAA availability and no-train flags per vendor — Google is already covered by the institution's enterprise BAA; the others are not
 - [ ] Confirm long-audio limits — our encounters exceed several sync limits
 - [x] Get IRB position on third-party processing of learner/preceptor voice — **cleared 2026-09-10** for inference with online vendors
-- [x] Add `cases.cloud_release`, `cases.cloud_release_basis`, `cases.preceptor_name` — columns added; enforcement still outstanding (plan 4.2)
+- [x] Add `recordings.cloud_release`, `recordings.cloud_release_basis`, `recordings.preceptor_name` — columns added; enforcement still outstanding (plan 4.2)

@@ -3,7 +3,7 @@ manifest to LearningSpace's own records (docs/learningspace.md).
 
     from multidata import learningspace as ls
     client = ls.Client.from_env()           # LS_API_KEY from .env
-    result = ls.resolve(case, videos, client)
+    result = ls.resolve(recording, videos, client)
 
 The API is read-only reporting ("views"): every endpoint is a GET returning
 `{success, total, offset, limit, data: [...]}`. Columns can be filtered by
@@ -12,15 +12,15 @@ name (`?UserName=...`, substring match). Authentication is a JWT from
 
 How one of our recordings is found (every step is one GET, cached):
 
-  activity  by title        <- our cases.event_name
-  case      by title        <- our cases.case_name (LS puts the title in `Patient`)
-  learner   by name         <- our cases.learner_name
-  event     by local date   <- our cases.recording_start_time
+  activity  by title        <- our recordings.activity_title
+  case      by title        <- our recordings.case_title (LS puts the title in `Patient`)
+  learner   by name         <- our recordings.learner_name
+  event     by local date   <- our recordings.recording_start_time
   recording for (event, case, learner), nearest the start minute
   files     for the recording -> filenames, matched to our videos rows
 
-The recording's GUID is LearningSpace's identity for what we call a case;
-the six-digit number we use comes only from the front end's export.
+The recording's GUID is LearningSpace's identity for it; the six-digit
+`recording_id` we use comes only from the front end's export.
 
 Be gentle with the server: requests are paced (`pace` seconds apart) and
 every response is cached on disk, so a dry run followed by `--apply` costs
@@ -157,8 +157,8 @@ class Client:
         return self.get_all(f"/api/data/v1/student-video-recordings/event/{event_id}"
                             f"/case/{case_id}/student/{student_id}")
 
-    def video_files(self, recording_id):
-        return self.get_all(f"/api/data/v1/video-files/video-recording/{recording_id}")
+    def video_files(self, recording_guid):
+        return self.get_all(f"/api/data/v1/video-files/video-recording/{recording_guid}")
 
     def responses(self, activity_id, case_id, learner_id):
         return self.get_all(f"/api/data/v1/assessment/activity/{activity_id}"
@@ -261,12 +261,12 @@ def observers(scores):
 
 @dataclass
 class Resolution:
-    case_id: str
-    ok: bool = False          # nothing blocking: case_fields etc. can be written
+    recording_id: str
+    ok: bool = False          # nothing blocking: recording_fields etc. can be written
     linked: bool = False      # the recording itself was found (GUID, files)
     problems: list = field(default_factory=list)       # blocking: nothing is written
     warnings: list = field(default_factory=list)       # reported; the links are still written
-    case_fields: dict = field(default_factory=dict)    # cases columns to set
+    recording_fields: dict = field(default_factory=dict)  # recordings columns to set
     video_fields: dict = field(default_factory=dict)   # camera -> videos columns
     scores: list = field(default_factory=list)
     room: tuple = ()                                    # (room GUID, our room number)
@@ -277,7 +277,7 @@ def _video_filename(v):
     if v.get("filepath"):
         return Path(v["filepath"]).name
     return (f"{v['video_date'].replace('-', '')}-{v['video_time'].replace(':', '')}"
-            f"-{v['recording_id']}-{v['camera']}.mp4")
+            f"-{v['file_number']}-{v['camera']}.mp4")
 
 
 class Lookups:
@@ -306,10 +306,10 @@ class Lookups:
         return self._events[activity_id]
 
 
-def resolve(case, videos, client, lookups=None):
+def resolve(recording, videos, client, lookups=None):
     """Find one manifest recording in LearningSpace.
 
-    `case` is a cases row (mapping); `videos` its videos rows. Returns a
+    `recording` is a recordings row (mapping); `videos` its videos rows. Returns a
     Resolution. Never guesses between candidates.
 
     The activity, case and learner must each match exactly, or nothing is
@@ -319,21 +319,21 @@ def resolve(case, videos, client, lookups=None):
     learner, scores and preceptor but no recording GUID or file links.
     """
     lk = lookups or Lookups(client)
-    res = Resolution(case_id=case["case_id"])
+    res = Resolution(recording_id=recording["recording_id"])
     try:
-        act = find_one(lk.activities, case["event_name"], lambda a: a["Title"], "activity")
-        scen = find_one(lk.cases, case["case_name"], case_title, "case")
-        people = [s for s in client.students_named(case["learner_name"].strip())
-                  if _norm(s["UserName"]) == _norm(case["learner_name"])]
+        act = find_one(lk.activities, recording["activity_title"], lambda a: a["Title"], "activity")
+        scen = find_one(lk.cases, recording["case_title"], case_title, "case")
+        people = [s for s in client.students_named(recording["learner_name"].strip())
+                  if _norm(s["UserName"]) == _norm(recording["learner_name"])]
         if len(people) != 1:
             raise LSError(f"learner: {len(people)} exact name matches")
         learner = people[0]
-        start = parse_local(case["recording_start_time"])
+        start = parse_local(recording["recording_start_time"])
     except (LSError, ValueError) as e:
         res.problems.append(str(e))
         return res
     res.ok = True
-    res.case_fields = {"ls_activity_id": act["ID"], "ls_case_guid": scen["ID"],
+    res.recording_fields = {"ls_activity_id": act["ID"], "ls_case_id": scen["ID"],
                        "ls_learner_id": learner["UserID"]}
 
     ours = {_video_filename(v): v for v in videos}
@@ -354,14 +354,14 @@ def resolve(case, videos, client, lookups=None):
     if rec is not None:
         res.linked = True
         rec_utc = parse_utc(rec["RecordingDateTime"])
-        res.case_fields.update({
-            "ls_recording_guid": rec["ID"],
+        res.recording_fields.update({
+            "ls_recording_id": rec["ID"],
             "ls_event_id": str(rec["EventID"]),
             "ls_room_id": rec.get("RoomID") or "",
             "recording_start_utc": rec_utc.isoformat().replace("+00:00", "Z"),
         })
         if rec.get("RoomID"):
-            res.room = (rec["RoomID"], case["room_number"])
+            res.room = (rec["RoomID"], recording["room_number"])
         by_name = {f["Filename"]: f for f in files}
         for name, v in ours.items():
             f = by_name.get(name)
@@ -385,7 +385,7 @@ def resolve(case, videos, client, lookups=None):
             return res
 
     try:
-        # Only the faculty observer's checklist: the case's grade. The
+        # Only the faculty observer's checklist: the recording's grade. The
         # learner's own quizzes and self-evaluation are left in LearningSpace.
         res.scores = [g for g in summarize_scores(
                           client.responses(act["ID"], scen["ID"], learner["UserID"]))
@@ -394,7 +394,7 @@ def resolve(case, videos, client, lookups=None):
         res.warnings.append(f"scores: {e}")
     obs = observers(res.scores)
     if len(obs) == 1:
-        res.case_fields["preceptor_name"] = obs[0]
+        res.recording_fields["preceptor_name"] = obs[0]
     elif len(obs) > 1:
         res.warnings.append(f"preceptor: {len(obs)} different observers submitted; not set")
     return res
@@ -407,14 +407,14 @@ NAME_FIELDS = {"preceptor_name", "learner_name", "sp_name"}
 
 @dataclass
 class Plan:
-    case_id: str
-    case_set: dict = field(default_factory=dict)       # column -> new value
+    recording_id: str
+    recording_set: dict = field(default_factory=dict)       # column -> new value
     video_set: dict = field(default_factory=dict)      # camera -> {column: value}
     conflicts: list = field(default_factory=list)      # (where, column, ours, theirs)
 
     @property
     def empty(self):
-        return not self.case_set and not any(self.video_set.values())
+        return not self.recording_set and not any(self.video_set.values())
 
 
 def _merge(current, proposed, where, plan_conflicts):
@@ -430,13 +430,13 @@ def _merge(current, proposed, where, plan_conflicts):
     return out
 
 
-def plan_updates(case, videos, res):
+def plan_updates(recording, videos, res):
     """What `res` would change in the manifest: only empty fields are filled;
     a different existing value is a conflict, reported and left alone."""
-    plan = Plan(case_id=case["case_id"])
+    plan = Plan(recording_id=recording["recording_id"])
     if not res.ok:
         return plan
-    plan.case_set = _merge(case, res.case_fields, "case", plan.conflicts)
+    plan.recording_set = _merge(recording, res.recording_fields, "recording", plan.conflicts)
     by_cam = {v["camera"]: v for v in videos}
     for cam, proposed in res.video_fields.items():
         s = _merge(by_cam[cam], proposed, f"camera {cam}", plan.conflicts)

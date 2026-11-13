@@ -15,7 +15,7 @@ are to be a browsable artifact for the production pipeline and the
 comparison document for pass-2 adjudication.
 
 Never write a draft over hand-labelled work: gold lives under
-`data/gold/<case_id>/` with distinct names and is treated as immutable.
+`data/gold/<recording_id>/` with distinct names and is treated as immutable.
 """
 import json
 import logging
@@ -149,7 +149,7 @@ GOLD_RTTM_TIERS = ("LEARNER", "PATIENT", "PRECEPTOR", "ANNOUNCEMENT", "OUTSIDE_R
 def _tier_annotations(eaf, tier):
     """[(start_s, end_s, text)] for one tier, sorted by start, skipping empty
     annotations. [] for a tier absent from this .eaf entirely -- not every
-    case has ANNOUNCEMENT/OUTSIDE_ROOM content, and that's not an error."""
+    recording has ANNOUNCEMENT/OUTSIDE_ROOM content, and that's not an error."""
     if tier not in eaf.get_tier_names():
         return []
     spans = []
@@ -185,7 +185,7 @@ def export_gold(eaf_path, out_txt=None, out_rttm=None, names=None, merge_gap=0.3
     stage you're at, that's a human process decision (standards §9), not
     something an export tool should gatekeep.
 
-    `names`, if given (see `manifest.names_for_case`), redacts the transcript
+    `names`, if given (see `manifest.names_for_recording`), redacts the transcript
     via `multidata.redact.redact_names` before it's returned or written.
     **Pass `names=None` only when you have already decided the output will
     never reach a tracked or shared location** — under the current annotation

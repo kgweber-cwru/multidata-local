@@ -3,7 +3,7 @@
 Turns video of clinical teaching encounters into research data. The
 recordings are simulated sessions: a learner, a simulated patient (an actor) and
 sometimes a preceptor, filmed by two pan/tilt/zoom cameras per exam room
-with one shared microphone feed. From each case the pipeline produces:
+with one shared microphone feed. From each recording the pipeline produces:
 
 - **transcripts** with word timing and who spoke (Whisper + pyannote), and
   ELAN files for annotators;
@@ -18,9 +18,9 @@ hand-made gold transcripts. During the pilot everything runs on one Linux workst
 
 > ⚠️ **Identifiable human-subjects data.** The patient is an actor, but
 > learners and preceptors are real people who say their names, so
-> transcripts and the manifest's `cases` table carry real names. Never print
+> transcripts and the manifest's `recordings` table carry real names. Never print
 > names in shared output, and nothing goes to a third-party ASR service
-> without `cases.cloud_release`, a check that is **not enforced in code
+> without `recordings.cloud_release`, a check that is **not enforced in code
 > yet** ([docs/status.md](docs/status.md)).
 
 ## Where to read next
@@ -32,7 +32,7 @@ hand-made gold transcripts. During the pilot everything runs on one Linux workst
 | understand a stage (inputs, outputs, why) | [docs/pipeline.md](docs/pipeline.md) |
 | use an output file (fields, units, clocks, how to read it) | [docs/data_formats.md](docs/data_formats.md) |
 | run, watch or stop a long job; backups | [docs/operations.md](docs/operations.md) |
-| know what processing costs per case | [docs/cost_estimate.md](docs/cost_estimate.md) |
+| know what processing costs per recording | [docs/cost_estimate.md](docs/cost_estimate.md) |
 | work on pose / 3D | [docs/pose_3d.md](docs/pose_3d.md) |
 | understand how gold is made and engines are scored (methods) | [docs/asr_evaluation_methods.md](docs/asr_evaluation_methods.md) |
 | annotate a gold transcript | [docs/annotator_guide.md](docs/annotator_guide.md), with the rules in [docs/transcription_standards.md](docs/transcription_standards.md) |
@@ -44,11 +44,12 @@ hand-made gold transcripts. During the pilot everything runs on one Linux workst
 
 | Term | Meaning |
 |---|---|
-| **case** | one recorded encounter, from the source system's export; `case_id` is its id |
-| **camera / video** | each case has (usually) two camera files; outputs are keyed `(case_id, camera)` |
-| **manifest** | `manifest.sqlite`: every case and video, and each stage's status per video ([docs/pipeline.md](docs/pipeline.md) §10) |
+| **recording** | one recorded encounter: one learner, one case, one room (LearningSpace's *video recording*). `recording_id` is the six-digit number from LearningSpace's export; `ls_recording_id` is its LearningSpace GUID |
+| **activity / event / case** | LearningSpace's words: an *activity* is an exam series ("CSE 2B Short Station (2026)"), an *event* one scheduled session of it, a *case* the scenario the learner works through ([docs/learningspace.md](docs/learningspace.md)) |
+| **camera / video** | each recording has (usually) two camera files; outputs are keyed `(recording_id, camera)` |
+| **manifest** | `manifest.sqlite`: every recording and video, and each stage's status per video ([docs/pipeline.md](docs/pipeline.md) §10) |
 | **stage** | one processing step (`audio`, `asr`, `pose`, ...), run by `scripts/run_stage.py <stage>` over every video still `pending` for it |
-| **audio camera** | the one camera per case whose file the audio stages use; both carry the same sound |
+| **audio camera** | the one camera per recording whose file the audio stages use; both carry the same sound |
 | **reference clock** | the audio camera's timeline; `sync` gives the other camera's offset from it |
 | **stretch / view / preset** | a stretch is a period a camera holds still; a view is where it's pointing; recurring views are the operators' presets |
 | **slot** | one detected person in one frame of pose output; *not* the same person across frames |
@@ -61,7 +62,7 @@ src/multidata/  the package: one module per stage plus helpers (see its __init__
 scripts/        run_stage.py       run any stage over the manifest
                 ingest_raw.py      register new raw videos
                 review_views.py    contact sheets + spreadsheet to name camera views
-                demo_clip.py       demo video of a case: both cameras, pose, faces blurred
+                demo_clip.py       demo video of a recording: both cameras, pose, faces blurred
                 sample_pose_overlays.py   pose drawn on whole videos, for quality checks
                 test_detect_every.py      does detecting every Nth frame change pose?
                 eaf_to_gold.py     adjudicated pass 2 -> gold reference
@@ -93,7 +94,7 @@ conda activate md-pose && pip install --force-reinstall --no-deps "onnxruntime-g
 for e in md-utility md-speech md-pose; do conda run -n $e pip install -e .; done
 huggingface-cli login                      # pyannote is gated; accept its model terms
 
-# new videos -> processed cases (or follow the walkthrough notebook)
+# new videos -> processed recordings (or follow the walkthrough notebook)
 python scripts/ingest_raw.py --write                                 # md-utility
 conda activate md-speech
 for s in audio asr prosody elan sync; do python scripts/run_stage.py $s; done

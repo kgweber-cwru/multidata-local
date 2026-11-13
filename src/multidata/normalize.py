@@ -23,7 +23,7 @@ Three levels, each a deterministic transform of the one above:
 
 Two transforms are deliberately NOT implemented here yet: **number
 canonicalization** and **name redaction is a separate module** (`redact.py`,
-since it needs case-specific names, not a fixed rule). See the module-level
+since it needs recording-specific names, not a fixed rule). See the module-level
 `NUMBER_CANONICALIZATION_TODO` note below for why numbers are deferred rather
 than guessed at.
 """

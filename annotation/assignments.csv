@@ -1,4 +1,4 @@
-case_id,camera,duration_min,pass,route,annotator,status,assigned_on,returned_on,file,notes
+recording_id,camera,duration_min,pass,route,annotator,status,assigned_on,returned_on,file,notes
 252848,24,64.0,1,blind,kate,returned,,2026-11-05,annotation/kits/252848/kate/252848.pass1.eaf,"Whole encounter since 2026-11-05 (patient encounter added; kit span cleared). Before that an excerpt: 2880.955 s to the end (16 min, the feedback section), made against a redacted copy of that excerpt with times shifted to the full recording; was exported as gold without a pass 2 and moved back to pass 1 2026-10-28."
 261456,16,20.1,1,blind,kate,returned,,2026-08-25,annotation/kits/261456/kate/261456.pass1.eaf,Was exported as gold without a pass 2; moved back to pass 1 2026-10-28.
 261473,23,20.2,1,blind,kate,returned,,2026-08-31,annotation/kits/261473/kate/261473.pass1.eaf,Was exported as gold without a pass 2; moved back to pass 1 2026-10-28.

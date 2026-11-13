@@ -17,7 +17,7 @@ decide, so they are the ones a machine does.
           from a machine draft, standards §9 route B) puts speech whose
           speaker had no role there; every one must be moved to a role tier
           or deleted before the file counts as done.
-  WARN    annotations outside the excerpt window, when the case has one. A
+  WARN    annotations outside the excerpt window, when the recording has one. A
           warning and not a refusal: the window is guidance to the annotator,
           and .eaf-level excerpt slicing is deliberately unbuilt, so refusing
           here would enforce a boundary the pipeline itself doesn't.

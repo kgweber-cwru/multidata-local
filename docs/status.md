@@ -11,7 +11,7 @@ rot. History lives in git and in the decision log at the end.
 The pipeline takes clinical-encounter video (simulated encounters in our sim
 center, two PTZ cameras per exam room) to word-level transcripts with
 speakers, ELAN files, prosody, camera sync, camera-view segmentation and 2D
-body pose, all on the pilot's processing host (`tofino`). 57 cases (114 videos, ~75 h) are ingested,
+body pose, all on the pilot's processing host (`tofino`). 57 recordings (114 videos, ~75 h) are ingested,
 all in the small exam rooms. Two threads are active: **validating
 transcription** (gold annotation and an ASR bake-off) and **moving pose to
 3D** (waiting on a room calibration session; see [pose_3d.md](pose_3d.md)).
@@ -23,8 +23,8 @@ transcription** (gold annotation and an ASR bake-off) and **moving pose to
 | Area | State |
 |---|---|
 | Ingest (`ingest_raw.py`, walkthrough notebook) | Working on real files; 2026-11-01 run added 4 cameras |
-| audio, asr, diarize, elan | Run on every case. Re-run 2026-11-02 with `whisperx_disfluent large-v3` (keeps disfluencies) on pyannote community-1 diarization |
-| prosody | Stage since 2026-11-01; run on all 57 cases (246 speakers) |
+| audio, asr, diarize, elan | Run on every recording. Re-run 2026-11-02 with `whisperx_disfluent large-v3` (keeps disfluencies) on pyannote community-1 diarization |
+| prosody | Stage since 2026-11-01; run on all 57 recordings (246 speakers) |
 | sync | Every video; 5 rows fail (room 11's camera 31, 261041/41, a 2-min clip) and get no offset |
 | views + preset names | Every video; 65 recurring views provisionally named, awaiting confirmation |
 | pose (HALPE_26) | Full re-run 2026-10-30 to 11-01; the 4 newly added cameras follow |
@@ -34,7 +34,7 @@ transcription** (gold annotation and an ASR bake-off) and **moving pose to
 
 - **Open (noted 2026-11-03): audio clock on room 11's camera 16.** That
   camera dropped sound during its recording gaps without leaving silence,
-  so the pipeline's wav (`data/audio/<case>/16.wav`) is shorter than the
+  so the pipeline's wav (`data/audio/<recording>/16.wav`) is shorter than the
   video and runs ahead of it by a growing amount. Everything timed on the
   wav is off against video and pose by the same amount: ASR and
   diarization drafts, prosody, ELAN kits, human pass-1s and any gold
@@ -45,8 +45,8 @@ transcription** (gold annotation and an ASR bake-off) and **moving pose to
   demo branch corrects its own copy (`audio_clock` in
   `demo/build_case.py`); the pipeline, kits and transcripts are unchanged.
   Fix options to weigh later: extract audio with gaps filled (changes every
-  time in those cases, so existing annotations would need re-timing), or
-  keep wav time and store a wav-to-video time map per case.
+  time in those recordings, so existing annotations would need re-timing), or
+  keep wav time and store a wav-to-video time map per recording.
 
 ---
 
@@ -62,7 +62,7 @@ Nothing is scored against current gold yet: `python scripts/bench_status.py`
 shows the empty cells. A trial run (not in the ledger) gave L0 WER 0.25–0.31
 on 261498 and 0.23–0.30 on 261505 for `faster_whisper medium` and
 `whisperx_disfluent large-v3`, with the two engines trading places between
-cases. **Next:** score every local engine against both, then more gold and a
+recordings. **Next:** score every local engine against both, then more gold and a
 first double annotation for a noise floor. The procedure is
 [asr_evaluation_methods.md](asr_evaluation_methods.md); its §5 lists what
 the scores don't yet account for.
@@ -71,7 +71,7 @@ the scores don't yet account for.
 (`annotation/make_kit.py`), shared per annotator, returned there; who has
 which pass is in `annotation/assignments.csv` ([../annotation/README.md](../annotation/README.md)).
 Annotators are scarce, so pass 1 can now start from a machine draft (route B,
-standards §9): seeded gold adds cases, but engine rankings rest on blind gold.
+standards §9): seeded gold adds recordings, but engine rankings rest on blind gold.
 
 **Cloud ASR providers:** IRB cleared sending audio to vendors for inference
 (2026-09-10). Provider research lives in `benchmarks/configs/providers.yaml`.
@@ -82,15 +82,15 @@ the raw response is the artifact to cache and compare.
 
 ### Before the first cloud call: two gaps
 
-- **The `cloud_release` interlock doesn't exist in code.** `cases.cloud_release`
+- **The `cloud_release` interlock doesn't exist in code.** `recordings.cloud_release`
   is a column, but nothing reads it. Build the check (implementation plan
   4.2) before any cloud adapter (4.3), and test that it refuses a
-  `cloud_release=0` case *before reading audio*. Then set `cloud_release=1`
+  `cloud_release=0` recording *before reading audio*. Then set `cloud_release=1`
   deliberately, with the IRB reference in `cloud_release_basis`, on the
-  cases to send. Today 0 of 1,281 cases have it.
+  recordings to send. Today 0 of 1,281 recordings have it.
 - **Per-request no-train / zero-retention flags are required**, not optional
   ([asr_provider_spec.md](asr_provider_spec.md) §9); vendor defaults often
-  retain data. `consent_ref` is also empty on every case.
+  retain data. `consent_ref` is also empty on every recording.
 
 ---
 
@@ -98,7 +98,7 @@ the raw response is the artifact to cache and compare.
 
 - **Identifiable data.** The patient is an actor, but learners and
   preceptors are real and say their names; transcripts carry them, and the
-  `cases` table holds real names. Never print names in shared output.
+  `recordings` table holds real names. Never print names in shared output.
 - **Storage:** the corpus may live in the institution's enterprise Google
   instance under BAA. A BAA covers a named list of services, not "Google"
   in general.
@@ -111,13 +111,13 @@ the raw response is the artifact to cache and compare.
   consent coverage, separate from research use.
 - **Open (noted 2026-11-03): names in public git history.** The first
   commit (`b3b248b`, 2026-07-29) included `manifest.sqlite` with full
-  learner and SP names for 755 cases. The next commit deleted it, but it
+  learner and SP names for 755 recordings. The next commit deleted it, but it
   stays in history, and the repo was public until 2026-11-03 (no forks).
   Still to decide: purge history (`git filter-repo`, force-push every
   branch, ask GitHub to purge cached views) and whether to tell the IRB or
   privacy office.
 - **Open: redaction gap.** `eaf_to_gold.py` redacts only the names recorded
-  in `cases`. A case with preceptor speech but no `preceptor_name` exports
+  in `recordings`. A recording with preceptor speech but no `preceptor_name` exports
   the preceptor's spoken name unredacted: `261498.gold.txt` has one. Fix:
   refuse to export when a speaker tier has speech and no name to redact;
   then record 261498's preceptor and re-export it.
@@ -148,6 +148,7 @@ Newest first. One line each; the reasoning is in the linked doc.
 
 | Date | Decision |
 |---|---|
+| 2026-11-11 | Our words follow LearningSpace's: what we called a *case* is a **recording** (`recording_id`, same numbers); *case* now means the scenario (`case_title`); `event_name` is `activity_title`; a video's `v309407` number is `file_number`. The manifest renames itself on first open. Recordings are linked to the LearningSpace Data API (`scripts/ls_backfill.py`): GUIDs, exact start, file links, preceptor (the faculty observer) and grade. The manifest was trimmed to the 57 recordings with video. |
 | 2026-11-11 | Gold text includes `ANNOUNCEMENT` and `OUTSIDE_ROOM` (standards 1.2): the question is whether engines hear what humans hear. Scorer redacts names on both sides and uses the L0/L1 profiles. Pass-2 kits and gold import scripted (`make_pass2_kit.py`, `eaf_to_gold.py --from-kit`). |
 | 2026-11-01 | Draft-seeded gold (standards 1.1, route B) as a fallback when annotators are scarce: pass 1 corrects a fixed `whisperx_disfluent`/`large-v3` transcript, provenance recorded, seed engine never scored against its own seeded gold. |
 | 2026-11-01 | Prosody is a pipeline stage (was notebook-only). Transcription Suite engine removed. Operators' preset names from Drew; recurring views labelled provisionally. Large rooms allowed again for transcription/2D; the 3D pilot stays small-room. No video trimming before pose. |
@@ -157,7 +158,7 @@ Newest first. One line each; the reasoning is in the linked doc.
 | 2026-09-23 | Cloud annotation desktop abandoned; annotation through Box (below). |
 | 2026-09-10 | IRB cleared vendor inference for ASR. |
 | 2026-08-26 | Gold is annotated blind, from scratch, never by correcting a machine draft ([transcription_standards.md](transcription_standards.md) §9). |
-| 2026-07-29 | Default ASR `faster_whisper medium en`. A case's two cameras share one audio feed, so audio stages run once per case. |
+| 2026-07-29 | Default ASR `faster_whisper medium en`. A recording's two cameras share one audio feed, so audio stages run once per recording. |
 
 ### Why the cloud annotation desktop was abandoned (2026-09-23)
 

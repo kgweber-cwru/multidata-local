@@ -1,28 +1,28 @@
 #!/usr/bin/env python
-"""Hand-annotated .eaf -> <case>.gold.txt + <case>.gold.rttm
+"""Hand-annotated .eaf -> <recording>.gold.txt + <recording>.gold.rttm
 (docs/transcription_standards.md §4/§11; procedure in annotation/README.md).
 
 The usual call, from a returned and checked pass-2 kit:
 
     python scripts/eaf_to_gold.py --from-kit annotation/kits/261505/kate
 
-That copies `<case>.pass2.eaf` to `data/gold/<case>/<case>.gold.eaf`
-(refusing to overwrite a different gold file there) and takes the case, the
+That copies `<recording>.pass2.eaf` to `data/gold/<recording>/<recording>.gold.eaf`
+(refusing to overwrite a different gold file there) and takes the recording, the
 pass-1 kit, the annotator, the excerpt span and the gold notes from the
 pass-2 kit's kit.json. Everything can still be given by hand instead:
 
-    python scripts/eaf_to_gold.py --eaf data/gold/132704/132704.gold.eaf --case 132704 \
+    python scripts/eaf_to_gold.py --eaf data/gold/132704/132704.gold.eaf --recording 132704 \
         --kit annotation/kits/132704/kate --annotator kate
-    python scripts/run_benchmark.py --case 132704 --audio data/audio/132704/41.wav \
+    python scripts/run_benchmark.py --recording 132704 --audio data/audio/132704/41.wav \
         --engine whisperx_disfluent --model medium
 
 Redacts real names via the manifest's learner_name/sp_name/preceptor_name
 columns (multidata.redact) before anything is written to --out-dir, which
 defaults to benchmarks/references/ -- a TRACKED, git-visible location.
 
-If --case has no row in the manifest, redaction can't run, and this script
+If --recording has no row in the manifest, redaction can't run, and this script
 **refuses to write** rather than silently risking a real name in a tracked
-file -- pass --allow-unredacted to override for an ad hoc case not yet in the
+file -- pass --allow-unredacted to override for an ad hoc recording not yet in the
 manifest, and you become responsible for keeping that output out of
 git/sharing yourself.
 
@@ -32,11 +32,11 @@ manifest's `gold` table (implementation plan Phase 2.4) -- --annotator/
 export itself. Skipped automatically under --allow-unredacted, since there's
 no manifest row to attach it to.
 
-Also writes `<case>.gold.json` beside the text and RTTM: how pass 1 was made
+Also writes `<recording>.gold.json` beside the text and RTTM: how pass 1 was made
 (`blind`, or `seeded` with the seed engine, model and transcript hash --
 standards §9), the standards version and the span. `run_benchmark.py` reads
 it to refuse scoring the seed engine against its own seeded gold. Pass
-`--kit annotation/kits/<case>/<pass-1 annotator>` so the seed provenance is
+`--kit annotation/kits/<recording>/<pass-1 annotator>` so the seed provenance is
 taken from the kit; the .eaf's header carries a copy, and the two are
 cross-checked.
 """
@@ -52,6 +52,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
 from multidata import elan, manifest, seeding  # noqa: E402
+from multidata.models import upgrade_keys  # noqa: E402
 
 REFERENCES = ROOT / "benchmarks" / "references"
 KITS = ROOT / "annotation" / "kits"
@@ -69,15 +70,15 @@ def main():
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     ap.add_argument("--from-kit", default=None,
-                     help="a returned pass-2 kit (annotation/kits/<case>/<pass-2 annotator>): "
-                          "copies its .eaf into data/gold/ and fills in --eaf, --case, --kit, "
+                     help="a returned pass-2 kit (annotation/kits/<recording>/<pass-2 annotator>): "
+                          "copies its .eaf into data/gold/ and fills in --eaf, --recording, --kit, "
                           "--annotator, --gold-notes and the span from its kit.json")
     ap.add_argument("--replace-gold", action="store_true",
                      help="with --from-kit: overwrite an existing, different "
-                          "data/gold/<case>/<case>.gold.eaf")
+                          "data/gold/<recording>/<recording>.gold.eaf")
     ap.add_argument("--eaf", default=None, help="the annotated .eaf to export")
-    ap.add_argument("--case", default=None,
-                     help="case_id -- drives output filenames and the manifest name lookup")
+    ap.add_argument("--recording", default=None,
+                     help="recording_id -- drives output filenames and the manifest name lookup")
     ap.add_argument("--manifest", default=str(ROOT / "manifest.sqlite"))
     ap.add_argument("--out-dir", default=str(REFERENCES),
                      help=f"default: {REFERENCES} (tracked -- see --allow-unredacted)")
@@ -85,7 +86,7 @@ def main():
                      help="seconds -- same-tier annotations this close or closer merge "
                           "into one RTTM turn (default 0.3)")
     ap.add_argument("--allow-unredacted", action="store_true",
-                     help="write even though --case has no manifest row (so redaction "
+                     help="write even though --recording has no manifest row (so redaction "
                           "couldn't run) -- you must then keep the output out of any "
                           "tracked/shared location yourself. Also skips the gold-table "
                           "row, which requires a manifest row to attach to.")
@@ -101,31 +102,31 @@ def main():
     ap.add_argument("--span-end", type=float, default=None)
     ap.add_argument("--gold-notes", default="", help="free text for the manifest's gold table")
     ap.add_argument("--kit", default=None,
-                     help="the pass-1 kit folder (annotation/kits/<case>/<annotator>): "
+                     help="the pass-1 kit folder (annotation/kits/<recording>/<annotator>): "
                           "its kit.json says whether pass 1 was blind or seeded")
     args = ap.parse_args()
 
     if args.from_kit:
         from_pass2_kit(args)
-    if not (args.eaf and args.case):
-        ap.error("give --from-kit, or both --eaf and --case")
+    if not (args.eaf and args.recording):
+        ap.error("give --from-kit, or both --eaf and --recording")
 
     seed = pass1_provenance(args.eaf, args.kit)
     print(f"pass 1: {seeding.describe(seed)}")
 
     try:
-        names = manifest.names_for_case(args.case, args.manifest)
+        names = manifest.names_for_recording(args.recording, args.manifest)
     except KeyError:
         names = None
 
     out_dir = Path(args.out_dir)
     if names is None:
-        msg = (f"No manifest row for case {args.case!r} in {args.manifest} -- "
+        msg = (f"No manifest row for recording {args.recording!r} in {args.manifest} -- "
                "redaction could not run, so the output may contain real names.")
         if not args.allow_unredacted:
             sys.exit(
                 f"{msg}\nRefusing to write. Pass --allow-unredacted to write anyway "
-                f"(then keep {out_dir} out of git/sharing yourself), or add this case "
+                f"(then keep {out_dir} out of git/sharing yourself), or add this recording "
                 "to the manifest first."
             )
         print(f"WARNING: {msg} Writing anyway (--allow-unredacted).", file=sys.stderr)
@@ -136,8 +137,8 @@ def main():
               ".gold.txt before committing it.", file=sys.stderr)
 
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_txt = out_dir / f"{args.case}.gold.txt"
-    out_rttm = out_dir / f"{args.case}.gold.rttm"
+    out_txt = out_dir / f"{args.recording}.gold.txt"
+    out_rttm = out_dir / f"{args.recording}.gold.rttm"
 
     text, rttm_lines, substitutions = elan.export_gold(
         args.eaf, out_txt=out_txt, out_rttm=out_rttm, names=names, merge_gap=args.merge_gap,
@@ -150,19 +151,19 @@ def main():
         print(f"redacted {len(substitutions)} name occurrence(s): {counted}")
 
     gold_at = args.gold_at or datetime.date.today().isoformat()
-    meta = {"case_id": args.case, "pass1_source": seed.get("pass1_source", "blind"),
+    meta = {"recording_id": args.recording, "pass1_source": seed.get("pass1_source", "blind"),
             **{k: seed[k] for k in ("seed_engine", "seed_model", "seed_transcript",
                                      "seed_sha256", "roles") if k in seed},
             "standards_version": args.standards_version, "gold_at": gold_at,
             "span": [args.span_start, args.span_end] if args.span_start is not None else None}
-    print(f"wrote {seeding.write_gold_meta(args.case, out_dir, meta)}")
+    print(f"wrote {seeding.write_gold_meta(args.recording, out_dir, meta)}")
 
     if names is None:
-        print("skipped gold-table row: no manifest row for this case", file=sys.stderr)
+        print("skipped gold-table row: no manifest row for this recording", file=sys.stderr)
         return
 
     row_id = manifest.record_gold(
-        args.case, annotator=args.annotator, pass1_frozen_at=args.pass1_frozen_at,
+        args.recording, annotator=args.annotator, pass1_frozen_at=args.pass1_frozen_at,
         gold_at=gold_at, standards_version=args.standards_version,
         span_start=args.span_start, span_end=args.span_end, notes=args.gold_notes,
         seed=seed if seed.get("pass1_source") == "seeded" else None, path=args.manifest,
@@ -177,15 +178,15 @@ def from_pass2_kit(args):
     kj = kit_dir / "kit.json"
     if not kj.exists():
         sys.exit(f"--from-kit {kit_dir}: no kit.json there")
-    kit = json.loads(kj.read_text())
-    case = kit["case_id"]
-    pass2 = kit_dir / f"{case}.pass2.eaf"
+    kit = upgrade_keys(json.loads(kj.read_text()))
+    recording = kit["recording_id"]
+    pass2 = kit_dir / f"{recording}.pass2.eaf"
     if not pass2.exists():
         sys.exit(f"--from-kit {kit_dir}: no {pass2.name} -- is this a pass-2 kit?")
     pass1_annotator = kit.get("pass1_annotator")
     if not pass1_annotator and not args.kit:
         sys.exit("kit.json doesn't name the pass-1 annotator (a kit made before "
-                 "make_pass2_kit.py): add --kit annotation/kits/<case>/<pass-1 annotator> "
+                 "make_pass2_kit.py): add --kit annotation/kits/<recording>/<pass-1 annotator> "
                  "and --annotator")
 
     check = subprocess.run([sys.executable, str(ROOT / "annotation" / "submit_checks.py"),
@@ -193,7 +194,7 @@ def from_pass2_kit(args):
     if check.returncode != 0:
         sys.exit("pass 2 fails submit_checks.py -- fix that first")
 
-    gold = GOLD / case / f"{case}.gold.eaf"
+    gold = GOLD / recording / f"{recording}.gold.eaf"
     if gold.exists() and gold.read_bytes() != pass2.read_bytes() and not args.replace_gold:
         sys.exit(f"{gold} exists and differs from {pass2}. Pass --replace-gold if the "
                  "returned pass 2 really supersedes it.")
@@ -201,9 +202,9 @@ def from_pass2_kit(args):
     shutil.copy2(pass2, gold)
     print(f"copied {pass2} -> {gold}")
 
-    args.case = args.case or case
+    args.recording = args.recording or recording
     args.eaf = args.eaf or str(gold)
-    args.kit = args.kit or str(KITS / case / pass1_annotator)
+    args.kit = args.kit or str(KITS / recording / pass1_annotator)
     args.annotator = args.annotator or pass1_annotator or ""
     args.gold_notes = args.gold_notes or f"pass 2: {kit.get('annotator', kit_dir.name)}"
     if args.span_start is None and kit.get("span_start") is not None:

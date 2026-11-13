@@ -21,13 +21,13 @@ How:
      recall is repeatable to a few pixels). No match -> a new view id.
 
 Ids are stable: a view keeps its id (`v1`, `v2`, ... per camera) across
-cases and re-runs, because new stretches are matched against the stored
+recordings and re-runs, because new stretches are matched against the stored
 samples, never re-clustered. Process videos oldest first (run_stage does)
 so ids follow first appearance. One worker only: two would race on adding
 views to the library.
 
 Outputs:
-  - `data/views/<case_id>/<camera>.json`  every stretch, with file-clock and
+  - `data/views/<recording_id>/<camera>.json`  every stretch, with file-clock and
     reference-clock times, its view id (None if shorter than MIN_VIEW_S),
     the match quality, and how far the camera moved from the previous one.
   - `data/views/library/<camera>/<view_id>.npz` (5 sample frames) and `.png`
@@ -35,8 +35,8 @@ Outputs:
   - manifest `camera_views`  one row per view: label (provisional until
     someone names it), where it was first seen.
   - manifest `video_views`   seconds and stretch count per (video, view);
-    "is this a preset" is a query over it (seen in 2+ cases, or 3+ times),
-    not a stored flag, so it updates itself as cases arrive.
+    "is this a preset" is a query over it (seen in 2+ recordings, or 3+ times),
+    not a stored flag, so it updates itself as recordings arrive.
 """
 import json
 import subprocess
@@ -251,7 +251,7 @@ def usage(result):
 
 
 def pair_views(stretches_a, stretches_b):
-    """{(view_a, view_b): seconds} the two cameras of a case held at the same
+    """{(view_a, view_b): seconds} the two cameras of a recording held at the same
     time, on the reference clock. Inputs are the `stretches` lists of two
     per-video results; stretches without a view or a reference time (no
     sync offset) are skipped. A preset moves both cameras, so recurring pairs

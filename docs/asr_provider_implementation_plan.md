@@ -41,7 +41,7 @@ know which layer broke.
 Annotation and the Whisper disfluency sweep both start here. Neither needs a
 vendor, a key, or a gold file.
 
-- [x] **0.1 Start gold annotation on the first case.** Assign an annotator, walk
+- [x] **0.1 Start gold annotation on the first recording.** Assign an annotator, walk
       them through [annotator_guide.md](annotator_guide.md), watch the first
       30 minutes over their shoulder.
       *Done when:* one `pass1.eaf` is frozen.
@@ -111,7 +111,7 @@ Provider-independent. All testable without a single API call.
 - [x] **1.3 `multidata/normalize.py`** — L0/L1/L2 profiles and shared
       transforms: casing, punctuation, whitespace, **bracket stripping**,
       filler class. *Done:* **tests pass** (`tests/test_normalize.py`, 40+
-      cases). Caught two real bugs before landing: `BACKCHANNELS` had
+      recordings). Caught two real bugs before landing: `BACKCHANNELS` had
       `"huh?"` in a form punctuation-stripping made unreachable, and the fuzzy
       name-match threshold (redact.py, below) was too strict to catch
       "Jamie"/"Jamey" (ratio 0.80 < the original 0.82 cutoff). **Number
@@ -120,7 +120,7 @@ Provider-independent. All testable without a single API call.
       any gold transcript has real numeric content in it risks confident
       rules for formats nobody actually uses here; revisit once Phase 5 gold
       exists.
-- [x] **1.4 Name redaction** (`multidata/redact.py` + `manifest.names_for_case`)
+- [x] **1.4 Name redaction** (`multidata/redact.py` + `manifest.names_for_recording`)
       — fuzzy-matched against the manifest's name columns, tag-based
       (`[LEARNER_NAME]` etc.) so it passes straight through the existing
       bracket-stripping rule for free. *Done*, and wired into
@@ -168,21 +168,21 @@ between a sweep you can read and a directory you're afraid of. See
 - [x] **2.3 `--out-root`** — done as "the testing tool's output root is a
       flag, not hardcoded," not as literally sharing run_stage.py's writer
       function. The two tools' layouts don't cleanly unify (production is
-      per-case/camera, testing needs many runs to coexist per case) and
+      per-recording/camera, testing needs many runs to coexist per recording) and
       forcing them into one function would cost more than it returns; what
       they *do* share is `asr.transcribe()` and `records.validate_record()`
       underneath. Narrower than spec §7's original phrasing — noted here so
       the gap is visible, not silently reinterpreted.
-- [x] **2.4 `gold` table in the manifest** — `id` (not `case_id`) is the
-      primary key: excerpt gold means several rows can share a `case_id`
+- [x] **2.4 `gold` table in the manifest** — `id` (not `recording_id`) is the
+      primary key: excerpt gold means several rows can share a `recording_id`
       (standards §3). `eaf_to_gold.py` now records a row on every successful
-      export. *Done:* `manifest.all_gold()` answers "which cases have gold"
+      export. *Done:* `manifest.all_gold()` answers "which recordings have gold"
       as a query.
 - [x] **2.5 `scripts/bench_status.py`** — gold references (cross-referencing
       the manifest **and** disk, in both directions), latest score per
-      (case, engine, model), and empty matrix cells against local engines.
+      (recording, engine, model), and empty matrix cells against local engines.
       *Done:* running it against the real repo immediately surfaced a real
-      drift — case 261456's `.gold.txt`/`.gold.rttm` existed with **no**
+      drift — recording 261456's `.gold.txt`/`.gold.rttm` existed with **no**
       manifest row, because they were exported before this session's
       gold-table wiring existed. Backfilled by hand (`manifest.record_gold`)
       once found. Exactly the kind of silent gap this tool exists to catch,
@@ -190,7 +190,7 @@ between a sweep you can read and a directory you're afraid of. See
 
 > **A real usage bug surfaced and got fixed along the way, twice:**
 > `run_benchmark.py`'s `--transcript` mode silently recorded `faster_whisper`
-> for a transcript with no `engine` field and no `--engine` passed (case
+> for a transcript with no `engine` field and no `--engine` passed (recording
 > 261456's first two runs) — fixed to refuse instead of guess. And `RESULTS`
 > (the runs.csv ledger) had no override flag, so two rounds of manual smoke
 > testing this phase wrote synthetic rows into the real ledger before
@@ -257,14 +257,14 @@ cloud-specific.
       limit, raw response persisted, normalization to the §4 record. Confirm
       which Chirp variants allow diarization and adaptation together before
       assuming both.
-      *Done when:* `run_stage.py asr --engine google --only <case>` produces a
+      *Done when:* `run_stage.py asr --engine google --only <recording>` produces a
       conforming record.
 - [ ] **4.4 Glossary renderer for `phrase_set`** — first weighted mechanism.
 - [ ] **4.5 `--diarizer {provider,pyannote}`** control arm (spec §5).
       *Done when:* both arms differ only in speaker labels.
 
 > **Verify the interlock deliberately.** Point the adapter at a
-> `cloud_release=0` case and confirm it refuses *before any audio is read*. A
+> `cloud_release=0` recording and confirm it refuses *before any audio is read*. A
 > gate that fails open is worse than no gate, because it gets trusted.
 
 ---
@@ -276,8 +276,8 @@ from annotator output to a scoreable reference.
 
 - [x] **5.1 `.eaf` → `gold.txt` + `gold.rttm`** (`elan.export_gold`,
       `scripts/eaf_to_gold.py`) — tier exclusion (standards §4), adjacent
-      same-tier merge (§5), redaction via `manifest.names_for_case` (§8).
-      *Done:* verified on a real `pass1.eaf` (case 261456) with real
+      same-tier merge (§5), redaction via `manifest.names_for_recording` (§8).
+      *Done:* verified on a real `pass1.eaf` (recording 261456) with real
       redaction (`[LEARNER_NAME]` in the actual output), and with a
       synthetic round-trip test suite (`tests/test_elan_export_gold.py`).
       Landed before this phase's own numbering caught up to it — see the
@@ -310,8 +310,8 @@ Blocked on Phases 1, 2, and 5. First real numbers.
       columns, `cost_usd`.
 - [x] **6.2 Comparability guard** (minimal) — `bench_status.py` shows only
       rows whose `scoring` and `gold_sha256` match today's.
-- [ ] **6.3 Per-case reporting, not just means.** With n≈5, a mean hides
-      everything; per-case is where "this config helps case 1 and hurts case 2"
+- [ ] **6.3 Per-recording reporting, not just means.** With n≈5, a mean hides
+      everything; per-recording is where "this config helps recording 1 and hurts recording 2"
       becomes visible.
 - [ ] **6.4 DER via `pyannote.metrics`** — the long-standing gap.
 - [ ] **6.5 Noise floor** — annotator-vs-annotator WER/DER beside every engine
@@ -392,7 +392,7 @@ changes two things.
 carefully annotated **5-minute excerpt is a valid reference** as long as scoring
 is restricted to that span — WER is a rate, not a total. For a fixed amount of
 annotator time, **six 5-minute excerpts across varied conditions beat two full
-20-minute encounters**: better strata coverage (standards §3), more cases, same
+20-minute encounters**: better strata coverage (standards §3), more recordings, same
 cost. This is the single highest-leverage response to a limited annotation
 budget.
 

@@ -58,29 +58,34 @@ logs/            GITIGNORED: run_stage.log, PID files, job scripts
 manifest.sqlite  GITIGNORED: the registry (§10)
 ```
 
-`data/` holds one folder per kind of output, each with a folder per case:
+`data/` holds one folder per kind of output, each with a folder per recording:
 `raw/` (flat, see below), `audio/`, `transcripts/`, `diarization/`, `elan/`,
 `prosody/`, `sync/`, `pose/`, `views/`, plus `gold/` for gold annotation and
-`demos/` for demo clips. Files are named `<case_id>/<camera>.<ext>`.
+`demos/` for demo clips. Files are named `<recording_id>/<camera>.<ext>`.
 
-### File names and case matching
+### File names and recording matching
 
 `data/raw/` is flat: one file per camera per encounter, named by the source
-system as **`<date:YYYYMMDD>-<time:HHMMSS>-<recording_id>-<camera>.mp4`**,
+system as **`<date:YYYYMMDD>-<time:HHMMSS>-<file_number>-<camera>.mp4`**,
 e.g. `20260224-132704-v308933-41.mp4` = 2026-02-24, 13:27:04, source video
 `v308933`, camera 41.
 
-**The file name has no case id.** A file is matched to its case
-(`casematch.resolve`) by:
+**The file name has no recording id.** A file is matched to its recording
+(`filematch.resolve`) by:
 
-1. **recording time**, to the minute (the cases table only has minutes), and
+1. **recording time**, to the minute (the recordings table only has minutes), and
 2. **room**, through the camera: the `cameras` table maps each camera to its
    room. That mapping is hand-verified (nothing in the source data says it);
    change it with `manifest.set_camera_room(camera, room)`, then
    `manifest.export_camera_rooms("db_seed/camera_rooms.csv")` and commit.
 
-Results are cached in `video_case_matches`; files that didn't match show up in
-`manifest.unresolved_matches()`. Every output is keyed by `(case_id, camera)`.
+Results are cached in `file_matches`; files that didn't match show up in
+`manifest.unresolved_matches()`. Every output is keyed by `(recording_id, camera)`.
+
+LearningSpace knows each recording's files by exact name, so
+`scripts/ls_backfill.py` checks every match after the fact and fills in the
+file links ([learningspace.md](learningspace.md)). The time-and-room match
+above is what ingest still uses; replacing it with the API is the next step.
 
 ---
 
@@ -93,7 +98,7 @@ files).
 
 | Env | File | For |
 |---|---|---|
-| `md-utility` | `utility.yml` | notebooks, the Excel case import, ingest |
+| `md-utility` | `utility.yml` | notebooks, the Excel recording import, ingest |
 | `md-speech` | `speech.yml` | audio, asr, diarize, elan, prosody, sync, benchmarks |
 | `md-pose` | `pose-nvidia.yml` (Linux/CUDA) or `pose.yml` (Mac) | pose, views, demo clips |
 
@@ -115,12 +120,12 @@ files).
 
 ## 4. Ingest
 
-1. Cases come first, from the source system's Excel export:
-   `python -m multidata.manifest export.xlsx` (md-utility). It only adds cases
+1. Recordings come first, from the source system's Excel export:
+   `python -m multidata.manifest export.xlsx` (md-utility). It only adds recordings
    it doesn't have.
 2. Copy camera files into `data/raw/`, names unchanged.
 3. `python scripts/ingest_raw.py` lists what it would register (name check,
-   case match, ffprobe facts, SHA-256 duplicate check); `--write` registers
+   recording match, ffprobe facts, SHA-256 duplicate check); `--write` registers
    them with every stage `pending`.
 4. `python scripts/ls_backfill.py`, then again with `--apply`: links each
    recording to LearningSpace by filename and fills in its GUIDs, exact start
@@ -138,11 +143,11 @@ has been routine for a while).
 Whisper and pyannote want 16 kHz mono WAV:
 `ffmpeg -i in.mp4 -vn -ac 1 -ar 16000 -sample_fmt s16 out.wav` (`audio.py`).
 
-**A case's two camera files carry the same audio feed** (cross-correlation
+**A recording's two camera files carry the same audio feed** (cross-correlation
 across rooms, 2026-07-29: same samples, started up to ~1 s apart). So the
-audio stages (audio, asr, diarize, elan, prosody) run **once per case**, on
-the case's **audio camera** (`manifest.ensure_audio_camera`: lowest camera
-id, stored in `cases.audio_camera`, sticky). The other camera's row is marked
+audio stages (audio, asr, diarize, elan, prosody) run **once per recording**, on
+the recording's **audio camera** (`manifest.ensure_audio_camera`: lowest camera
+id, stored in `recordings.audio_camera`, sticky). The other camera's row is marked
 `skipped` for those stages. The same shared feed is what makes camera sync
 possible (§9b).
 
@@ -156,16 +161,16 @@ you'd be measuring the denoiser.
 Default: **`whisperx_disfluent`, model `large-v3`, language `en`** (since
 2026-11-02). The standards keep disfluencies (transcription standards §1), and
 this engine is decode-tuned to keep them; it is also the fixed seed engine for
-draft-seeded gold (§8a), so a case's pipeline transcript *is* its seed
+draft-seeded gold (§8a), so a recording's pipeline transcript *is* its seed
 transcript. Other engines via `--engine`, for comparison: `faster_whisper`
 (the default until 2026-11-02, tuned to drop disfluencies) and `whisperx`.
 
 **Diarization** is `pyannote/speaker-diarization-community-1` (since
 2026-11-02; was `3.1`). Run `diarize` before `asr`: every engine, whisperx
 included, takes its speaker labels from the diarize stage's
-`data/diarization/<case>/<camera>.rttm` (`asr._diarize_and_merge`), so the
+`data/diarization/<recording>/<camera>.rttm` (`asr._diarize_and_merge`), so the
 transcript, the RTTM and prosody all use the same `SPEAKER_nn` labels. If the
-RTTM is missing, `asr` makes it. On four human-annotated cases community-1
+RTTM is missing, `asr` makes it. On four human-annotated recordings community-1
 cut speaker confusion (right speech, wrong speaker) from 2-8% of speech to
 2-4%, with missed speech unchanged (~8-20%, mostly backchannels and overlap).
 Neither model separates two similar voices reliably: on 261411 both put the
@@ -179,7 +184,7 @@ built from (`seeding.kit_seed_transcripts`): the kit records that file's
 hash. The earlier `faster_whisper_medium` transcripts stay beside the new
 ones; `data/diarization_pyannote31/` keeps the 3.1 RTTMs.
 
-Output: `data/transcripts/<case>/<camera>_<engine>_<model>.json` (the source
+Output: `data/transcripts/<recording>/<camera>_<engine>_<model>.json` (the source
 of truth for ELAN and benchmarking) and a `.txt` beside it for reading.
 
 ### 6a. Decoding hygiene
@@ -201,33 +206,33 @@ cause of repetition loops on bad audio: check its benchmark scores for that.
 
 ### 6b. Prosody (`run_stage.py prosody`, md-speech, CPU)
 
-Per case, on the audio camera, after `asr` (it needs the diarization).
+Per recording, on the audio camera, after `asr` (it needs the diarization).
 `prosody.py`:
 
-- **Frame features** -> `data/prosody/<case>/<camera>.npz`, every 10 ms:
+- **Frame features** -> `data/prosody/<recording>/<camera>.npz`, every 10 ms:
   `f0_hz` (pitch; NaN unvoiced), `intensity_db` (uncalibrated: compare within
   a recording), `hnr_db` (voice quality; NaN in silence), `f1_hz`..`f4_hz`
   (formants). Praat defaults (pitch 75-600 Hz); versions stored in the file.
 - **Praat files** beside it: `<camera>.PitchTier`, `.IntensityTier` and a
   `.TextGrid` of speaker turns, to open with the WAV in Praat.
 - **Per-speaker summary** -> manifest `speaker_prosody` and
-  `data/prosody/<case>/<camera>_speakers.csv`: turns, speaking, overlap and
+  `data/prosody/<recording>/<camera>_speakers.csv`: turns, speaking, overlap and
   voiced time, median pitch, 10th/90th percentile, range and spread in
   semitones, loudness and HNR while voiced, `pitch_bucket`. Frames where
   diarized speakers overlap are left out of every speaker's figures.
 
-Speaker labels (`SPEAKER_00`, ...) are per case, not people across cases.
+Speaker labels (`SPEAKER_00`, ...) are per recording, not people across recordings.
 `pitch_bucket` is a rough vocal-register label for picking annotation samples,
 never a statement about a person. `manifest.export_speaker_prosody(path)`
-writes all cases' speaker rows to one CSV.
+writes all recordings' speaker rows to one CSV.
 
 ---
 
 ## 7. ELAN files
 
-`elan.py` builds one `.eaf` per case from the transcript: word-level, one
+`elan.py` builds one `.eaf` per recording from the transcript: word-level, one
 tier per speaker, linked to the audio camera's video (so the picture matches
-the audio). Output: `data/elan/<case>/<camera>.eaf`. If prosody has run, a
+the audio). Output: `data/elan/<recording>/<camera>.eaf`. If prosody has run, a
 `PITCH_HZ` tier shows the median pitch of each stretch of voicing; it comes
 from the audio alone, so re-running ASR (then `elan`) leaves it unchanged.
 Run `prosody` before `elan`.
@@ -239,7 +244,7 @@ whose bias is recorded and kept out of benchmarking
 ([transcription_standards.md](transcription_standards.md) §9). This draft is
 for browsing and for the adjudication pass. Procedure:
 [annotation/README.md](../annotation/README.md). Gold files live under
-`data/gold/<case>/` and are never overwritten by a re-run.
+`data/gold/<recording>/` and are never overwritten by a re-run.
 
 ---
 
@@ -259,7 +264,7 @@ speech, multi-party rooms): that gap is a finding; report it.
 ### 8a. Gold references and frozen audio
 
 Gold is the expensive, essential part:
-`benchmarks/references/<case>.gold.txt` (and `.gold.rttm`), exported from an
+`benchmarks/references/<recording>.gold.txt` (and `.gold.rttm`), exported from an
 adjudicated `.eaf` by `scripts/eaf_to_gold.py`, never typed by hand, with a
 `.gold.json` saying how its pass 1 was made. **Blind** gold (route A) can
 score any engine. **Seeded** gold (route B: pass 1 corrected from the
@@ -306,7 +311,7 @@ RTMPose-m trained on **HALPE_26** (the 17 COCO body joints in COCO order, then
 head top, neck, mid-hip and six foot points; `pose.KEYPOINTS`). Only five
 points are on the face, deliberately (IRB).
 
-Output per camera, `data/pose/<case>/<camera>.npz`: keypoints `(M, T, 26, 2)`,
+Output per camera, `data/pose/<recording>/<camera>.npz`: keypoints `(M, T, 26, 2)`,
 scores, detector boxes (float16; at most 0.5 px error inside a 1920-wide
 frame), OpenCV's time for each frame (`frame_ms`), and the model and settings.
 `M` = 8 slots per frame. **A slot is not a person**: slot 0 in one frame and
@@ -343,12 +348,12 @@ reference-clock times), as one worker; the runner goes oldest video first.
 
 | Output | Where |
 |---|---|
-| Stretches per video (times, view id, match quality, move from previous) | `data/views/<case>/<camera>.json` |
+| Stretches per video (times, view id, match quality, move from previous) | `data/views/<recording>/<camera>.json` |
 | View library: 5 sample frames per view (`.npz`), same as a strip (`.png`) | `data/views/library/<camera>/v<n>.*` |
 | One row per view: `label`, `label_source` (`provisional`/`confirmed`), `notes` | manifest `camera_views` |
 | Seconds per video per view | manifest `video_views` |
 
-A view is **recurring** when it shows up in 2+ cases or 3+ separate times
+A view is **recurring** when it shows up in 2+ recordings or 3+ separate times
 (`manifest.view_summary()`); recurring views are the presets. A preset moves
 both cameras of a room, so it shows up as a recurring *pair* of views
 (`views.pair_views()`).
@@ -370,7 +375,7 @@ both cameras of a room, so it shows up as a recurring *pair* of views
    `import --write` saves it and moves the sheet to `labels_imported.csv`.
    Then run `sheets` again to see the result.
 
-After new cases go through `views`, repeat from step 1: new views appear with
+After new recordings go through `views`, repeat from step 1: new views appear with
 no label. The first 65 recurring views were labelled provisionally by eye on
 2026-11-01 (`scripts/label_views_2026-11-01.py`, confidence in each note).
 
@@ -380,7 +385,7 @@ no label. The first 65 recurring views were labelled provisionally by eye on
 
 To pair the two cameras' frames in time (for 3D, and for demo clips):
 
-- **A case's two files start up to ~1 s apart, by a fixed amount, with no
+- **A recording's two files start up to ~1 s apart, by a fixed amount, with no
   drift.** Both carry the same audio (§5), so cross-correlating it (GCC-PHAT
   over 10 s windows every 30 s) gives the offset. Stored as
   `videos.sync_offset_s`: seconds to add to this file's time to get the
@@ -389,7 +394,7 @@ To pair the two cameras' frames in time (for 3D, and for demo clips):
   the offset stays NULL and the row is `failed`; it is never guessed.
 - **Files drop frames**, sometimes minutes of them, so frame number is not
   time. The stage stores every frame's presentation time in
-  `data/sync/<case>/<camera>.npz`.
+  `data/sync/<recording>/<camera>.npz`.
 
 A pose frame `i` happened at `frame_ms[i] / 1000 + sync_offset_s` on the
 reference clock (pose stores the time of every frame it read, so this works
@@ -409,15 +414,15 @@ in every env. Additive column migrations run automatically on connect.
 
 | Table | One row per | Notes |
 |---|---|---|
-| `cases` | encounter, from the source system's export | `case_id` is the export's sheet title. Holds real names (learner, SP, preceptor): never print them. `audio_camera`, `cloud_release`, `consent_ref` live here, and the LearningSpace links (`ls_*`, `recording_start_utc`) |
+| `recordings` | encounter, from the source system's export | `recording_id` is the export's sheet title. Holds real names (learner, SP, preceptor): never print them. `audio_camera`, `cloud_release`, `consent_ref` live here, and the LearningSpace links (`ls_*`, `recording_start_utc`) |
 | `videos` | camera file | what every stage reads and writes: file facts, `<stage>_status` per stage, `sync_offset_s`; LearningSpace's `ls_file_id`, `size_bytes`, `download_url` |
 | `cameras` | camera | hand-verified camera -> room (§2); seeded from `db_seed/camera_rooms.csv` |
-| `video_case_matches` | raw file name | cache of case matching: `matched`, `ambiguous`, `no_match`, `no_room` |
+| `file_matches` | raw file name | cache of recording matching: `matched`, `ambiguous`, `no_match`, `no_room` |
 | `gold` | gold reference | who annotated, when frozen, which span |
 | `stage_runs` | stage run on one video | wall time, media time, realtime factor, host, GPU, commit, flags, stage details, error; feeds [cost_estimate.md](cost_estimate.md) |
 | `camera_views`, `video_views` | view; video x view | §9a |
-| `speaker_prosody` | diarized speaker in a case | §6b |
-| `case_scores` | checklist part, section and submission | the faculty observer's points: the case's grade ([learningspace.md](learningspace.md)) |
+| `speaker_prosody` | diarized speaker in a recording | §6b |
+| `recording_scores` | checklist part, section and submission | the faculty observer's points: the recording's grade ([learningspace.md](learningspace.md)) |
 | `ls_rooms` | LearningSpace room GUID | its room number, learned from linked recordings |
 
 **Statuses**: `pending`, `done`, `failed`, `skipped`. Each stage processes
@@ -434,14 +439,14 @@ manifest is needed elsewhere, take `sqlite3 manifest.sqlite ".backup <path>"`
 
 ## 11. Scale, governance, reproducibility
 
-- **Cost:** about 39 machine-minutes and 0.56 GB per case, 90% of the compute
+- **Cost:** about 39 machine-minutes and 0.56 GB per recording, 90% of the compute
   being 2D pose; the full small-room catalogue doesn't fit on the pilot
   workstation's main drive. Details and scenarios: [cost_estimate.md](cost_estimate.md).
 - **What's irreplaceable:** the manifest and the gold/annotation `.eaf`
   files. Raw video can be re-exported from the recording system; everything
   else regenerates. Backups: [operations.md](operations.md).
-- **Consent and cloud release are pipeline fields:** `cases.consent_ref` and
-  `cases.cloud_release`. No third-party ASR call may happen for a case without
+- **Consent and cloud release are pipeline fields:** `recordings.consent_ref` and
+  `recordings.cloud_release`. No third-party ASR call may happen for a recording without
   `cloud_release`; that check is **not enforced in code yet** (see
   [status.md](status.md)).
 - **Pin and record versions.** Whisper, pyannote and rtmlib change behaviour
@@ -460,7 +465,7 @@ manifest is needed elsewhere, take `sqlite3 manifest.sqlite ".backup <path>"`
 python scripts/ingest_raw.py            # dry run
 python scripts/ingest_raw.py --write
 
-# stages, in order (each processes only its pending rows; --only <case> for one case)
+# stages, in order (each processes only its pending rows; --only <recording> for one recording)
 conda activate md-speech
 python scripts/run_stage.py audio
 python scripts/run_stage.py asr         # --engine whisperx --model large-v3 to vary
@@ -474,12 +479,12 @@ python scripts/run_stage.py pose --accel-device cuda --shard 0/2   # and 1/2 alo
 # name camera views (md-pose for sheets)
 python scripts/review_views.py sheets | export | import [--write]
 
-# demo clip of a case (md-pose)
+# demo clip of a recording (md-pose)
 python scripts/demo_clip.py 261498
 
 # benchmarking (md-speech)
-python scripts/eaf_to_gold.py --eaf <path.eaf> --case <case_id>
-python benchmarks/run_benchmark.py --case <case_id> --audio data/audio/<case_id>/<camera>.wav \
+python scripts/eaf_to_gold.py --eaf <path.eaf> --recording <recording_id>
+python benchmarks/run_benchmark.py --recording <recording_id> --audio data/audio/<recording_id>/<camera>.wav \
     --engine whisperx_disfluent --model medium
 python scripts/bench_status.py
 ```

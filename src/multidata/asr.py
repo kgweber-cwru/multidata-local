@@ -1,7 +1,7 @@
 """Stage: asr — transcription + word timing + diarization (doc §6).
 
-Runs in the **md-speech** env. Writes one JSON per (case, camera, engine,
-model) to `data/transcripts/<case_id>/<camera>_<engine>_<model>.json`, plus a
+Runs in the **md-speech** env. Writes one JSON per (recording, camera, engine,
+model) to `data/transcripts/<recording_id>/<camera>_<engine>_<model>.json`, plus a
 plain-text sibling (`.txt`) for a quick human read. Every output is
 word-level speaker-labeled (`segments[].words[].speaker`) regardless of
 engine — that's the single source of truth for §7 (ELAN, which only ever
@@ -56,8 +56,8 @@ DEFAULT_PROMPT = (
 
 
 def _free_gpu():
-    """Return cached GPU memory once a case's models are dropped. Without it a
-    batch of cases in one process runs the GPU out of memory part-way."""
+    """Return cached GPU memory once a recording's models are dropped. Without it a
+    batch of recordings in one process runs the GPU out of memory part-way."""
     import gc
 
     gc.collect()
@@ -112,7 +112,7 @@ def transcribe_whisperx(audio_path, model_name=DEFAULT_MODEL, device=None, compu
     align_model, meta = whisperx.load_align_model(result["language"], align_device)
     result = whisperx.align(result["segments"], align_model, meta, audio, align_device)
     del model, align_model
-    _free_gpu()   # a batch runs many cases in one process
+    _free_gpu()   # a batch runs many recordings in one process
 
     if diarize:   # off when transcribe() merges in the pipeline's own diarization
         dia = whisperx.diarize.DiarizationPipeline(token=hf_token(), device=diarize_device)
@@ -160,7 +160,7 @@ def transcribe_whisperx_disfluent(audio_path, model_name=DEFAULT_MODEL, device=N
       each segment. **This is a real tradeoff, not a free upgrade**: it's also
       the main lever that causes repetition loops on bad audio. Sweep against
       `condition_on_previous_text=False` explicitly -- don't assume this
-      config is safe on a noisy case just because it helped on a clean one.
+      config is safe on a noisy recording just because it helped on a clean one.
     - `prompt=DISFLUENCY_PROMPT` in place of `asr.DEFAULT_PROMPT`'s clean
       clinical register.
 
@@ -190,7 +190,7 @@ def transcribe_whisperx_disfluent(audio_path, model_name=DEFAULT_MODEL, device=N
     align_model, meta = whisperx.load_align_model(result["language"], align_device)
     result = whisperx.align(result["segments"], align_model, meta, audio, align_device)
     del model, align_model
-    _free_gpu()   # a batch runs many cases in one process
+    _free_gpu()   # a batch runs many recordings in one process
 
     if diarize:   # off when transcribe() merges in the pipeline's own diarization
         dia = whisperx.diarize.DiarizationPipeline(token=hf_token(), device=diarize_device)
@@ -262,7 +262,7 @@ TAKES_DIARIZE_DEVICE = {"whisperx", "whisperx_disfluent"}
 
 # The pipeline's engine: the standards keep disfluencies (§1), and this is
 # also the seed engine for draft-seeded gold (`seeding.SEED_ENGINE`), so a
-# case's pipeline transcript and its seed transcript are the same file.
+# recording's pipeline transcript and its seed transcript are the same file.
 DEFAULT_ENGINE = "whisperx_disfluent"
 
 

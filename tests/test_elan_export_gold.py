@@ -21,7 +21,7 @@ def _build_eaf(path, annotations):
 
 class TestTierInclusion:
     def test_text_includes_everything_audible_but_not_notes(self, tmp_path):
-        eaf_path = tmp_path / "case.eaf"
+        eaf_path = tmp_path / "recording.eaf"
         _build_eaf(eaf_path, {
             "LEARNER": [(0, 1000, "hello")],
             "PATIENT": [(1500, 2500, "hi doctor")],
@@ -34,7 +34,7 @@ class TestTierInclusion:
         assert "AC unit" not in text
 
     def test_rttm_includes_announcement_and_outside_room_but_not_notes(self, tmp_path):
-        eaf_path = tmp_path / "case.eaf"
+        eaf_path = tmp_path / "recording.eaf"
         _build_eaf(eaf_path, {
             "LEARNER": [(0, 1000, "hello")],
             "ANNOUNCEMENT": [(3000, 4000, "paging doctor smith")],
@@ -46,8 +46,8 @@ class TestTierInclusion:
         assert labels == {"LEARNER", "ANNOUNCEMENT", "OUTSIDE_ROOM"}
 
     def test_missing_optional_tier_is_not_an_error(self, tmp_path):
-        # A case with no ANNOUNCEMENT/OUTSIDE_ROOM content at all.
-        eaf_path = tmp_path / "case.eaf"
+        # A recording with no ANNOUNCEMENT/OUTSIDE_ROOM content at all.
+        eaf_path = tmp_path / "recording.eaf"
         _build_eaf(eaf_path, {"LEARNER": [(0, 1000, "hello")]})
         text, rttm_lines, _ = export_gold(eaf_path)
         assert text == "hello"
@@ -56,7 +56,7 @@ class TestTierInclusion:
 
 class TestChronologicalOrder:
     def test_text_interleaves_speakers_by_start_time(self, tmp_path):
-        eaf_path = tmp_path / "case.eaf"
+        eaf_path = tmp_path / "recording.eaf"
         _build_eaf(eaf_path, {
             "LEARNER": [(0, 1000, "hello"), (3000, 4000, "how are you")],
             "PATIENT": [(1500, 2500, "hi doctor")],
@@ -69,7 +69,7 @@ class TestChronologicalOrder:
 
 class TestMergeAdjacent:
     def test_close_segments_merge_into_one_turn(self, tmp_path):
-        eaf_path = tmp_path / "case.eaf"
+        eaf_path = tmp_path / "recording.eaf"
         _build_eaf(eaf_path, {
             "LEARNER": [(0, 1000, "hello"), (1100, 2000, "there")],  # 0.1s gap
         })
@@ -80,7 +80,7 @@ class TestMergeAdjacent:
         assert float(fields[4]) == pytest.approx(2.0)
 
     def test_distant_segments_stay_separate(self, tmp_path):
-        eaf_path = tmp_path / "case.eaf"
+        eaf_path = tmp_path / "recording.eaf"
         _build_eaf(eaf_path, {
             "LEARNER": [(0, 1000, "hello"), (2000, 3000, "there")],  # 1.0s gap
         })
@@ -88,7 +88,7 @@ class TestMergeAdjacent:
         assert len(rttm_lines) == 2
 
     def test_merge_gap_is_configurable(self, tmp_path):
-        eaf_path = tmp_path / "case.eaf"
+        eaf_path = tmp_path / "recording.eaf"
         _build_eaf(eaf_path, {
             "LEARNER": [(0, 1000, "hello"), (1200, 2000, "there")],  # 0.2s gap
         })
@@ -100,7 +100,7 @@ class TestMergeAdjacent:
 
 class TestRedaction:
     def test_names_redacted_in_text(self, tmp_path):
-        eaf_path = tmp_path / "case.eaf"
+        eaf_path = tmp_path / "recording.eaf"
         _build_eaf(eaf_path, {
             "LEARNER": [(0, 1000, "hi I'm Jamie")],
         })
@@ -110,7 +110,7 @@ class TestRedaction:
         assert len(subs) == 1
 
     def test_names_none_skips_redaction(self, tmp_path):
-        eaf_path = tmp_path / "case.eaf"
+        eaf_path = tmp_path / "recording.eaf"
         _build_eaf(eaf_path, {"LEARNER": [(0, 1000, "hi I'm Jamie")]})
         text, _, subs = export_gold(eaf_path, names=None)
         assert "Jamie" in text
@@ -119,19 +119,19 @@ class TestRedaction:
 
 class TestFileWriting:
     def test_writes_txt_and_rttm(self, tmp_path):
-        eaf_path = tmp_path / "case.eaf"
+        eaf_path = tmp_path / "recording.eaf"
         _build_eaf(eaf_path, {"LEARNER": [(0, 1000, "hello")]})
-        out_txt = tmp_path / "out" / "case.gold.txt"
-        out_rttm = tmp_path / "out" / "case.gold.rttm"
+        out_txt = tmp_path / "out" / "recording.gold.txt"
+        out_rttm = tmp_path / "out" / "recording.gold.rttm"
         export_gold(eaf_path, out_txt=out_txt, out_rttm=out_rttm)
         assert out_txt.read_text().strip() == "hello"
         assert "SPEAKER" in out_rttm.read_text()
 
     def test_no_paths_means_no_files(self, tmp_path):
-        eaf_path = tmp_path / "case.eaf"
+        eaf_path = tmp_path / "recording.eaf"
         _build_eaf(eaf_path, {"LEARNER": [(0, 1000, "hello")]})
         export_gold(eaf_path)
-        assert not (tmp_path / "case.gold.txt").exists()
+        assert not (tmp_path / "recording.gold.txt").exists()
 
 
 class TestUri:
@@ -142,7 +142,7 @@ class TestUri:
         assert rttm_lines[0].split()[1] == "132704.pass1"
 
     def test_uri_override(self, tmp_path):
-        eaf_path = tmp_path / "case.eaf"
+        eaf_path = tmp_path / "recording.eaf"
         _build_eaf(eaf_path, {"LEARNER": [(0, 1000, "hello")]})
         _, rttm_lines, _ = export_gold(eaf_path, uri="132704")
         assert rttm_lines[0].split()[1] == "132704"

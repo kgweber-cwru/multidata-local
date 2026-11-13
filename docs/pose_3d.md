@@ -21,7 +21,7 @@ in each room, for behavioural research and possibly learner assessment.
 | Sync | Audio offsets and frame times for every video; fails (never guesses) in room 11 and a few others |
 | Camera movement | `views` stage + per-camera view library; recurring views provisionally named after the operators' presets |
 | 3D | Not started: waiting on room calibration |
-| Cost | ~35 GPU-minutes of pose per case; [cost_estimate.md](cost_estimate.md) |
+| Cost | ~35 GPU-minutes of pose per recording; [cost_estimate.md](cost_estimate.md) |
 
 ---
 
@@ -38,7 +38,7 @@ The plan solves this in 3D rather than per camera: match people across the
 two views by geometry, then track them over time in 3D, where people don't
 jump between frames. Roles (learner, preceptor, patient) are a separate step
 after that: position rules, matching people to the diarized speakers, or
-labelling a few frames per case. `scripts/demo_clip.py` shows a crude
+labelling a few frames per recording. `scripts/demo_clip.py` shows a crude
 position-based role guess, labelled as a guess.
 
 ### 2. Mirrors: phantom people
@@ -46,7 +46,7 @@ position-based role guess, labelled as a guess.
 Every exam room has a one-way window to the control room that acts as a
 mirror when the control room is dark, and at least one camera in each room
 sees it (seen in rooms 07, 11, 13, 14). **The pose model detects reflections
-as people**, with whole, confident bodies; in one large-room case there were
+as people**, with whole, confident bodies; in one large-room recording there were
 more reflections per frame than real people. A 2D mask doesn't work (real
 people stand in front of the window), and reflections took slots from real
 people when there were only 4 (now 8).
@@ -71,18 +71,18 @@ calibration only holds for one view.
   bed-side one moves.
 - Provisional labels (by eye, 2026-11-01): footage is 28% Baseline, 14% PC,
   10% Bed, 3% Chair, 1% Sink and 44% unmatched (operator-steered, or presets
-  on cameras with too few cases to recur yet). Confirm them with
+  on cameras with too few recordings to recur yet). Confirm them with
   `scripts/review_views.py` ([pipeline.md](pipeline.md) §9a).
 - Operators don't see pan/tilt/zoom values, but the system might record them:
   that question is with the LearningSpace team. Until they answer, plan as if
   off-preset views must be located from the video.
-- The exam table changes shape between cases (chair vs. flat bed), so it
+- The exam table changes shape between recordings (chair vs. flat bed), so it
   isn't a fixed reference point.
 
 So 3D comes in tiers: on-preset stretches with a stored calibration (roughly
 40-55% of the time with both cameras); off-preset stretches located from the
 video against the pan/tilt sweep (or from PTZ logs, if they exist); the rest
-no 3D. Some cases will get none, and that's accepted.
+no 3D. Some recordings will get none, and that's accepted.
 
 ---
 
@@ -136,7 +136,7 @@ low-confidence detections are flagged in derived layers, not deleted.
 ## Things that will bite
 
 - **Room 11 can't be audio-synced** (camera 31's audio has gaps), so its
-  cases get no 3D unless another sync method is found.
+  recordings get no 3D unless another sync method is found.
 - **Some files drop minutes of frames** (261464/337 lost ~1170 s). Always
   pair frames by time, never by index.
 - **Case 261573 is a 20-minute empty room** on both cameras; empty pose

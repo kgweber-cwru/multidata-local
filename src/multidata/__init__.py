@@ -5,13 +5,13 @@ conda env each needs is in brackets; details in docs/pipeline.md):
 
 Bookkeeping
   manifest     the SQLite registry every stage reads and updates   [any env]
-  models       Case / Video / Camera rows of the manifest           [any env]
+  models       Recording / Video / Camera rows of the manifest           [any env]
   paths        repo-relative locations (data/, manifest.sqlite)     [any env]
   ingest       check and fingerprint a raw video file               [any env]
-  casematch    which case a raw video belongs to (time + room)      [any env]
+  filematch    which recording a raw video belongs to (time + room)      [any env]
 
 Speech stages                                                        [md-speech]
-  audio        16 kHz mono WAV from the case's audio camera
+  audio        16 kHz mono WAV from the recording's audio camera
   asr          transcript with word timing and speakers (--engine)
   diarize      who spoke when (pyannote) -> RTTM
   elan         ELAN .eaf file for annotators

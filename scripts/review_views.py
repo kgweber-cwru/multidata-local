@@ -12,11 +12,11 @@ views after the operators' presets (manifest.PRESETS). This script is the
 loop for doing that:
 
 1. `sheets` redraws data/views/sheets/ from the current library and manifest:
-     recurring_<n>.png   every recurring view (seen in 2+ cases or held 3+
+     recurring_<n>.png   every recurring view (seen in 2+ recordings or held 3+
                          times), one tile each, tagged
                          "R<room> c<camera> v<n> <share>% <label>"
      pairs_room<NN>.png  view pairs the room's two cameras hold at the same
-                         time, with minutes and cases: a preset moves both
+                         time, with minutes and recordings: a preset moves both
      Old sheets are deleted first, so what's there is always current.
 2. `export` writes data/views/review/labels.csv: one row per recurring or
    labelled view (--all: every view), with its current label, how sure the
@@ -111,40 +111,40 @@ def cmd_sheets(db):
           "(* = confirmed label)")
 
 
-def _pair_sheets(db, min_s=180, min_cases=2):
+def _pair_sheets(db, min_s=180, min_recordings=2):
     import cv2
     import numpy as np
 
     from multidata import views
 
     c = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
-    vids = c.execute("SELECT v.case_id, v.camera, cs.room_number FROM videos v "
-                     "JOIN cases cs USING (case_id)").fetchall()
-    by_case = defaultdict(dict)
-    for case_id, cam, room in vids:
-        p = VIEWS / case_id / f"{cam}.json"
+    vids = c.execute("SELECT v.recording_id, v.camera, cs.room_number FROM videos v "
+                     "JOIN recordings cs USING (recording_id)").fetchall()
+    by_recording = defaultdict(dict)
+    for recording_id, cam, room in vids:
+        p = VIEWS / recording_id / f"{cam}.json"
         if p.exists():
-            by_case[(room, case_id)][cam] = json.loads(p.read_text())["stretches"]
+            by_recording[(room, recording_id)][cam] = json.loads(p.read_text())["stretches"]
     pairs = defaultdict(lambda: [0.0, set()])
-    for (room, case_id), cams in by_case.items():
+    for (room, recording_id), cams in by_recording.items():
         if len(cams) != 2:
             continue
         (ca, sa), (cb, sb) = sorted(cams.items(), key=lambda kv: int(kv[0]))
         for (va, vb), sec in views.pair_views(sa, sb).items():
             k = (room, ca, va, cb, vb)
             pairs[k][0] += sec
-            pairs[k][1].add(case_id)
+            pairs[k][1].add(recording_id)
     labels = {(r["camera"], r["view_id"]): r["label"] for r in manifest.view_summary(db)}
     rooms = defaultdict(list)
-    for k, (sec, cases) in pairs.items():
-        if sec >= min_s and len(cases) >= min_cases:
-            rooms[k[0]].append((k, sec, len(cases)))
+    for k, (sec, recordings) in pairs.items():
+        if sec >= min_s and len(recordings) >= min_recordings:
+            rooms[k[0]].append((k, sec, len(recordings)))
     for room, lst in rooms.items():
         lst.sort(key=lambda x: -x[1])
         rows = []
         for (_, ca, va, cb, vb), sec, n in lst[:8]:
             side = np.zeros((180, 150, 3), np.uint8)
-            for i, line in enumerate((f"{sec / 60:.0f} min", f"{n} cases")):
+            for i, line in enumerate((f"{sec / 60:.0f} min", f"{n} recordings")):
                 cv2.putText(side, line, (8, 80 + 26 * i), cv2.FONT_HERSHEY_SIMPLEX, 0.6,
                             (255, 255, 255), 1, cv2.LINE_AA)
             rows.append(np.hstack([side] + [
@@ -155,7 +155,7 @@ def _pair_sheets(db, min_s=180, min_cases=2):
     return len(rooms)
 
 
-COLUMNS = ["room", "camera", "view_id", "share_pct", "cases", "stretches", "recurring",
+COLUMNS = ["room", "camera", "view_id", "share_pct", "recordings", "stretches", "recurring",
            "label", "label_source", "notes", "sample", "confirmed_label", "confirm_notes"]
 
 
@@ -172,7 +172,7 @@ def cmd_export(db, include_all):
         w = csv.writer(f)
         w.writerow(COLUMNS)
         for r in rows:
-            w.writerow([r["room"], r["camera"], r["view_id"], r["share_pct"], r["cases"],
+            w.writerow([r["room"], r["camera"], r["view_id"], r["share_pct"], r["recordings"],
                         r["stretches"], "yes" if r["is_preset"] else "no", r["label"],
                         r["label_source"], notes.get((r["camera"], r["view_id"]), ""),
                         f"data/views/library/{r['camera']}/{r['view_id']}.png", "", ""])

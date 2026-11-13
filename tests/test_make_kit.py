@@ -56,7 +56,7 @@ class TestMediaLinking:
         make_kit.write_eaf(out, "999")
         assert [m for _, _, m in descriptors(out)] == ["video/mp4", "audio/x-wav"]
 
-    def test_case_id_appears_in_every_path(self, tmp_path):
+    def test_recording_id_appears_in_every_path(self, tmp_path):
         out = tmp_path / "k.eaf"
         make_kit.write_eaf(out, "123456")
         for url, rel, _ in descriptors(out):

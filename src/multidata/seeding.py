@@ -24,6 +24,8 @@ import hashlib
 import json
 from pathlib import Path
 
+from multidata.models import upgrade_keys
+
 # The one engine and model that seeds every draft-seeded gold file. It keeps
 # disfluencies (the standards keep them), and large-v3 is the most accurate
 # local model. Changing this is a standards change (§12): seeded gold made
@@ -38,8 +40,8 @@ ROLE_TIERS = ("LEARNER", "PATIENT", "PRECEPTOR", "ANNOUNCEMENT", "OUTSIDE_ROOM")
 UNASSIGNED_TIER = "UNASSIGNED"   # seeded speech whose speaker had no role; must end empty
 
 
-def seed_transcript_path(case_id, camera, data_dir):
-    return Path(data_dir) / "transcripts" / str(case_id) / f"{camera}_{SEED_ENGINE}_{SEED_MODEL}.json"
+def seed_transcript_path(recording_id, camera, data_dir):
+    return Path(data_dir) / "transcripts" / str(recording_id) / f"{camera}_{SEED_ENGINE}_{SEED_MODEL}.json"
 
 
 def kit_seed_transcripts(kits_dir, data_dir):
@@ -50,13 +52,13 @@ def kit_seed_transcripts(kits_dir, data_dir):
     for kit in Path(kits_dir).glob("*/*/kit.json"):
         k = json.loads(kit.read_text())
         if k.get("pass1_source") == "seeded" and k.get("seed_transcript"):
-            used.add((Path(data_dir) / "transcripts" / str(k["case_id"])
+            used.add((Path(data_dir) / "transcripts" / str(k["recording_id"])
                       / k["seed_transcript"]).resolve())
     return used
 
 
 def make_seed_transcript(wav, out_path, rttm=None, device="cuda"):
-    """Run the seed engine on a case's WAV (GPU, a few minutes per 20 min of
+    """Run the seed engine on a recording's WAV (GPU, a few minutes per 20 min of
     audio), taking speakers from `rttm` (the diarize stage's output, made
     first if missing). Skips if `out_path` already exists: the seed must not
     change under a kit once it's been used. Normally the asr stage has
@@ -160,24 +162,24 @@ def eaf_provenance(eaf_path):
     return props
 
 
-def gold_meta_path(case_id, references_dir):
-    return Path(references_dir) / f"{case_id}.gold.json"
+def gold_meta_path(recording_id, references_dir):
+    return Path(references_dir) / f"{recording_id}.gold.json"
 
 
-def write_gold_meta(case_id, references_dir, meta):
-    path = gold_meta_path(case_id, references_dir)
+def write_gold_meta(recording_id, references_dir, meta):
+    path = gold_meta_path(recording_id, references_dir)
     path.write_text(json.dumps(meta, indent=2) + "\n")
     return path
 
 
-def read_gold_meta(case_id, references_dir):
+def read_gold_meta(recording_id, references_dir):
     """A gold reference's `.gold.json`: how pass 1 was made, the seed if
     any, standards version, span. A reference without one predates seeding
     and was made blind."""
-    path = gold_meta_path(case_id, references_dir)
+    path = gold_meta_path(recording_id, references_dir)
     if not path.exists():
-        return {"case_id": str(case_id), "pass1_source": "blind", "meta_file": False}
-    return json.loads(path.read_text())
+        return {"recording_id": str(recording_id), "pass1_source": "blind", "meta_file": False}
+    return upgrade_keys(json.loads(path.read_text()))
 
 
 if __name__ == "__main__":     # quick look at a transcript's speakers

@@ -95,7 +95,7 @@ def cache_key(audio_sha256, provider, params):
     same entry, and two calls that differ in any real way should never
     collide. Truncating the audio hash to 16 hex chars keeps keys readable
     without meaningfully increasing collision risk for a benchmark-scale
-    corpus (a handful to a few hundred cases)."""
+    corpus (a handful to a few hundred recordings)."""
     return f"{provider}_{audio_sha256[:16]}_{config_hash(params)}"
 
 
