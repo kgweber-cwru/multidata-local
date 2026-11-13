@@ -1,6 +1,6 @@
 recording_id,annotator,pass,route,camera,status,assigned_on,returned_on,notes
 252848,kate,1,blind,24,returned,,2026-11-05,"Whole encounter since 2026-11-05 (patient encounter added; kit span cleared). Before that an excerpt: 2880.955 s to the end (16 min, the feedback section), made against a redacted copy of that excerpt with times shifted to the full recording; was exported as gold without a pass 2 and moved back to pass 1 2026-10-28."
-252848,kate2,2,blind,24,gold,2026-11-12,2026-11-13,
+252848,kate2,2,blind,24,gold,2026-11-12,2026-11-13,The learner's first name and the preceptor's name escaped redaction; masked by hand in the .gold.txt.
 255048,kate,1,seeded,12,assigned,2026-11-02,,"Kit built under kate as a placeholder. 2025 format: encounter, then an oral presentation to camera; no preceptor. History-taking (learner + patient) diarized as one speaker, seeded on PATIENT."
 255387,shruti,1,blind,15,abandoned,2026-10-28,,Annotator left 2026-10-30. Case dropped with all large-room (L) data 2026-10-30; kit deleted.
 261041,kate,1,blind,10,returned,2026-10-05,2026-11-12,Pass 1 updated and re-frozen 2026-11-12 (first returned 2026-10-26).
