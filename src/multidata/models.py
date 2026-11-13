@@ -57,6 +57,16 @@ class Case:
     cloud_release: int = 0
     cloud_release_basis: str = ""
     audio_camera: str = ""
+    # LearningSpace links (multidata.learningspace; docs/learningspace.md).
+    # ls_recording_guid is LearningSpace's identity for this recording.
+    ls_recording_guid: str = ""
+    ls_activity_id: str = ""
+    ls_event_id: str = ""
+    ls_case_guid: str = ""
+    ls_learner_id: str = ""
+    ls_room_id: str = ""
+    recording_start_utc: str = ""
+    ls_synced_at: str = ""
 
     @classmethod
     def columns(cls):
@@ -138,6 +148,11 @@ class Video:
     asr_model: str = ""
     asr_commit: str = ""
     notes: str = ""
+    # LearningSpace's record of this file (multidata.learningspace)
+    ls_file_id: str = ""
+    ls_server: str = ""
+    size_bytes: Optional[int] = None
+    download_url: str = ""
 
     STATUS_FIELDS = (
         "audio_status", "asr_status", "diarize_status", "elan_status", "pose_status",

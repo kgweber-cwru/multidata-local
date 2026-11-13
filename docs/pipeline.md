@@ -122,6 +122,9 @@ files).
 3. `python scripts/ingest_raw.py` lists what it would register (name check,
    case match, ffprobe facts, SHA-256 duplicate check); `--write` registers
    them with every stage `pending`.
+4. `python scripts/ls_backfill.py`, then again with `--apply`: links each
+   recording to LearningSpace by filename and fills in its GUIDs, exact start
+   time, file links, preceptor and grade ([learningspace.md](learningspace.md)).
 
 `notebooks/ingest_walkthrough.ipynb` does the same one step at a time, then
 runs the stages; it's the place to learn the pipeline. A scripted download
@@ -406,14 +409,16 @@ in every env. Additive column migrations run automatically on connect.
 
 | Table | One row per | Notes |
 |---|---|---|
-| `cases` | encounter, from the source system's export | `case_id` is the export's sheet title. Holds real names (learner, SP, preceptor): never print them. `audio_camera`, `cloud_release`, `consent_ref` live here |
-| `videos` | camera file | what every stage reads and writes: file facts, `<stage>_status` per stage, `sync_offset_s` |
+| `cases` | encounter, from the source system's export | `case_id` is the export's sheet title. Holds real names (learner, SP, preceptor): never print them. `audio_camera`, `cloud_release`, `consent_ref` live here, and the LearningSpace links (`ls_*`, `recording_start_utc`) |
+| `videos` | camera file | what every stage reads and writes: file facts, `<stage>_status` per stage, `sync_offset_s`; LearningSpace's `ls_file_id`, `size_bytes`, `download_url` |
 | `cameras` | camera | hand-verified camera -> room (§2); seeded from `db_seed/camera_rooms.csv` |
 | `video_case_matches` | raw file name | cache of case matching: `matched`, `ambiguous`, `no_match`, `no_room` |
 | `gold` | gold reference | who annotated, when frozen, which span |
 | `stage_runs` | stage run on one video | wall time, media time, realtime factor, host, GPU, commit, flags, stage details, error; feeds [cost_estimate.md](cost_estimate.md) |
 | `camera_views`, `video_views` | view; video x view | §9a |
 | `speaker_prosody` | diarized speaker in a case | §6b |
+| `case_scores` | checklist part, section and submission | the faculty observer's points: the case's grade ([learningspace.md](learningspace.md)) |
+| `ls_rooms` | LearningSpace room GUID | its room number, learned from linked recordings |
 
 **Statuses**: `pending`, `done`, `failed`, `skipped`. Each stage processes
 only `pending` rows and updates status, so batch runs are restartable: kill
