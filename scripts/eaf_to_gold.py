@@ -26,6 +26,10 @@ file -- pass --allow-unredacted to override for an ad hoc recording not yet in t
 manifest, and you become responsible for keeping that output out of
 git/sharing yourself.
 
+With --from-kit, marks the pass-2 row of the manifest's `assignments` table
+`gold` (returned today, if it had no date) and takes --pass1-frozen-at from
+the pass-1 row's returned_on.
+
 On a successful export with a manifest row, also inserts one row into the
 manifest's `gold` table (implementation plan Phase 2.4) -- --annotator/
 --gold-at/etc. are optional metadata for that row, not required for the
@@ -53,6 +57,9 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from multidata import elan, manifest, seeding  # noqa: E402
 from multidata.models import upgrade_keys  # noqa: E402
+
+sys.path.insert(0, str(ROOT / "annotation"))
+import assignments  # noqa: E402
 
 REFERENCES = ROOT / "benchmarks" / "references"
 KITS = ROOT / "annotation" / "kits"
@@ -170,6 +177,22 @@ def main():
     )
     print(f"recorded gold row id={row_id} in {args.manifest} (gold_at={gold_at})")
 
+    if args.from_kit:
+        mark_gold(args.recording, args.pass2_annotator, args.manifest)
+
+
+def mark_gold(recording_id, annotator, manifest_path):
+    """Set the pass-2 assignment row to gold."""
+    row = manifest.get_assignment(recording_id, annotator, manifest_path)
+    if row is None:
+        print(f"WARNING: no assignment row for {annotator} on {recording_id}; add one with "
+              "annotation/assignments.py add --pass 2 --status gold", file=sys.stderr)
+        return
+    manifest.update_assignment(recording_id, annotator, manifest_path, status="gold",
+                               returned_on=row["returned_on"] or assignments.today())
+    assignments.backup(manifest_path)
+    print(f"assignments: {annotator}'s pass 2 of {recording_id} is gold")
+
 
 def from_pass2_kit(args):
     """Fill args from a pass-2 kit (made by annotation/make_pass2_kit.py) and
@@ -206,7 +229,11 @@ def from_pass2_kit(args):
     args.eaf = args.eaf or str(gold)
     args.kit = args.kit or str(KITS / recording / pass1_annotator)
     args.annotator = args.annotator or pass1_annotator or ""
-    args.gold_notes = args.gold_notes or f"pass 2: {kit.get('annotator', kit_dir.name)}"
+    args.pass2_annotator = kit.get("annotator", kit_dir.name)
+    args.gold_notes = args.gold_notes or f"pass 2: {args.pass2_annotator}"
+    first = manifest.get_assignment(recording, args.annotator, args.manifest)
+    if first and not args.pass1_frozen_at:
+        args.pass1_frozen_at = first["returned_on"]
     if args.span_start is None and kit.get("span_start") is not None:
         args.span_start, args.span_end = kit["span_start"], kit["span_end"]
 

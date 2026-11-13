@@ -329,7 +329,7 @@ names, raw provider responses, normalized transcripts. Scoring happens here.
 **Layer 2 — publishable layer** (`benchmarks/references/`, tracked): the
 de-identified gold export, produced **mechanically** from Layer 1. The one
 sanctioned hand edit is masking a name the mechanical redaction missed, which
-is recorded (without the name) in `annotation/assignments.csv`
+is recorded (without the name) in the manifest's `assignments` table
 ([asr_evaluation_methods.md](asr_evaluation_methods.md) §3.2).
 
 The redaction map is **in the manifest**: `recordings.learner_name`,
