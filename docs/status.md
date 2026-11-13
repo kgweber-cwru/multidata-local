@@ -116,11 +116,14 @@ the raw response is the artifact to cache and compare.
   Still to decide: purge history (`git filter-repo`, force-push every
   branch, ask GitHub to purge cached views) and whether to tell the IRB or
   privacy office.
-- **Open: redaction gap.** `eaf_to_gold.py` redacts only the names recorded
-  in `recordings`. A recording with preceptor speech but no `preceptor_name` exports
-  the preceptor's spoken name unredacted: `261498.gold.txt` has one. Fix:
-  refuse to export when a speaker tier has speech and no name to redact;
-  then record 261498's preceptor and re-export it.
+- **Closed 2026-11-11: preceptor redaction gap.** `preceptor_name` now comes
+  from LearningSpace (the faculty observer) for 56 of 57 recordings, and
+  `eaf_to_gold.py` warns when a speaker tier has speech but no name. Both gold
+  files were re-exported. A short form of a name (261498's preceptor
+  introducing themselves) still slips past matching, so reading each
+  `.gold.txt` for names before committing stays a required step; that one is
+  masked by hand. Older versions of `261498.gold.txt` in git history still
+  carry it (same decision as the history item above).
 
 ---
 
