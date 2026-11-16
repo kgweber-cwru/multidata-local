@@ -11,7 +11,9 @@
 `transcribers.params("elevenlabs")` lists what an engine accepts and its
 defaults. A parameter the engine doesn't take is a TypeError before anything
 runs. Cloud engines refuse a recording whose manifest row lacks
-`cloud_release`, before its audio is read (spec §9).
+`cloud_release`, before its audio is read (spec §9). Every engine also takes
+`speakers="engine"|"pipeline"`, and vendors with a length cap are sent long
+audio in pieces (`chunking.py`).
 
 Local engines are `asr.ENGINES` (the Whisper family). Cloud credentials come
 from `.env`: `ELEVENLABS_API_KEY`, `ASSEMBLYAI_API_KEY`, and for Google

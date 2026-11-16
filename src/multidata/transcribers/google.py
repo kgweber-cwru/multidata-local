@@ -12,15 +12,9 @@ What shapes this adapter:
 - BatchRecognize reads audio only from Cloud Storage, so each run stages
   audio in `GOOGLE_STT_BUCKET` and deletes it afterwards (`delete_staged`).
 - The Chirp 3 page caps BatchRecognize at about an hour, and at 20 minutes
-  with word timestamps on. Our recordings run 10-60 minutes, so audio is cut
-  into `chunk_s` pieces (default 19 minutes), sent one request per piece,
-  and the times are stitched back. The record says `chunked: true`, and
-  `native` keeps each piece's offset (plan 7.4).
-- **Speaker labels don't carry across pieces.** Each piece is diarized on
-  its own, so "speaker 1" in piece 0 and "speaker 1" in piece 1 may be
-  different people. They get separate `SPEAKER_NN` labels here rather than
-  a false match. For speaker-level comparison on a chunked recording, use
-  the pyannote control arm (spec §5, plan 4.5).
+  with word timestamps on; most of our recordings are longer. `chunk_s`
+  (default 19 minutes) has the shared chunker cut them (`chunking.py`),
+  speaker labels then being per piece; `speakers="pipeline"` avoids that.
 - Chirp 3 is offered in the `us` and `eu` multi-regions; the recognizer is
   the implicit one, `projects/<project>/locations/<location>/recognizers/_`.
 - Chirp 3's word confidence "isn't truly a confidence score" (vendor's
@@ -33,8 +27,6 @@ What shapes this adapter:
 """
 import json
 import os
-import subprocess
-import tempfile
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -58,7 +50,8 @@ class GoogleParams:
     phrases: Optional[tuple] = None  # inline phrase set; chirp_3 takes up to 1000
     phrase_boost: Optional[float] = None
     denoise: bool = False
-    chunk_s: Optional[float] = 1140  # None sends the file whole
+    chunk_s: Optional[float] = 1140  # pieces for the shared chunker; None sends the file whole
+    chunk_overlap_s: float = 10.0
     dynamic_batching: bool = False   # cheaper, slower
     delete_staged: bool = True
     timeout_s: int = 7200
@@ -78,8 +71,8 @@ class GoogleTranscriber(CloudTranscriber):
             raise ValueError("chirp_3 takes at most 1000 adaptation phrases")
         if p.min_speaker_count > p.max_speaker_count:
             raise ValueError("min_speaker_count > max_speaker_count")
-        if p.chunk_s is not None and p.chunk_s <= 0:
-            raise ValueError("chunk_s must be positive, or None")
+        if p.chunk_s is not None and not 0 <= p.chunk_overlap_s < p.chunk_s:
+            raise ValueError("need 0 <= chunk_overlap_s < chunk_s")
 
     def recognition_config(self):
         from google.cloud.speech_v2.types import cloud_speech as cs
@@ -118,76 +111,49 @@ class GoogleTranscriber(CloudTranscriber):
         endpoint = "speech.googleapis.com" if p.location == "global" else f"{p.location}-speech.googleapis.com"
         client = SpeechClient(client_options=ClientOptions(api_endpoint=endpoint))
         recognizer = f"projects/{project}/locations/{p.location}/recognizers/_"
-        config = self.recognition_config()
-        prefix = f"multidata-stt/{recording_id}/{uuid.uuid4().hex[:8]}"
 
-        chunks, staged = [], []
-        with tempfile.TemporaryDirectory() as tmp:
-            pieces = _cut(audio_path, Path(tmp), p.chunk_s)
-            try:
-                for index, (piece, offset_s, duration_s) in enumerate(pieces):
-                    blob = bucket.blob(f"{prefix}/{index:02d}.flac")
-                    blob.upload_from_filename(str(piece))
-                    staged.append(blob)
-                    uri = f"gs://{bucket.name}/{blob.name}"
-                    request = cs.BatchRecognizeRequest(
-                        recognizer=recognizer, config=config,
-                        files=[cs.BatchRecognizeFileMetadata(uri=uri)],
-                        recognition_output_config=cs.RecognitionOutputConfig(
-                            inline_response_config=cs.InlineOutputConfig()))
-                    if p.dynamic_batching:
-                        request.processing_strategy = (
-                            cs.BatchRecognizeRequest.ProcessingStrategy.DYNAMIC_BATCHING)
-                    operation = client.batch_recognize(request=request)
-                    response = operation.result(timeout=p.timeout_s)
-                    file_result = response.results[uri]
-                    if file_result.error and file_result.error.code:
-                        raise RuntimeError(f"Google STT failed on piece {index}: "
-                                           f"{file_result.error.message}")
-                    transcript = (file_result.inline_result.transcript
-                                  if file_result.inline_result else file_result.transcript)
-                    chunks.append({
-                        "index": index, "offset_s": offset_s, "duration_s": duration_s,
-                        "uri": uri, "operation": operation.operation.name,
-                        "response": json.loads(type(transcript).to_json(transcript)),
-                    })
-            finally:
-                if p.delete_staged:
-                    for blob in staged:
-                        blob.delete()
-
-        native = {"recognizer": recognizer, "chunks": chunks}
-        return native, {
-            "request_id": ";".join(c["operation"] for c in chunks),
-            "model_returned": None,
-            "audio_duration_s": round(sum(c["duration_s"] for c in chunks), 3),
-            "chunked": len(chunks) > 1,
-            "notes": (f"{len(chunks)} pieces of up to {p.chunk_s} s; speaker labels are "
-                      "per piece" if len(chunks) > 1 else None),
-        }
+        blob = bucket.blob(f"multidata-stt/{recording_id}/{uuid.uuid4().hex[:8]}{Path(audio_path).suffix}")
+        blob.upload_from_filename(str(audio_path))
+        uri = f"gs://{bucket.name}/{blob.name}"
+        try:
+            request = cs.BatchRecognizeRequest(
+                recognizer=recognizer, config=self.recognition_config(),
+                files=[cs.BatchRecognizeFileMetadata(uri=uri)],
+                recognition_output_config=cs.RecognitionOutputConfig(
+                    inline_response_config=cs.InlineOutputConfig()))
+            if p.dynamic_batching:
+                request.processing_strategy = (
+                    cs.BatchRecognizeRequest.ProcessingStrategy.DYNAMIC_BATCHING)
+            operation = client.batch_recognize(request=request)
+            response = operation.result(timeout=p.timeout_s)
+        finally:
+            if p.delete_staged:
+                blob.delete()
+        file_result = response.results[uri]
+        if file_result.error and file_result.error.code:
+            raise RuntimeError(f"Google STT failed: {file_result.error.message}")
+        transcript = (file_result.inline_result.transcript
+                      if file_result.inline_result else file_result.transcript)
+        native = json.loads(type(transcript).to_json(transcript))
+        return native, {"request_id": operation.operation.name, "model_returned": None}
 
     def normalize(self, native):
         speakers = SpeakerLabels()
-        words, language = [], "en"
-        for chunk in native["chunks"]:
-            offset, seen = chunk["offset_s"], set()
-            for result in chunk["response"].get("results", []):
-                language = (_get(result, "languageCode", "language_code") or language).split("-")[0]
-                for alt in result.get("alternatives", [])[:1]:
-                    for w in alt.get("words", []):
-                        start = _offset(_get(w, "startOffset", "start_offset"))
-                        end = _offset(_get(w, "endOffset", "end_offset"))
-                        key = (w.get("word"), start, end)
-                        if key in seen:   # diarized results may repeat earlier words
-                            continue
-                        seen.add(key)
-                        label = _get(w, "speakerLabel", "speaker_label")
-                        words.append(word(
-                            w.get("word", ""),
-                            None if start is None else round(start + offset, 3),
-                            None if end is None else round(end + offset, 3),
-                            score=w.get("confidence") if self.params.enable_word_confidence else None,
-                            speaker=speakers(f"{chunk['index']}:{label}") if label else None))
+        words, language, seen = [], "en", set()
+        for result in native.get("results", []):
+            language = (_get(result, "languageCode", "language_code") or language).split("-")[0]
+            for alt in result.get("alternatives", [])[:1]:
+                for w in alt.get("words", []):
+                    start = _offset(_get(w, "startOffset", "start_offset"))
+                    end = _offset(_get(w, "endOffset", "end_offset"))
+                    key = (w.get("word"), start, end)
+                    if key in seen:   # diarized results may repeat earlier words
+                        continue
+                    seen.add(key)
+                    words.append(word(
+                        w.get("word", ""), start, end,
+                        score=w.get("confidence") if self.params.enable_word_confidence else None,
+                        speaker=speakers(_get(w, "speakerLabel", "speaker_label"))))
         words.sort(key=lambda w: (w["start"] is None, w["start"] or 0))
         return {"language": language, "segments": segments_from_words(words),
                 "word_timing": self.params.enable_word_time_offsets}
@@ -204,23 +170,3 @@ def _offset(value):
     if isinstance(value, (int, float)):
         return float(value)
     return float(value.rstrip("s"))
-
-
-def _cut(audio_path, out_dir, chunk_s):
-    """Mono 16 kHz FLAC pieces of at most `chunk_s` seconds:
-    [(path, offset_s, duration_s)]."""
-    import soundfile
-
-    total = soundfile.info(str(audio_path)).duration
-    step = chunk_s or total
-    pieces, offset, index = [], 0.0, 0
-    while offset < total:
-        length = min(step, total - offset)
-        piece = out_dir / f"{index:02d}.flac"
-        subprocess.run(["ffmpeg", "-nostdin", "-loglevel", "error", "-ss", f"{offset:.3f}",
-                        "-t", f"{length:.3f}", "-i", str(audio_path), "-ac", "1", "-ar", "16000",
-                        str(piece)], check=True)
-        pieces.append((piece, round(offset, 3), round(length, 3)))
-        offset += step
-        index += 1
-    return pieces

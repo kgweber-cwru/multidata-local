@@ -63,7 +63,7 @@ row's notes; this is the summary.
 |---|---|---|---|---|---|
 | `faster_whisper` (local) | no — pyannote merged | yes | `initial_prompt` (lossy — prose, not terms) | inconsistently | baseline; fully pinned |
 | `whisperx` (local) | yes (pyannote) | yes (wav2vec2 forced alignment) | `initial_prompt` | inconsistently | best local word timing |
-| `google` (`chirp_3`) | yes, batch | yes, but caps a batch request at 20 min | `phrase_set` (up to 1,000) | largely **no** | GCS staging; long audio is chunked, and speaker labels don't link across chunks |
+| `google` (`chirp_3`) | yes, batch | yes, but caps a batch request at 20 min | `phrase_set` (up to 1,000) | largely **no** | GCS staging; long audio is chunked, and its own speaker labels don't link across pieces (§5) |
 | `assemblyai` | yes (`speaker_labels`) | yes | `keyterms_prompt` (1,000 on universal-3-5-pro) | **yes** (`disfluencies`) — docs disagree for universal-3-5-pro | no retention flag; the adapter deletes after download |
 | `elevenlabs` | yes (`diarize`) | yes | `keyterms` (1,000) | yes unless `no_verbatim` | zero retention (`enable_logging=false`) is enterprise-only; audio-event tags (§6 bracket rule) |
 
@@ -158,13 +158,16 @@ But it entangles two things: DER for `assemblyai` scores AssemblyAI's diarizer, 
 DER for `faster_whisper` scores pyannote. A WER difference between them could be
 words *or* speaker assignment, and you can't tell which.
 
-So: **`--diarizer {provider,pyannote}`**. The pyannote arm discards provider
-speaker labels and merges the cached RTTM through the existing
-`asr._diarize_and_merge` path. Free at inference — the RTTM is already cached per
-recording (pipeline doc §6).
+So every transcriber takes **`speakers="engine"` or `"pipeline"`**
+(`transcribers/chunking.py`). `"pipeline"` discards the engine's speaker labels
+and gives each word the speaker of the diarize stage's cached RTTM turn it
+overlaps most. Free at inference — the RTTM is already cached per recording
+(pipeline doc §6) — and it also sidesteps chunked audio's per-piece labels.
+Cloud engines default to `"engine"`; the local Whisper engines default to
+`"pipeline"`, as the pipeline always has.
 
-Provenance carries `diarizer` as a **column distinct from `engine`**, so
-"universal + own diarizer" and "universal + pyannote@version" are never confused.
+`speakers` is recorded in the run's params, distinct from `engine`, so
+"universal + own diarizer" and "universal + pyannote" are never confused.
 
 Speaker-count hints (`speakers_expected` / `num_speakers` / `min`+`max`) are their
 own axis. Pass them consistently or not at all — never per-provider ad hoc.
@@ -258,7 +261,7 @@ exact config is noise (pipeline doc §8d). Beyond the existing columns:
 | `provider` | distinct from `model` |
 | `provider_model_returned` | vendors silently update model versions — record what they *say* they ran |
 | `request_id` | the vendor's own handle, for support and for disputes |
-| `diarizer` | `provider` or `pyannote@<version>` (§5) |
+| `speakers` (built, in params) | `engine` or `pipeline` (§5) |
 | `glossary_sha` | null for headline runs (§3) |
 | `glossary_lossiness` | what the renderer dropped |
 | `scoring` (built) | the normalizer/scoring method; scores are only comparable within one |

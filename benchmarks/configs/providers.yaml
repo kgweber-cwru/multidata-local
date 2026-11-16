@@ -110,7 +110,7 @@ providers:
       async_path: >
         BatchRecognize, audio in GCS only. chirp_3: about 1 h per request, 20 min
         with word timestamps on (the batch page says 480 min; the chirp_3 page
-        wins for chirp_3). transcribers.google cuts 19-minute pieces.
+        wins for chirp_3). The adapter sends 19-minute pieces (chunk_s).
     baa_available: true
     no_train_flag: "No training as long as Data Logging is disabled"
     cost_per_minute: 0.016          # not rechecked 2026-11-13 (pricing page didn't load)
@@ -118,8 +118,8 @@ providers:
     checked_on: 2026-11-13
     notes: >
       Adapter: multidata.transcribers.google (chirp_3 in the `us` multi-region;
-      chirp_2 is regional only). Speaker labels don't link across the 19-minute
-      pieces, so speaker-level results on long recordings need the pyannote arm.
+      chirp_2 is regional only). Its speaker labels don't link across pieces;
+      speakers="pipeline" uses the diarize stage's instead.
       Chirp 3 word "confidence" isn't a real confidence score (vendor's words),
       so the adapter leaves it off. Diarization and adaptation are both listed
       for chirp_3 en-US; no page shows them combined -- confirm on the first run.

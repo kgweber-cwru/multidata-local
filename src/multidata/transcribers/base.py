@@ -10,13 +10,18 @@ parameter that produced them (`params`, also in `record["provenance"]`).
 Subclasses supply three things: a `Params` dataclass (so a misspelled or
 foreign parameter fails at construction, naming itself), `call()` (send the
 audio, return the response) and `normalize()` (response -> segments). The
-manifest lookup, the cloud interlock, stamping and validation live here, once.
+manifest lookup, the cloud interlock, chunking, speaker source, stamping and
+validation live here, once (chunking and speakers: `chunking.py`).
+
+Every transcriber also takes `speakers`: "engine" keeps the engine's own
+speaker labels, "pipeline" replaces them with the diarize stage's.
 """
 import dataclasses
 import datetime
 import importlib.metadata
 import json
 import os
+import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -71,21 +76,31 @@ class Transcription:
         return normalized, raw
 
 
+SPEAKER_SOURCES = ("engine", "pipeline")
+
+
 class Transcriber:
     engine = None        # registry name, as in providers.yaml
     kind = "local"       # "local" | "cloud"
-    Params = None        # a dataclass of everything this engine accepts
+    Params = None        # a dataclass of everything this engine accepts; a
+                         # `chunk_s` field (with `chunk_overlap_s`) turns on chunking
     packages = ()        # distributions whose versions go into provenance
 
-    def __init__(self, **params):
+    def __init__(self, speakers="engine", **params):
+        self.speakers = speakers
         self.params = self.Params(**params)   # an unknown name is a TypeError here
+        self.check_speakers()
         self.check_params()
+
+    def check_speakers(self):
+        if self.speakers not in SPEAKER_SOURCES:
+            raise ValueError(f"speakers must be one of {SPEAKER_SOURCES}")
 
     def check_params(self):
         """Raise ValueError for combinations the vendor rejects."""
 
     def resolved_params(self):
-        return dataclasses.asdict(self.params)
+        return {**dataclasses.asdict(self.params), "speakers": self.speakers}
 
     @property
     def model(self):
@@ -104,6 +119,46 @@ class Transcriber:
     def preflight(self, recording):
         """Checks that must pass before any audio is read."""
 
+    def run(self, audio, recording_id, camera):
+        """`call` + `normalize`, in overlapping pieces when the audio is longer
+        than `chunk_s` -> (native, meta, result). A chunked run's `native` is
+        `{"chunks": [{index, offset_s, duration_s, response}]}`."""
+        from . import chunking
+
+        chunk_s = getattr(self.params, "chunk_s", None)
+        if not chunk_s or (_duration(audio) or 0) <= chunk_s:
+            native, meta = self.call(audio, recording_id, camera)
+            return native, meta, self.normalize(native)
+
+        chunks, metas, results = [], [], []
+        with tempfile.TemporaryDirectory() as tmp:
+            for index, (piece, offset_s, duration_s) in enumerate(
+                    chunking.cut(audio, Path(tmp), chunk_s, self.params.chunk_overlap_s)):
+                native, meta = self.call(piece, recording_id, camera)
+                chunks.append({"index": index, "offset_s": offset_s,
+                               "duration_s": duration_s, "response": native})
+                metas.append(meta)
+                results.append((offset_s, duration_s, self.normalize(native)))
+        notes = [f"{len(chunks)} pieces of up to {chunk_s} s, overlapping "
+                 f"{self.params.chunk_overlap_s} s"]
+        notes += [m["notes"] for m in metas if m.get("notes")]
+        meta = {"request_id": ";".join(str(m.get("request_id")) for m in metas),
+                "model_returned": metas[0].get("model_returned"),
+                "chunked": True, "notes": "; ".join(notes)}
+        return {"chunks": chunks}, meta, chunking.merge(results)
+
+    def assign_pipeline_speakers(self, result, audio, recording_id, camera):
+        """`result` with the diarize stage's speaker labels (`speakers="pipeline"`)."""
+        from multidata.prosody import read_rttm
+
+        from . import chunking
+
+        rttm = chunking.pipeline_rttm(recording_id, camera)
+        if not rttm.exists():
+            raise FileNotFoundError(f"{rttm} -- run the diarize stage first, "
+                                    "or pass speakers='engine'")
+        return chunking.assign_speakers(result, read_rttm(rttm))
+
     def transcribe(self, recording_id, manifest_path=MANIFEST_PATH, audio_path=None):
         """Transcribe one recording's canonical audio (or `audio_path`, such as an
         excerpt of it). The recording must be in the manifest either way: that
@@ -114,16 +169,22 @@ class Transcriber:
         self.preflight(recording)
 
         camera = manifest.ensure_audio_camera(recording_id, manifest_path)
-        audio = Path(audio_path) if audio_path else _audio_path(recording_id, camera, manifest_path)
+        canonical = _audio_path(recording_id, camera, manifest_path)
+        audio = Path(audio_path) if audio_path else canonical
         if not audio.exists():
             raise FileNotFoundError(audio)
+        if self.speakers == "pipeline" and audio.resolve() != canonical.resolve():
+            # The diarize stage's turns are timed on the whole recording.
+            raise ValueError("speakers='pipeline' needs the recording's own audio, "
+                             "not an excerpt; pass speakers='engine'")
 
         started = datetime.datetime.now(datetime.timezone.utc)
         t0 = time.monotonic()
-        native, meta = self.call(audio, recording_id, camera)
+        native, meta, result = self.run(audio, recording_id, camera)
+        if self.speakers == "pipeline":
+            result = self.assign_pipeline_speakers(result, audio, recording_id, camera)
         wall_s = round(time.monotonic() - t0, 1)
 
-        result = self.normalize(native)
         params = self.resolved_params()
         provenance = {
             "engine": self.engine,

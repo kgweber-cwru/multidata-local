@@ -8,7 +8,7 @@ import pytest
 
 from multidata import asr, manifest, records, transcribers
 from multidata.models import Recording
-from multidata.transcribers import CloudReleaseError
+from multidata.transcribers import CloudReleaseError, chunking
 from multidata.transcribers.assemblyai import AssemblyAITranscriber
 from multidata.transcribers.base import SpeakerLabels, segments_from_words, word
 from multidata.transcribers.elevenlabs import ElevenLabsTranscriber
@@ -122,6 +122,13 @@ class TestInterlock:
 
 
 class TestLocal:
+    def test_excerpt_with_pipeline_speakers_is_refused(self, db, tmp_path):
+        clip = tmp_path / "clip.wav"
+        clip.write_bytes(b"RIFF")
+        with pytest.raises(ValueError, match="excerpt"):
+            transcribers.transcribe_recording("999", "faster_whisper", manifest_path=db,
+                                              audio_path=clip)
+
     def test_whisper_runs_through_asr_transcribe_with_pipeline_rttm(self, db, monkeypatch):
         seen = {}
 
@@ -170,16 +177,11 @@ ASSEMBLYAI = {
     ],
 }
 
-GOOGLE = {"recognizer": "projects/p/locations/us/recognizers/_", "chunks": [
-    {"index": 0, "offset_s": 0.0, "duration_s": 1140.0, "uri": "gs://b/00.flac", "operation": "op0",
-     "response": {"results": [{"languageCode": "en-us", "alternatives": [{"transcript": "chest pain", "words": [
-         {"word": "chest", "startOffset": "1.100s", "endOffset": "1.500s", "speakerLabel": "1"},
-         {"word": "pain", "startOffset": "1.500s", "endOffset": "2s", "speakerLabel": "1"}]}]}]}},
-    {"index": 1, "offset_s": 1140.0, "duration_s": 60.0, "uri": "gs://b/01.flac", "operation": "op1",
-     "response": {"results": [{"languageCode": "en-us", "alternatives": [{"transcript": "okay", "words": [
-         {"word": "okay", "startOffset": "0.5s", "endOffset": "0.9s", "speakerLabel": "1",
-          "confidence": 0.5}]}]}]}},
-]}
+GOOGLE = {"results": [{"languageCode": "en-us", "alternatives": [{"transcript": "chest pain okay", "words": [
+    {"word": "chest", "startOffset": "1.100s", "endOffset": "1.500s", "speakerLabel": "1"},
+    {"word": "pain", "startOffset": "1.500s", "endOffset": "2s", "speakerLabel": "1"},
+    {"word": "okay", "startOffset": "2.5s", "endOffset": "2.9s", "speakerLabel": "2",
+     "confidence": 0.5}]}]}]}
 
 
 class TestNormalizers:
@@ -201,18 +203,17 @@ class TestNormalizers:
         rec = AssemblyAITranscriber().normalize({**ASSEMBLYAI, "utterances": None})
         assert len(rec["segments"]) == 2
 
-    def test_google_offsets_chunks_and_unlinked_speakers(self):
+    def test_google(self):
         rec = GoogleTranscriber().normalize(GOOGLE)
         words = [w for s in rec["segments"] for w in s["words"]]
-        assert [(w["word"], w["start"]) for w in words] == [("chest", 1.1), ("pain", 1.5), ("okay", 1140.5)]
-        # speaker "1" in piece 0 and in piece 1 are not assumed to be the same person
-        assert words[0]["speaker"] != words[2]["speaker"]
+        assert [(w["word"], w["start"]) for w in words] == [("chest", 1.1), ("pain", 1.5), ("okay", 2.5)]
+        assert [w["speaker"] for w in words] == ["SPEAKER_00", "SPEAKER_00", "SPEAKER_01"]
         assert all(w["score"] is None for w in words)   # chirp_3 confidence isn't one
         assert rec["language"] == "en"
 
     def test_google_drops_repeated_words(self):
         doubled = json.loads(json.dumps(GOOGLE))
-        results = doubled["chunks"][0]["response"]["results"]
+        results = doubled["results"]
         results.append(json.loads(json.dumps(results[0])))
         rec = GoogleTranscriber().normalize(doubled)
         assert sum(len(s["words"]) for s in rec["segments"]) == 3
@@ -263,3 +264,93 @@ class TestSave:
         assert row["params"]["model_name"] == "tiny"
         assert row["params_hash"] == manifest.params_hash(out.params)
         assert row["normalized_path"].endswith("16_faster_whisper_tiny.json")
+
+
+def _tone(path, seconds, sr=16000):
+    import numpy as np
+    import soundfile
+
+    soundfile.write(str(path), np.zeros(int(seconds * sr), dtype="float32"), sr)
+    return path
+
+
+def _words(*items):
+    """(word, start, end, speaker) -> one normalized result."""
+    ws = [word(t, s, e, speaker=spk) for t, s, e, spk in items]
+    return {"language": "en", "segments": segments_from_words(ws)}
+
+
+class TestChunking:
+    def test_cut_overlaps_and_covers_the_audio(self, tmp_path):
+        pieces = chunking.cut(_tone(tmp_path / "a.wav", 25), tmp_path, chunk_s=10, overlap_s=2)
+        assert [(o, d) for _, o, d in pieces] == [(0.0, 10.0), (8.0, 10.0), (16.0, 9.0)]
+        assert all(p.exists() for p, _, _ in pieces)
+
+    def test_short_audio_is_one_piece(self, tmp_path):
+        assert len(chunking.cut(_tone(tmp_path / "a.wav", 5), tmp_path, 10, 2)) == 1
+
+    def test_merge_splits_overlaps_at_the_midpoint_and_keeps_speakers_apart(self):
+        # piece 0 covers 0-10 s, piece 1 covers 8-18 s; overlap 8-10, midpoint 9
+        a = _words(("one", 1, 2, "SPEAKER_00"), ("eight", 8.5, 8.8, "SPEAKER_00"),
+                   ("nine", 9.2, 9.6, "SPEAKER_00"))
+        b = _words(("eight", 0.5, 0.8, "SPEAKER_00"), ("nine", 1.2, 1.6, "SPEAKER_00"),
+                   ("twelve", 4, 4.5, "SPEAKER_00"))
+        merged = chunking.merge([(0.0, 10.0, a), (8.0, 10.0, b)])
+        words = [w for s in merged["segments"] for w in s["words"]]
+        assert [(w["word"], w["start"]) for w in words] == [
+            ("one", 1), ("eight", 8.5), ("nine", 9.2), ("twelve", 12.0)]
+        assert words[0]["speaker"] == "SPEAKER_00" and words[2]["speaker"] == "SPEAKER_01"
+
+    def test_assign_speakers_by_most_overlap(self):
+        result = _words(("hi", 0, 1, "SPEAKER_00"), ("there", 1.2, 2, "SPEAKER_00"),
+                        ("um", 5, 5, None), ("gap", 20, 21, "SPEAKER_00"))
+        turns = [(0, 1.1, "SPEAKER_01"), (1.1, 6, "SPEAKER_00")]
+        words = [w for s in chunking.assign_speakers(result, turns)["segments"] for w in s["words"]]
+        assert [w.get("speaker") for w in words] == ["SPEAKER_01", "SPEAKER_00", "SPEAKER_00", None]
+
+    def test_long_audio_is_sent_in_pieces(self, db, tmp_path, monkeypatch):
+        _release(db)
+        monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "p")
+        monkeypatch.setenv("GOOGLE_STT_BUCKET", "b")
+        _tone(manifest.get_video("999", "16", db).audio_path, 25)
+        t = GoogleTranscriber(chunk_s=10, chunk_overlap_s=2)
+        sent = []
+
+        def fake_call(audio, recording_id, camera):
+            sent.append(audio.name)
+            return GOOGLE, {"request_id": f"op{len(sent)}"}
+
+        monkeypatch.setattr(t, "call", fake_call)
+        out = t.transcribe("999", manifest_path=db)
+        assert sent == ["00.flac", "01.flac", "02.flac"]
+        assert [c["offset_s"] for c in out.native["chunks"]] == [0.0, 8.0, 16.0]
+        prov = out.record["provenance"]
+        assert prov["request_id"] == "op1;op2;op3" and "3 pieces" in prov["notes"]
+        assert out.record["chunked"] is True and prov["audio_duration_s"] == 25.0
+
+    def test_pipeline_speakers_replace_the_vendors(self, db, monkeypatch):
+        _release(db)
+        monkeypatch.setenv("ELEVENLABS_API_KEY", "x")
+        monkeypatch.setattr("multidata.transcribers.chunking.DATA_DIR", db.parent / "data")
+        rttm = chunking.pipeline_rttm("999", "16")
+        rttm.parent.mkdir(parents=True)
+        rttm.write_text("SPEAKER 16 1 0.0 5.0 <NA> <NA> SPEAKER_07 <NA> <NA>\n")
+        t = ElevenLabsTranscriber(speakers="pipeline")
+        monkeypatch.setattr(t, "call", lambda *a: (ELEVENLABS, {}))
+        out = t.transcribe("999", manifest_path=db)
+        words = [w for s in out.record["segments"] for w in s["words"]]
+        assert {w["speaker"] for w in words} == {"SPEAKER_07"}
+        assert out.params["speakers"] == "pipeline"
+
+    def test_pipeline_speakers_need_the_rttm(self, db, monkeypatch):
+        _release(db)
+        monkeypatch.setenv("ELEVENLABS_API_KEY", "x")
+        monkeypatch.setattr("multidata.transcribers.chunking.DATA_DIR", db.parent / "data")
+        t = ElevenLabsTranscriber(speakers="pipeline")
+        monkeypatch.setattr(t, "call", lambda *a: (ELEVENLABS, {}))
+        with pytest.raises(FileNotFoundError, match="diarize stage"):
+            t.transcribe("999", manifest_path=db)
+
+    def test_unknown_speaker_source(self):
+        with pytest.raises(ValueError, match="speakers"):
+            AssemblyAITranscriber(speakers="vendor")

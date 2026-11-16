@@ -275,7 +275,8 @@ cloud-specific.
       *Done when:* `run_stage.py asr --engine google --only <recording>` produces a
       conforming record.
 - [ ] **4.4 Glossary renderer for `phrase_set`** — first weighted mechanism.
-- [ ] **4.5 `--diarizer {provider,pyannote}`** control arm (spec §5).
+- [x] **4.5 Speaker-source control arm** (spec §5) — `speakers="engine"` or
+      `"pipeline"` on every transcriber. *Not yet a `run_benchmark.py` option.*
       *Done when:* both arms differ only in speaker labels.
 
 > **Verify the interlock deliberately.** Point the adapter at a
@@ -346,11 +347,13 @@ Blocked on Phases 1, 2, and 5. First real numbers.
 - [ ] **7.3 ElevenLabs Scribe** — *adapter written, not yet run live*
       (`transcribers/elevenlabs.py`; default `scribe_v3`). It does have a
       glossary mechanism after all (`keyterms`, up to 1000).
-- [ ] **7.4 Long-audio handling** — if any adapter chunks, it sets
-      `chunked: true` and records boundaries. *Google does* (chirp_3 caps
-      word-timestamped batch requests at 20 minutes): 19-minute pieces,
-      offsets kept in the native response, speaker labels not linked across
-      pieces.
+- [x] **7.4 Long-audio handling** — shared by every adapter
+      (`transcribers/chunking.py`): an adapter with `chunk_s` gets overlapping
+      pieces, merged at each overlap's midpoint; the record says
+      `chunked: true` and the native response keeps each piece's offset.
+      Speaker labels aren't linked across pieces; `speakers="pipeline"`
+      replaces them. Google uses it (chirp_3 caps word-timestamped batch
+      requests at 20 minutes).
 - [ ] **7.5 Headline sweep** — glossary-off, all providers, all gold.
 - [ ] **7.6 Glossary-on sweep.**
 - [ ] **7.7 Selection report** — WER/DER **beside `baa_available` and
