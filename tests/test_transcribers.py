@@ -243,9 +243,23 @@ class TestSave:
     def test_writes_both_views_and_refuses_overwrite(self, tmp_path):
         t = transcribers.Transcription("999", "16", "assemblyai", "universal-3-5-pro", {}, ASSEMBLYAI,
                                        {"language": "en", "segments": []})
-        normalized, raw = t.save(tmp_path)
+        m = tmp_path / "m.sqlite"
+        normalized, raw = t.save(tmp_path, manifest_path=m)
         assert normalized.name == "16_assemblyai_universal-3-5-pro.json"
         assert json.loads(raw.read_text())["id"] == "abc"
         with pytest.raises(FileExistsError):
-            t.save(tmp_path)
-        t.save(tmp_path, overwrite=True)
+            t.save(tmp_path, manifest_path=m)
+        t.save(tmp_path, overwrite=True, manifest_path=m)
+        assert len(manifest.all_transcripts(m)) == 1   # overwrite replaced the row
+
+    def test_registers_the_run_in_the_manifest(self, db, tmp_path, monkeypatch):
+        monkeypatch.setattr(asr, "transcribe", lambda *a, **k: {"language": "en", "segments": []})
+        monkeypatch.setattr("multidata.transcribers.whisper.DATA_DIR", tmp_path / "data")
+        out = transcribers.transcribe_recording("999", "faster_whisper", manifest_path=db,
+                                                model_name="tiny")
+        out.save(tmp_path / "out", manifest_path=db)
+        [row] = manifest.all_transcripts(db, recording_id="999")
+        assert (row["engine"], row["model"], row["kind"]) == ("faster_whisper", "tiny", "local")
+        assert row["params"]["model_name"] == "tiny"
+        assert row["params_hash"] == manifest.params_hash(out.params)
+        assert row["normalized_path"].endswith("16_faster_whisper_tiny.json")

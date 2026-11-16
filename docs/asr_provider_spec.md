@@ -241,6 +241,11 @@ and provenance travel in git; transcript text does not. See §9 — students
 self-identify verbally, so raw responses carry real names. This fails safe and is
 less machinery than a commit-time redaction gate.
 
+Every `Transcription.save()` also adds a row to the manifest's `transcripts`
+table: recording, camera, engine, model, the params (and a short hash of
+them), the vendor's request id and reported model, and both file paths. The
+files stay authoritative; the table answers "what has been run on what".
+
 ---
 
 ## 8. Provenance

@@ -5,6 +5,7 @@ A transcriber starts from a `recording_id`, takes the parameters its vendor's
 models accept, and returns a `Transcription`: the vendor's response verbatim
 (`native`), the normalized record every consumer reads (`record`), and every
 parameter that produced them (`params`, also in `record["provenance"]`).
+`save()` writes both views to disk and indexes them in the manifest.
 
 Subclasses supply three things: a `Params` dataclass (so a misspelled or
 foreign parameter fails at construction, naming itself), `call()` (send the
@@ -41,12 +42,13 @@ class Transcription:
     def stem(self):
         return f"{self.camera}_{self.engine}_{self.model}"
 
-    def save(self, out_dir=None, overwrite=False):
+    def save(self, out_dir=None, overwrite=False, manifest_path=MANIFEST_PATH):
         """Write `<camera>_<engine>_<model>.json` (normalized) and `.raw.json`
         (native) to `out_dir`, default `data/transcripts/<recording_id>/`
-        (spec §7). Refuses to replace an existing file unless `overwrite`:
-        the default directory also holds the pipeline's own transcripts, and
-        seeded annotation kits were built from some of them."""
+        (spec §7), and register them in the manifest's `transcripts` table.
+        Refuses to replace an existing file unless `overwrite`: the default
+        directory also holds the pipeline's own transcripts, and seeded
+        annotation kits were built from some of them."""
         out_dir = Path(out_dir) if out_dir else DATA_DIR / "transcripts" / self.recording_id
         normalized = out_dir / f"{self.stem()}.json"
         raw = out_dir / f"{self.stem()}.raw.json"
@@ -57,6 +59,15 @@ class Transcription:
         out_dir.mkdir(parents=True, exist_ok=True)
         normalized.write_text(json.dumps(self.record, indent=2))
         raw.write_text(json.dumps(self.native, indent=2))
+        prov = self.record.get("provenance", {})
+        manifest.record_transcript(
+            self.recording_id, self.camera, self.engine, self.model,
+            _repo_relative(normalized), _repo_relative(raw), params=self.params,
+            path=manifest_path, kind=prov.get("kind") or "",
+            model_returned=prov.get("model_returned") or "",
+            request_id=prov.get("request_id") or "", audio=prov.get("audio") or "",
+            audio_duration_s=prov.get("audio_duration_s"),
+            started_at=prov.get("started_at") or "", wall_s=prov.get("wall_s"))
         return normalized, raw
 
 
