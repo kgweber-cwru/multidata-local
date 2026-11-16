@@ -34,7 +34,7 @@ REFERENCES = ROOT / "benchmarks" / "references"
 # Parameters that can't change the words: the model is already in the file
 # name, and the rest are account, transport or clean-up choices.
 OPERATIONAL = {"model", "model_name", "enable_logging", "base_url", "timeout_s",
-               "poll_interval_s", "delete_after", "delete_staged", "device",
+               "poll_interval_s", "delete_after", "delete_staged", "retry_waits_s", "device",
                "compute_type", "align_device", "diarize_device", "batch_size"}
 
 

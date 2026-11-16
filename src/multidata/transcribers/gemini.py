@@ -17,6 +17,9 @@ What shapes this adapter:
   which links the speakers across them (`chunking.py`).
 - Audio is staged in `GOOGLE_STT_BUCKET` and passed by URI, as for Chirp,
   then deleted (`delete_staged`).
+- Vertex's per-minute quota for this model is small, and a long recording
+  sends its pieces back to back: a 429 (RESOURCE_EXHAUSTED) is retried after
+  `retry_waits_s` (seen on the first gold run, 2026-11-16).
 - Diarization, word timestamps and 3+ speaker attribution are all marked
   Experimental by Google, and word timestamps "may degrade" accuracy.
 - No word confidence is returned, so `score` stays None.
@@ -24,6 +27,7 @@ What shapes this adapter:
   BAA's covered-services list before sending recordings beyond gold.
 """
 import os
+import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -47,6 +51,7 @@ class GeminiParams:
     chunk_s: Optional[float] = 840           # 14 min, under Vertex's 15-minute file cap
     chunk_overlap_s: float = 60.0
     delete_staged: bool = True
+    retry_waits_s: tuple = (30, 60, 120, 240)   # after each 429 RESOURCE_EXHAUSTED
 
 
 class GeminiTranscriber(CloudTranscriber):
@@ -79,7 +84,7 @@ class GeminiTranscriber(CloudTranscriber):
     def call(self, audio_path, recording_id, camera):
         from google import genai
         from google.cloud import storage
-        from google.genai import types
+        from google.genai import errors, types
 
         p = self.params
         project = os.environ["GOOGLE_CLOUD_PROJECT"]
@@ -89,12 +94,19 @@ class GeminiTranscriber(CloudTranscriber):
         blob.upload_from_filename(str(audio_path))
         try:
             client = genai.Client(enterprise=True, project=project, location=p.location)
-            response = client.models.generate_content(
-                model=p.model,
-                contents=[types.Part.from_uri(file_uri=f"gs://{bucket.name}/{blob.name}",
-                                              mime_type=MIME.get(suffix, "audio/wav"))],
-                config=types.GenerateContentConfig(
-                    audio_transcription_config=self.transcription_config()))
+            for wait in (*p.retry_waits_s, None):
+                try:
+                    response = client.models.generate_content(
+                        model=p.model,
+                        contents=[types.Part.from_uri(file_uri=f"gs://{bucket.name}/{blob.name}",
+                                                      mime_type=MIME.get(suffix, "audio/wav"))],
+                        config=types.GenerateContentConfig(
+                            audio_transcription_config=self.transcription_config()))
+                    break
+                except errors.APIError as e:
+                    if e.code != 429 or wait is None:
+                        raise
+                    time.sleep(wait)
         finally:
             if p.delete_staged:
                 blob.delete()
