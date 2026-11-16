@@ -322,7 +322,8 @@ Blocked on Phases 1, 2, and 5. First real numbers.
 - [ ] **6.3 Per-recording reporting, not just means.** With n≈5, a mean hides
       everything; per-recording is where "this config helps recording 1 and hurts recording 2"
       becomes visible.
-- [ ] **6.4 DER via `pyannote.metrics`** — the long-standing gap.
+- [x] **6.4 DER via `pyannote.metrics`** — done 2026-11-16, with JER and
+      cpWER; rules in asr_evaluation_methods.md §4.3.
 - [ ] **6.5 Noise floor** — annotator-vs-annotator WER/DER beside every engine
       number, *or* an explicit statement that there's only one annotator and no
       floor exists (standards §10).

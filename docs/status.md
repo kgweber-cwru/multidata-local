@@ -60,22 +60,25 @@ Kate), and since 2026-11-13 **252848**, **261456** and **261473**
 without a formal pass-2 assignment). Their older rows in `runs.csv` were
 scored the old way and are history only.
 
-Scores against current gold (2026-11-16, scoring v4 with numbers
-canonicalized; all five gold recordings, ~14,400 words, pooled by gold word
+Scores against current gold (2026-11-16, scoring v5: numbers
+canonicalized, speakers scored; all five gold recordings, ~14,400 words, pooled by gold word
 count; `runs.csv` has each recording):
 
-| Engine | L0 WER | L1 WER | Per recording L0 (252848, 261456, 261473, 261498, 261505) |
-|---|---|---|---|
-| `assemblyai universal-3-5-pro` | 0.162 | 0.165 | 0.16 0.17 0.19 0.16 0.16 |
-| same, `domain=medical-v1` | 0.162 | 0.165 | 0.16 0.17 0.19 0.16 0.16 |
-| `elevenlabs scribe_v3` | 0.187 | 0.188 | 0.19 0.19 0.23 0.20 0.16 |
-| `elevenlabs scribe_v2_medical` (BAA model) | 0.194 | 0.194 | 0.20 0.19 0.26 0.17 0.17 |
-| `google chirp_3` | 0.207 | 0.209 | 0.20 0.18 0.30 0.33 0.18 |
-| `faster_whisper medium` | 0.243 | 0.211 | 0.26 0.20 0.35 0.28 0.22 |
-| `whisperx_disfluent large-v3` | 0.265 | 0.264 | 0.21 0.32 0.37 0.20 0.29 |
-| `whisperx large-v3` (252848 only) | 0.262 | 0.220 | |
+| Engine | L0 WER | L1 WER | cpWER | DER | Per recording L0 (252848, 261456, 261473, 261498, 261505) |
+|---|---|---|---|---|---|
+| `assemblyai universal-3-5-pro` | 0.162 | 0.165 | 0.171 | 0.282 | 0.16 0.17 0.19 0.16 0.16 |
+| same, `domain=medical-v1` | 0.162 | 0.165 | 0.169 | 0.283 | 0.16 0.17 0.19 0.16 0.16 |
+| `elevenlabs scribe_v3` | 0.187 | 0.188 | 0.201 | 0.305 | 0.19 0.19 0.23 0.20 0.16 |
+| `elevenlabs scribe_v2_medical` (BAA model) | 0.194 | 0.194 | 0.283 | 0.336 | 0.20 0.19 0.26 0.17 0.17 |
+| `google chirp_3` | 0.207 | 0.209 | 0.268 | 0.247 | 0.20 0.18 0.30 0.33 0.18 |
+| `faster_whisper medium` | 0.243 | 0.211 | 0.343 | 0.225 | 0.26 0.20 0.35 0.28 0.22 |
+| `whisperx large-v3` | 0.267 | 0.239 | 0.355 | 0.362 | 0.26 0.29 0.33 0.25 0.25 |
+| `whisperx_disfluent large-v3` | 0.265 | 0.264 | 0.367 | 0.388 | 0.21 0.32 0.37 0.20 0.29 |
 
-AssemblyAI is best on every recording; Medical Mode changes nothing (not
+cpWER is WER with words matched to the right person; DER (pooled by gold
+speech time) is built from each engine's own word timings, so it also
+counts speech an engine didn't transcribe (rules: asr_evaluation_methods.md
+§4.3). AssemblyAI is best on every recording; Medical Mode changes nothing (not
 worth +$0.15/h). ElevenLabs' BAA model costs ~0.7 points against
 `scribe_v3`. Google is uneven (0.30–0.33 on the two short chest-pain
 recordings; not yet looked at). Still five recordings and no noise floor.
@@ -222,7 +225,6 @@ Decided along the way: capture verbatim once and derive a clean
 So a fresh read doesn't mistake these for forgotten:
 
 - A glossary -> Whisper prompt renderer (Phase 3.4): the loader exists.
-- DER scoring against `.gold.rttm` (Phase 6.4).
 - Cutting an `.eaf` down to an excerpt at export (Phase 5.2): scoring a span
   works; annotators only segment the excerpt anyway.
 - Scripted download from the recording system: not until manual ingest has

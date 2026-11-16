@@ -282,7 +282,7 @@ benchmark scores must never change; its hash is recorded with every run.
 | Question | Metric | Tool |
 |---|---|---|
 | Transcription accuracy | WER, CER | `jiwer` |
-| Speaker attribution | DER, JER | `pyannote.metrics` (not wired yet, plan Phase 6.4) |
+| Speaker attribution | DER, JER; cpWER (words to the right person) | `pyannote.metrics`; `jiwer` + optimal speaker matching |
 | Word timing | boundary error vs gold | not built |
 
 Names are redacted from both sides, then `normalize.py`'s L0 verbatim

@@ -500,9 +500,8 @@ benchmarks/
 
 ### Current gaps
 
-- **DER scoring is not implemented** in `run_benchmark.py`: it computes WER/CER
-  only. Collecting the RTTM layer is not wasted (§5 produces exactly what DER
-  needs), but don't expect a DER number until that path exists.
+- None open in this section. (DER, JER and cpWER are scored since
+  2026-11-16: [asr_evaluation_methods.md](asr_evaluation_methods.md) §4.3.)
 
 ---
 

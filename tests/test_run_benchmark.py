@@ -174,3 +174,31 @@ class TestScore:
         hyp = "so tell me about it"
         s = run_benchmark.score(ref, hyp, self.NAMES)
         assert s["wer"] > 0 and s["wer_l1"] == 0.0
+
+
+class TestSpeakers:
+    RESULT = {"segments": [{"words": [
+        {"word": "hi", "start": 0.0, "end": 0.5, "speaker": "A"},
+        {"word": "there", "start": 0.6, "end": 1.0, "speaker": "A"},
+        {"word": "[echoing]", "start": 1.0, "end": 200.0, "speaker": "A"},
+        {"word": "hello", "start": 1.2, "end": 2.0, "speaker": "B"},
+        {"word": "Tan.", "start": 3.0, "end": 160.0, "speaker": "B"},
+        {"word": "bye", "start": 5.0, "end": 5.5, "speaker": "A"},
+    ]}]}
+
+    def test_turns_merge_words_and_skip_tags_and_glitches(self):
+        assert run_benchmark.speaker_turns(self.RESULT) == [
+            (0.0, 1.0, "A"), (1.2, 2.0, "B"), (5.0, 5.5, "A")]
+
+    def test_matching_turns_score_zero_whatever_the_labels(self):
+        ref = [(0.0, 10.0, "LEARNER"), (12.0, 20.0, "PATIENT"), (25.0, 30.0, "LEARNER")]
+        hyp = [(0.0, 10.0, "A"), (12.0, 20.0, "B"), (25.0, 30.0, "A")]
+        assert run_benchmark.speaker_scores(ref, hyp, (0.0, 30.0)) == {"der": 0.0, "jer": 0.0}
+        swapped = [(0.0, 10.0, "A"), (12.0, 20.0, "A"), (25.0, 30.0, "A")]
+        assert run_benchmark.speaker_scores(ref, swapped, (0.0, 30.0))["der"] > 0
+
+    def test_cpwer_matches_speakers_and_counts_a_merge(self):
+        ref = {"LEARNER": "how are you", "PATIENT": "fine thanks"}
+        assert run_benchmark.cpwer(ref, {"S1": "fine thanks", "S0": "how are you"}) == 0.0
+        # one engine speaker holding both people's words: the unmatched role is all missed
+        assert run_benchmark.cpwer(ref, {"S0": "how are you fine thanks"}) == 0.8

@@ -19,6 +19,14 @@ for `wer_l1`. Bracket tags are deleted and numbers canonicalized at both
 levels. Excerpt gold (a `span` in the `.gold.json`) is scored on that span
 only. A transcript from the engine that seeded a recording's gold is never
 scored against it (standards §9).
+
+Speakers (`speaker_scores()`, transcription_standards.md §11): the
+transcript's words become turns (same speaker, gaps up to `TURN_GAP_S`, the
+rule gold's turns were built with) and are compared with `.gold.rttm`:
+`der` and `jer` (pyannote.metrics, ±`COLLAR_S` around each gold boundary not
+scored, overlap scored, every gold role a speaker), and `cpwer`, WER with
+each engine speaker's words matched to one gold role's words (the gold
+`.eaf` on this machine supplies the per-role text).
 """
 import argparse
 import csv
@@ -36,7 +44,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
 from multidata import manifest, normalize, redact, seeding  # noqa: E402
-from multidata.elan import words_of  # noqa: E402
+from multidata.elan import GOLD_TEXT_TIERS, _tier_annotations, words_of  # noqa: E402
 from multidata.models import upgrade_keys  # noqa: E402
 from multidata.paths import DATA_DIR  # noqa: E402
 
@@ -49,11 +57,16 @@ REFERENCES = ROOT / "benchmarks" / "references"
 # variant run ("" for a plain one); `transcript` is the file scored.
 FIELDS = ["timestamp", "recording_id", "engine", "model", "audio_sha256",
           "wer", "cer", "wall_s", "source", "git_commit", "machine", "notes",
-          "gold_pass1", "wer_l1", "scoring", "gold_sha256", "setting", "transcript"]
+          "gold_pass1", "wer_l1", "scoring", "gold_sha256", "setting", "transcript",
+          "der", "jer", "cpwer"]
 
 # Names the scoring method in each ledger row. Change it whenever score()
 # changes in a way that moves numbers, so old and new rows aren't compared.
-SCORING = "redact+L0/L1 v4"  # v2: markup off words at L0; L1 drops cut-off words. v3: ok -> okay. v4: numbers canonicalized
+SCORING = "redact+L0/L1 v5"  # v2: markup off words at L0; L1 drops cut-off words. v3: ok -> okay. v4: numbers canonicalized. v5: + der/jer/cpwer
+
+TURN_GAP_S = 0.3   # as gold's turns (elan.export_gold merge_gap)
+MAX_WORD_S = 3.0   # no spoken word lasts longer; a vendor's word timed longer is a timing glitch
+COLLAR_S = 0.5     # each side of a gold boundary: hand-placed boundaries are loose by up to ~0.5 s (DER levels off there; checked 2026-11-16)
 
 
 def score(ref, hyp, names):
@@ -93,6 +106,130 @@ def hypothesis_text(result, span=None):
         return " ".join(w.get("word", "").strip() for w in words
                         if start <= (w.get("start") or 0) < end)
     return " ".join(s["text"].strip() for s in segments if start <= s.get("start", 0) < end)
+
+
+def speaker_turns(result, span=None):
+    """[(start_s, end_s, speaker)]: the transcript's timed words with a
+    speaker, merged into turns while the speaker stays the same and the gap
+    is at most `TURN_GAP_S`. Bracketed audio-event tags ("[echoing]") are
+    not speech, and a word timed longer than `MAX_WORD_S` is a vendor timing
+    glitch (one ElevenLabs tag spanned 233 s, one Google word 164 s): both
+    are left out, as WER already ignores the tags."""
+    turns = []
+    for seg in result.get("segments") or []:
+        for w in seg.get("words") or []:
+            speaker = w.get("speaker", seg.get("speaker"))
+            start, end = w.get("start"), w.get("end")
+            if speaker is None or start is None or end is None:
+                continue
+            if w.get("word", "").startswith("[") or end - start > MAX_WORD_S:
+                continue
+            if span and not span[0] <= start < span[1]:
+                continue
+            if turns and turns[-1][2] == speaker and start - turns[-1][1] <= TURN_GAP_S:
+                turns[-1] = (turns[-1][0], max(turns[-1][1], end), speaker)
+            else:
+                turns.append((start, end, speaker))
+    return turns
+
+
+def read_rttm(path):
+    turns = []
+    for line in Path(path).read_text().splitlines():
+        f = line.split()
+        if f and f[0] == "SPEAKER":
+            start = float(f[3])
+            turns.append((start, start + float(f[4]), f[7]))
+    return turns
+
+
+def speaker_scores(ref_turns, hyp_turns, region):
+    """`der` and `jer` of `hyp_turns` against `ref_turns` over `region`
+    (start_s, end_s)."""
+    from pyannote.core import Annotation, Segment, Timeline
+    from pyannote.metrics.diarization import DiarizationErrorRate, JaccardErrorRate
+
+    def annotation(turns):
+        a = Annotation()
+        for i, (start, end, speaker) in enumerate(turns):
+            if end > start:
+                a[Segment(start, end), i] = speaker
+        return a
+
+    ref, hyp = annotation(ref_turns), annotation(hyp_turns)
+    uem = Timeline([Segment(*region)])
+    # pyannote's collar is the total width around a boundary
+    try:
+        der = DiarizationErrorRate(collar=2 * COLLAR_S, skip_overlap=False)(ref, hyp, uem=uem)
+        jer = JaccardErrorRate(collar=2 * COLLAR_S, skip_overlap=False)(ref, hyp, uem=uem)
+    except ZeroDivisionError:   # no reference speech left once the collars are removed
+        return {"der": "", "jer": ""}
+    return {"der": round(der, 4), "jer": round(jer, 4)}
+
+
+def cpwer(ref_by_speaker, hyp_by_speaker):
+    """WER over all speakers with each hypothesis speaker's words matched to
+    one reference speaker's (the matching with fewest errors; an unmatched
+    speaker on either side scores against nothing). Texts are already
+    normalized."""
+    import numpy as np
+    from scipy.optimize import linear_sum_assignment
+
+    refs, hyps = list(ref_by_speaker.values()), list(hyp_by_speaker.values())
+    n = max(len(refs), len(hyps))
+    refs += [""] * (n - len(refs))
+    hyps += [""] * (n - len(hyps))
+
+    def errors(r, h):
+        if not r:
+            return len(h.split())
+        if not h:
+            return len(r.split())
+        o = jiwer.process_words(r, h)
+        return o.substitutions + o.deletions + o.insertions
+
+    cost = np.array([[errors(r, h) for h in hyps] for r in refs])
+    rows, cols = linear_sum_assignment(cost)
+    total = sum(len(r.split()) for r in refs)
+    return round(cost[rows, cols].sum() / total, 4) if total else None
+
+
+def gold_text_by_role(recording_id, names, span=None):
+    """{role: L0-normalized gold text} from the gold `.eaf` (not in git; None
+    if it isn't on this machine). Names are redacted as for WER."""
+    import pympi
+
+    eaf_path = DATA_DIR / "gold" / recording_id / f"{recording_id}.gold.eaf"
+    if not eaf_path.exists():
+        return None
+    eaf = pympi.Elan.Eaf(str(eaf_path))
+    by_role = {}
+    for tier in GOLD_TEXT_TIERS:
+        text = " ".join(t for s, _, t in _tier_annotations(eaf, tier)
+                        if span is None or span[0] <= s < span[1])
+        if names:
+            text, _ = redact.redact_names(text, names)
+        if text.strip():
+            by_role[tier] = normalize.normalize(text, "l0")
+    return by_role
+
+
+def hypothesis_by_speaker(result, names, span=None):
+    words = {}
+    for seg in result.get("segments") or []:
+        for w in seg.get("words") or []:
+            speaker = w.get("speaker", seg.get("speaker"))
+            start = w.get("start")
+            if speaker is None or (span and (start is None or not span[0] <= start < span[1])):
+                continue
+            words.setdefault(speaker, []).append(w.get("word", "").strip())
+    out = {}
+    for speaker, ws in words.items():
+        text = " ".join(ws)
+        if names:
+            text, _ = redact.redact_names(text, names)
+        out[speaker] = normalize.normalize(text, "l0")
+    return out
 
 
 def sha256(path, buf=1 << 20):
@@ -185,7 +322,8 @@ def score_transcript(path, recording_id, results_path=RESULTS, manifest_path=man
     if conflict:
         return f"not scored: {conflict}"
 
-    hyp = hypothesis_text(result, span=tuple(meta["span"]) if meta.get("span") else None)
+    span = tuple(meta["span"]) if meta.get("span") else None
+    hyp = hypothesis_text(result, span=span)
     try:
         names = manifest.names_for_recording(recording_id, manifest_path)
     except KeyError:
@@ -195,6 +333,15 @@ def score_transcript(path, recording_id, results_path=RESULTS, manifest_path=man
     scores = score(reference.read_text(), hyp, names)
 
     prov = result.get("provenance") or {}
+    rttm = reference.with_name(f"{recording_id}.gold.rttm")
+    hyp_turns = speaker_turns(result, span)
+    if rttm.exists() and hyp_turns:
+        ref_turns = read_rttm(rttm)
+        end = prov.get("audio_duration_s") or max(e for _, e, _ in ref_turns + hyp_turns)
+        scores |= speaker_scores(ref_turns, hyp_turns, span or (0.0, end))
+        gold_roles = gold_text_by_role(recording_id, names, span)
+        if gold_roles:
+            scores["cpwer"] = cpwer(gold_roles, hypothesis_by_speaker(result, names, span))
     audio = ROOT / prov["audio"] if prov.get("audio") else None
     if audio_hashes is not None and audio is not None and audio.exists():
         audio_sha = audio_hashes.setdefault(audio, sha256(audio))
@@ -203,12 +350,14 @@ def score_transcript(path, recording_id, results_path=RESULTS, manifest_path=man
     row = {
         "timestamp": datetime.datetime.now().isoformat(),
         "recording_id": recording_id, "engine": engine, "model": model,
-        "audio_sha256": audio_sha, **scores, "wall_s": prov.get("wall_s", ""),
+        "audio_sha256": audio_sha, "wer": scores["wer"], "cer": scores["cer"],
+        "wer_l1": scores["wer_l1"], "wall_s": prov.get("wall_s", ""),
         "source": "transcript", "git_commit": subprocess.getoutput("git rev-parse --short HEAD"),
         "machine": platform.platform(), "notes": notes,
         "gold_pass1": meta.get("pass1_source", "blind"), "scoring": SCORING,
         "gold_sha256": sha256(reference), "setting": setting,
-        "transcript": _relative(path),
+        "transcript": _relative(path), "der": scores.get("der", ""),
+        "jer": scores.get("jer", ""), "cpwer": scores.get("cpwer", ""),
     }
     record(row, results_path=results_path)
     return row
@@ -255,8 +404,10 @@ def main():
         if isinstance(out, str):
             print(f"{recording_id:<8} {label:<62} {out}")
         else:
-            print(f"{recording_id:<8} {label:<62} WER {out['wer']:.3f} (L1 {out['wer_l1']:.3f})  "
-                  f"CER {out['cer']:.3f}")
+            speakers = (f"  DER {out['der']:.3f}  JER {out['jer']:.3f}  cpWER {out['cpwer']}"
+                        if out["der"] != "" else "  (no speakers)")
+            print(f"{recording_id:<8} {label:<62} WER {out['wer']:.3f} (L1 {out['wer_l1']:.3f})"
+                  f"{speakers}")
     print(f"ledger: {args.results}")
 
 

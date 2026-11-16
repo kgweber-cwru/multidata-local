@@ -215,7 +215,9 @@ copy with `sqlite3 manifest.sqlite ".backup copy.sqlite"`.
 In git, append-only, one row per scored transcript: `timestamp,
 recording_id, engine, model, audio_sha256, wer, cer, wall_s, source,
 git_commit, machine, notes, gold_pass1, wer_l1, scoring, gold_sha256,
-setting, transcript`. `setting` is the `settings.yaml` name of a variant
+setting, transcript, der, jer, cpwer`. `der`/`jer`/`cpwer` are the speaker
+scores (empty before 2026-11-16, or for a transcript without speakers).
+`setting` is the `settings.yaml` name of a variant
 (empty for a plain run); `transcript` is the file scored. `wall_s` is the
 engine's own run time from the transcript's provenance. `source` is history:
 before 2026-11-16 it said whether the engine ran (`live`) or not

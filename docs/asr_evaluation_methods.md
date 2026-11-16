@@ -151,7 +151,7 @@ in `benchmarks/references/`, the only place gold is tracked in git:
 | File | Contents | Used for |
 |---|---|---|
 | `<recording>.gold.txt` | the text of every speech tier (`LEARNER`, `PATIENT`, `PRECEPTOR`, `ANNOUNCEMENT`, `OUTSIDE_ROOM`), in time order, as one line, with names replaced by tags | WER, CER |
-| `<recording>.gold.rttm` | the same tiers as speaker turns (same-tier utterances 0.3 s or less apart are merged into one turn), labelled with role names | DER (not computed yet, §3.4) |
+| `<recording>.gold.rttm` | the same tiers as speaker turns (same-tier utterances 0.3 s or less apart are merged into one turn), labelled with role names | DER, JER (§4.3) |
 | `<recording>.gold.json` | how pass 1 was made (blind or seeded, and if seeded, which engine, model and transcript hash), the standards version, the export date, the excerpt window | refusing biased comparisons; reporting |
 
 `ANNOUNCEMENT` and `OUTSIDE_ROOM` are in both the text and the turns,
@@ -264,9 +264,33 @@ The same steps are applied to the reference and the hypothesis
 | WER | L0 | `wer` | did it hear every word spoken, restarts and fillers included? |
 | WER | L1 | `wer_l1` | did it hear every word that carries meaning? |
 | CER | L0 | `cer` | the same, by character |
-| DER, JER | gold turns | not yet | did its diarizer get who spoke when, through overlap and noise? |
+| DER, JER | gold turns | `der`, `jer` | did it get who spoke when, through overlap and noise? |
+| cpWER | L0, per speaker | `cpwer` | did each word go to the right person? |
 
-WER and CER are computed with `jiwer`. Engines that never write filled
+WER and CER are computed with `jiwer`.
+
+**Speaker scoring rules** (decided 2026-11-16, before the first numbers):
+
+- The engine's turns are built from its words: same speaker, gaps up to
+  0.3 s merged, the rule gold's turns were built with. Bracketed audio-event
+  tags and any "word" timed longer than 3 s (a vendor timing glitch; one
+  tag spanned 233 s) are not speech. So DER here also counts speech an
+  engine failed to transcribe, not only speaker mistakes.
+- DER and JER come from `pyannote.metrics`, which matches engine labels to
+  gold roles itself. Overlap is scored. Every gold role is a speaker,
+  `ANNOUNCEMENT` and `OUTSIDE_ROOM` included, as in WER.
+- Boundaries: 0.5 s either side of each gold boundary is not scored. Gold
+  boundaries are placed by hand around phrases; on 261498 and 252848, DER
+  fell 10–12 points from no collar to ±0.25 s, another 2–5 to ±0.5 s, and
+  then levelled off.
+- Region: the whole recording, or gold's excerpt span. Speech gold left out
+  counts as the engine's false alarm, so gaps in gold cost more here than
+  in WER.
+- cpWER: each engine speaker's words are matched to one gold role's words
+  (the assignment with fewest errors) and WER is taken over all of them, at
+  L0 with names redacted. The per-role gold text comes from the gold `.eaf`
+  on the processing host. An engine that merges two people loses the
+  unmatched person's words entirely. Engines that never write filled
 pauses lose at L0 for a formatting policy rather than for what they heard;
 L1 is the fair comparison for them.
 
@@ -299,10 +323,8 @@ reference as it is now. Older rows stay in the ledger as history.
 
 ## 5. Known limitations
 
-Current as of 2026-11-11. When one is fixed, delete it here.
+Current as of 2026-11-16. When one is fixed, delete it here.
 
-- **No diarization score yet.** Gold turns exist (with overlap), but DER and
-  JER are not computed, so the second half of the question is open.
 - **No noise floor.** No recording has two independent blind passes (§2.4).
 - **Number readings the canonicalizer can't know.** "One twenty" is read
   as 120, so a genuine "one, twenty" (two items) is too, on both sides;
