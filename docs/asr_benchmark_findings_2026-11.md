@@ -91,11 +91,31 @@ other two). Two of those three are the camera-16 recordings whose audio
 drops out during recording gaps; the third is a chest-pain recording. Not
 yet understood.
 
-**Speakers aren't scored.** Who said what (diarization error rate) isn't
-measured yet. All three cloud engines labelled two main speakers correctly
-on the 60-second smoke clip, and Google needed a fix to keep speakers
-consistent across the pieces it is sent in, but there is no number for any
-engine.
+## Who said what
+
+Speaker attribution is scored two ways. **cpWER** is WER with each engine
+speaker's words matched to one gold person, so words given to the wrong
+person count as errors. **DER** is the share of speaking time attributed to
+the wrong person, missed or invented, built from each engine's word timings,
+with 0.5 s either side of a gold boundary not scored (hand-placed boundaries
+are that loose).
+
+| Engine | WER | cpWER | Cost of attribution | DER |
+|---|---|---|---|---|
+| AssemblyAI | 0.162 | **0.171** | +0.9 | 0.282 |
+| ElevenLabs scribe_v3 | 0.187 | 0.201 | +1.4 | 0.305 |
+| Google Chirp 3 | 0.207 | 0.268 | +6.1 | 0.247 |
+| ElevenLabs scribe_v2_medical | 0.194 | 0.283 | +8.9 | 0.336 |
+| faster-whisper + our diarization | 0.243 | 0.343 | +10.0 | **0.225** |
+
+**AssemblyAI puts words with the right person almost every time.**
+ElevenLabs' failures are occasional but severe: on 261456 its medical model
+gave 2,360 words to one speaker where gold has the learner and patient
+talking about equally, so one of them is lost entirely (cpWER 0.60 there).
+Our own diarization (pyannote) has the best DER, finding speaker *time*
+well, but the local transcripts it labels miss too many words for that to
+help. DER around 0.25–0.30 for everyone is partly gold's loose boundaries
+and gaps, so compare engines with it rather than read it absolutely.
 
 ## How much to trust this
 
@@ -128,8 +148,9 @@ engine.
 4. **Broaden gold.** Finish the two seeded pass-1 kits now assigned (261466,
    long-station abdominal pain; 259392, the only CSE 2A recording); the
    seizure recordings already in progress add a fourth scenario.
-5. **Score speaker attribution** (DER against the gold turns) before
-   choosing, since transcripts are used per speaker.
+5. **Try AssemblyAI's text with our diarization's labels** (free from the
+   saved responses): our diarizer finds speaker time best, AssemblyAI the
+   words; the combination may beat both.
 6. **Drop Google Chirp 3 and AssemblyAI Medical Mode** from further runs
    unless new gold changes the picture; keep one ElevenLabs model as the
    runner-up.
