@@ -1,6 +1,6 @@
 # Project status
 
-**Last updated: 2026-11-11.** Update this file whenever a working session
+**Last updated: 2026-11-16.** Update this file whenever a working session
 changes what's true; delete what stops being true rather than letting it
 rot. History lives in git and in the decision log at the end.
 
@@ -29,7 +29,8 @@ transcription** (gold annotation and an ASR bake-off) and **moving pose to
 | views + preset names | Every video; 65 recurring views provisionally named, awaiting confirmation |
 | pose (HALPE_26) | Full re-run 2026-10-30 to 11-01; the 4 newly added cameras follow |
 | 3D | Not started: needs calibration ([pose_3d.md](pose_3d.md)) |
-| ASR benchmarking | Built and tested; scorer redacts names and uses the L0/L1 profiles (2026-11-11); two gold references |
+| ASR benchmarking | Built and tested; scorer redacts names and uses the L0/L1 profiles (2026-11-11); five gold references |
+| Cloud ASR adapters | ElevenLabs, AssemblyAI, Google built behind one interface with local Whisper (`multidata.transcribers`); **none run live yet** |
 | Cost tracking | Every stage run recorded in `stage_runs`; [cost_estimate.md](cost_estimate.md) |
 
 - **Open (noted 2026-11-03): audio clock on room 11's camera 16.** That
@@ -52,10 +53,11 @@ transcription** (gold annotation and an ASR bake-off) and **moving pose to
 
 ## Transcription validation
 
-**Gold:** two blind references in `benchmarks/references/`, both standards
-1.2: **261498** (pass 1 Kelli, pass 2 Kate) and **261505** (pass 1 Xiaomei,
-pass 2 Kate). Three earlier references (252848, 261456, 261473) skipped pass
-2 and were withdrawn to pass 1 on 2026-10-28; their rows in `runs.csv` were
+**Gold:** five references in `benchmarks/references/`, standards 1.2:
+**261498** (pass 1 Kelli, pass 2 Kate), **261505** (pass 1 Xiaomei, pass 2
+Kate), and since 2026-11-13 **252848**, **261456** and **261473**
+(withdrawn to pass 1 on 2026-10-28, then re-reviewed by Kate; the last two
+without a formal pass-2 assignment). Their older rows in `runs.csv` were
 scored the old way and are history only.
 
 Nothing is scored against current gold yet: `python scripts/bench_status.py`
@@ -73,24 +75,46 @@ which pass is in the manifest's `assignments` table (`annotation/assignments.py 
 Annotators are scarce, so pass 1 can now start from a machine draft (route B,
 standards §9): seeded gold adds recordings, but engine rankings rest on blind gold.
 
-**Cloud ASR providers:** IRB cleared sending audio to vendors for inference
-(2026-09-10). Provider research lives in `benchmarks/configs/providers.yaml`.
-Recommended order: Google (inside the institution's BAA, so no new paperwork)
-for a first real number, AssemblyAI as the most informative (a real
-disfluency switch). Adapters call vendor APIs with plain `requests`, not SDKs:
-the raw response is the artifact to cache and compare.
+### Cloud ASR: where things stand (2026-11-16, branch `asr-cloud-providers`)
 
-### Before the first cloud call: two gaps
+IRB cleared sending audio to vendors for inference (2026-09-10). Vendor
+facts, checked 2026-11-13, are in `benchmarks/configs/providers.yaml`; the
+design is [asr_provider_spec.md](asr_provider_spec.md).
 
-- **The `cloud_release` interlock doesn't exist in code.** `recordings.cloud_release`
-  is a column, but nothing reads it. Build the check (implementation plan
-  4.2) before any cloud adapter (4.3), and test that it refuses a
-  `cloud_release=0` recording *before reading audio*. Then set `cloud_release=1`
-  deliberately, with the IRB reference in `cloud_release_basis`, on the
-  recordings to send. Today 0 of 1,281 recordings have it.
-- **Per-request no-train / zero-retention flags are required**, not optional
-  ([asr_provider_spec.md](asr_provider_spec.md) §9); vendor defaults often
-  retain data. `consent_ref` is also empty on every recording.
+**Built** (`src/multidata/transcribers/`, tests in `tests/test_transcribers.py`):
+one interface for local Whisper, ElevenLabs, AssemblyAI and Google Chirp 3:
+`transcribe_recording(recording_id, engine, **params)` returns the vendor's
+raw response, the normalized record and the exact params; `save()` writes
+both JSON files and a row in the manifest's `transcripts` table. Cloud
+engines refuse a recording without `cloud_release` before reading audio.
+Long audio for capped vendors (Google) is cut where the diarize stage's
+turns say the conversation changes hands, and the vendor's speaker labels
+are linked across pieces through the overlaps. `speakers="pipeline"` swaps
+in our diarize stage's labels instead (the comparison arm).
+
+**Pick up here, in order:**
+
+1. **Kate:** API keys into `.env` (`ELEVENLABS_API_KEY`,
+   `ASSEMBLYAI_API_KEY`), and `cloud_release=1` with a basis on one
+   recording that is safe to send on trial accounts (no BAA there).
+2. **Smoke script** (not written yet): one ~60 s clip per vendor with
+   `speakers="engine"`; fix the normalizers against real responses.
+   ElevenLabs will likely refuse `enable_logging=false` on a non-enterprise
+   account; that's the safe default, flip it only for a releasable clip.
+3. **Google** after that: install `google-cloud-speech` and
+   `google-cloud-storage` in md-speech (listed in `env/speech.yml`), set
+   `GOOGLE_CLOUD_PROJECT`, `GOOGLE_STT_BUCKET` and application-default
+   credentials. Then a full recording, to see the chunk linking on real output.
+4. **Gemini 3.5 Transcribe** adapter (verbatim mode; ~30 min cap with
+   diarization, so it uses the chunker). Check it is on the BAA's covered
+   services list before sending audio.
+5. **Benchmark wiring:** a file of named settings (engine + params) that
+   `run_benchmark.py` sweeps over the gold recordings and `run_stage.py`
+   later runs at scale with the winner; skip runs already in `transcripts`.
+
+Decided along the way: capture verbatim once and derive a clean
+(disfluency-free) view from it, rather than a second vendor run; vendors'
+"smart"/clean modes drop speaker labels and timestamps.
 
 ---
 
@@ -102,8 +126,8 @@ the raw response is the artifact to cache and compare.
 - **Storage:** the corpus may live in the institution's enterprise Google
   instance under BAA. A BAA covers a named list of services, not "Google"
   in general.
-- **Vendor inference:** IRB-cleared (2026-09-10), subject to the two gaps
-  above.
+- **Vendor inference:** IRB-cleared (2026-09-10). Each recording sent needs
+  `cloud_release=1` and a basis; 0 have it today.
 - **Pose:** HALPE_26 keeps 5 face points only, partly so the dataset can't
   identify faces. Demo clips blur faces by default (best effort: check before
   sharing).
@@ -131,8 +155,6 @@ the raw response is the artifact to cache and compare.
 
 So a fresh read doesn't mistake these for forgotten:
 
-- A formal ASR adapter contract (plan Phase 3.1): engines are sibling
-  functions until a cloud adapter needs more.
 - A glossary -> Whisper prompt renderer (Phase 3.4): the loader exists.
 - DER scoring against `.gold.rttm` (Phase 6.4).
 - Number canonicalization in `normalize.py`: waiting for gold with numbers.
@@ -151,6 +173,7 @@ Newest first. One line each; the reasoning is in the linked doc.
 
 | Date | Decision |
 |---|---|
+| 2026-11-16 | One transcriber interface for local and cloud engines; transcript runs indexed in the manifest (`transcripts`), files stay authoritative. Long audio chunked at turn-rich overlaps with vendor speakers linked through them; silences sent, not skipped ([asr_provider_spec.md](asr_provider_spec.md) §5, plan 7.4). |
 | 2026-11-11 | Our words follow LearningSpace's: what we called a *case* is a **recording** (`recording_id`, same numbers); *case* now means the scenario (`case_title`); `event_name` is `activity_title`; a video's `v309407` number is `file_number`. The manifest renames itself on first open. Recordings are linked to the LearningSpace Data API (`scripts/ls_backfill.py`): GUIDs, exact start, file links, preceptor (the faculty observer) and grade. The manifest was trimmed to the 57 recordings with video. |
 | 2026-11-11 | Gold text includes `ANNOUNCEMENT` and `OUTSIDE_ROOM` (standards 1.2): the question is whether engines hear what humans hear. Scorer redacts names on both sides and uses the L0/L1 profiles. Pass-2 kits and gold import scripted (`make_pass2_kit.py`, `eaf_to_gold.py --from-kit`). |
 | 2026-11-01 | Draft-seeded gold (standards 1.1, route B) as a fallback when annotators are scarce: pass 1 corrects a fixed `whisperx_disfluent`/`large-v3` transcript, provenance recorded, seed engine never scored against its own seeded gold. |
