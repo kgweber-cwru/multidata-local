@@ -30,7 +30,7 @@ transcription** (gold annotation and an ASR bake-off) and **moving pose to
 | pose (HALPE_26) | Full re-run 2026-10-30 to 11-01; the 4 newly added cameras follow |
 | 3D | Not started: needs calibration ([pose_3d.md](pose_3d.md)) |
 | ASR benchmarking | Built and tested; scorer redacts names and uses the L0/L1 profiles (2026-11-11); five gold references |
-| Cloud ASR adapters | ElevenLabs, AssemblyAI, Google built behind one interface with local Whisper (`multidata.transcribers`); **none run live yet** |
+| Cloud ASR adapters | ElevenLabs, AssemblyAI, Google built behind one interface with local Whisper (`multidata.transcribers`); all three run live 2026-11-16 (smoke clip, then 252848 in full) |
 | Cost tracking | Every stage run recorded in `stage_runs`; [cost_estimate.md](cost_estimate.md) |
 
 - **Open (noted 2026-11-03): audio clock on room 11's camera 16.** That
@@ -60,12 +60,25 @@ Kate), and since 2026-11-13 **252848**, **261456** and **261473**
 without a formal pass-2 assignment). Their older rows in `runs.csv` were
 scored the old way and are history only.
 
-Nothing is scored against current gold yet: `python scripts/bench_status.py`
-shows the empty cells. A trial run (not in the ledger) gave L0 WER 0.25–0.31
-on 261498 and 0.23–0.30 on 261505 for `faster_whisper medium` and
-`whisperx_disfluent large-v3`, with the two engines trading places between
-recordings. **Next:** score every local engine against both, then more gold and a
-first double annotation for a noise floor. The procedure is
+First scores against current gold (2026-11-16, 252848, the whole 64 min;
+`python scripts/bench_status.py` shows the rest as empty cells):
+
+| Engine | L0 WER | L1 WER |
+|---|---|---|
+| `assemblyai universal-3-5-pro` | 0.161 | 0.168 |
+| `elevenlabs scribe_v3` | 0.194 | 0.198 |
+| `google chirp_3` (digits count as errors) | 0.201 | 0.207 |
+| `whisperx_disfluent large-v3` | 0.214 | 0.216 |
+| `faster_whisper medium` | 0.258 | 0.210 |
+| `whisperx large-v3` | 0.265 | 0.223 |
+
+One recording, so no ranking yet. An earlier trial (not in the ledger) gave
+L0 WER 0.25–0.31 on 261498 and 0.23–0.30 on 261505 for the two local
+engines, trading places between recordings. **Next:** every engine on every
+gold recording, then more gold and a first double annotation for a noise
+floor. **Pending gold:** 261466 (2026 long station, abdominal pain; the largest
+scenario had none) and 259392 (the only CSE 2A recording: GI history and presentation)
+went to Kate as seeded pass 1s on 2026-11-16. The procedure is
 [asr_evaluation_methods.md](asr_evaluation_methods.md); its §5 lists what
 the scores don't yet account for.
 
@@ -121,9 +134,17 @@ in our diarize stage's labels instead (the comparison arm).
    - Project APIs enabled: Speech-to-Text and `aiplatform.googleapis.com`
      (Vertex AI, now titled "Agent Platform API") for Gemini; the AI Studio
      Gemini API (`generativelanguage`) deliberately not.
-3. **Google** after its smoke test: a full recording, to see the chunk
-   linking on real output. (md-speech had drifted from `env/speech.yml`;
-   pympi-ling, jiwer and the Google clients were installed 2026-11-16.)
+3. **Google chunk linking falls short on real output.** 252848 (64 min) went
+   in 5 pieces; 5 labels didn't link through the overlaps, so the record has
+   13 speaker labels for 2–3 people plus announcements. Look at
+   `link_labels` against this run (vendor responses are cached in
+   `data/transcripts/252848/responses/`, so re-merging is free). Wall time
+   549 s.
+   (On tofino, `conda run -n md-speech` runs md-utility's Python because the
+   shell puts md-utility first on PATH; call
+   `~/miniconda3/envs/md-speech/bin/python` directly. md-speech already has
+   everything; pympi-ling, jiwer and the Google clients went into
+   md-utility by mistake on 2026-11-16.)
 4. **Gemini 3.5 Transcribe** adapter (verbatim mode; ~30 min cap with
    diarization, so it uses the chunker). Check it is on the BAA's covered
    services list before sending audio.
