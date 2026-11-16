@@ -29,8 +29,8 @@ transcription** (gold annotation and an ASR bake-off) and **moving pose to
 | views + preset names | Every video; 65 recurring views provisionally named, awaiting confirmation |
 | pose (HALPE_26) | Full re-run 2026-10-30 to 11-01; the 4 newly added cameras follow |
 | 3D | Not started: needs calibration ([pose_3d.md](pose_3d.md)) |
-| ASR benchmarking | Built and tested; scorer redacts names and uses the L0/L1 profiles (2026-11-11); five gold references |
-| Cloud ASR adapters | ElevenLabs, AssemblyAI, Google built behind one interface with local Whisper (`multidata.transcribers`); all three run live 2026-11-16 (smoke clip, then 252848 in full) |
+| ASR benchmarking | `transcribe.py` (named settings) then `run_benchmark.py` (WER at L0/L1 with names redacted and numbers canonicalized; cpWER, DER, JER); every engine scored on five gold references (2026-11-16) |
+| Cloud ASR adapters | AssemblyAI, ElevenLabs, Google Chirp 3 and Gemini 3.5 Transcribe behind one interface with local Whisper (`multidata.transcribers`); all run live on gold 2026-11-16 |
 | Cost tracking | Every stage run recorded in `stage_runs`; [cost_estimate.md](cost_estimate.md) |
 
 - **Open (noted 2026-11-03): audio clock on room 11's camera 16.** That
@@ -84,8 +84,7 @@ worth +$0.15/h). ElevenLabs' BAA model costs ~0.7 points against
 `scribe_v3`. Google is uneven (0.30–0.33 on the two short chest-pain
 recordings; not yet looked at). Still five recordings and no noise floor.
 Variant runs live in `data/transcripts/<recording>/variants/<setting>/`; the
-ledger names the setting and the transcript file. **Next:** more gold and a first double
-annotation for a noise floor; glossary runs wait for richer gold.
+ledger names the setting and the transcript file. Next steps: the list below.
 **Pending gold:** 261466 (2026 long station, abdominal pain; the largest
 scenario had none) and 259392 (the only CSE 2A recording: GI history and presentation)
 went to Kate as seeded pass 1s on 2026-11-16. The procedure is
@@ -98,90 +97,60 @@ which pass is in the manifest's `assignments` table (`annotation/assignments.py 
 Annotators are scarce, so pass 1 can now start from a machine draft (route B,
 standards §9): seeded gold adds recordings, but engine rankings rest on blind gold.
 
-### Cloud ASR: where things stand (2026-11-16, branch `asr-cloud-providers`)
+### Cloud ASR: where things stand (2026-11-16, branch `asr-benchmarking`)
 
-IRB cleared sending audio to vendors for inference (2026-09-10). Vendor
-facts, checked 2026-11-13, are in `benchmarks/configs/providers.yaml`; the
-design is [asr_provider_spec.md](asr_provider_spec.md).
+IRB cleared sending audio to vendors for inference (2026-09-10); all 57
+recordings have `cloud_release=1` (basis "simulated patient"). Vendor facts
+are in `benchmarks/configs/providers.yaml`; the design is
+[asr_provider_spec.md](asr_provider_spec.md); results so far are in
+[asr_benchmark_findings_2026-11.md](asr_benchmark_findings_2026-11.md).
 
-**Built** (`src/multidata/transcribers/`, tests in `tests/test_transcribers.py`):
-one interface for local Whisper, ElevenLabs, AssemblyAI and Google Chirp 3:
-`transcribe_recording(recording_id, engine, **params)` returns the vendor's
-raw response, the normalized record and the exact params; `save()` writes
-both JSON files and a row in the manifest's `transcripts` table. Cloud
-engines refuse a recording without `cloud_release` before reading audio.
-Long audio for capped vendors (Google) is cut where the diarize stage's
-turns say the conversation changes hands, and the vendor's speaker labels
-are linked across pieces through the overlaps. `speakers="pipeline"` swaps
-in our diarize stage's labels instead (the comparison arm).
+**Built** (merged to `main` in #16): one interface
+(`src/multidata/transcribers/`) for local Whisper, AssemblyAI, ElevenLabs,
+Google Chirp 3 and Gemini 3.5 Transcribe (Vertex AI only). Cloud engines
+refuse a recording without `cloud_release`. Long audio is cut where the
+diarize stage's turns change hands; vendor speaker labels are linked
+through the overlaps, else through the diarize turns. Benchmarking is
+`benchmarks/transcribe.py` (named settings in `configs/settings.yaml`;
+skips what exists, saves each vendor response before normalizing) then
+`benchmarks/run_benchmark.py` (scores WER, cpWER, DER, JER).
+`scripts/smoke_cloud.py` checks a vendor on a name-free 60 s clip (252848,
+344.5–404.5 s).
+
+**Standing facts:**
+- ElevenLabs only works with `enable_logging: true` (zero-retention is
+  enterprise-only); Kate approved logging for the gold recordings only.
+- Vertex rate-limits Gemini (429); the adapter backs off and retries.
+- On tofino, `conda run -n md-speech` runs md-utility's Python (PATH order);
+  call `~/miniconda3/envs/md-speech/bin/python` directly. pympi-ling, jiwer
+  and the Google clients also sit in md-utility by mistake.
+- `benchmarks/runs/` and `benchmarks/cache/` are no longer written and can
+  be deleted from disk.
 
 **Pick up here, in order:**
 
-1. Done 2026-11-16: API keys and Google project/bucket in `.env`, gcloud
-   logged in, `cloud_release=1` on all 57 recordings (basis "simulated
-   patient").
-2. **Smoke test** (`scripts/smoke_cloud.py`): one 60 s clip per vendor with
-   `speakers="engine"`, scored against gold for the span; vendor responses
-   are saved under `data/smoke/` and reused, so reruns are free. Clip:
-   **252848, 344.5–404.5 s of `24.wav`**, chosen from gold as name-free
-   (redactor and a read-through), two speakers, overlaps, fillers,
-   self-repairs, durations and medical terms.
-   - AssemblyAI passed 2026-11-16: L0 WER 0.09, 2 speakers, 11 of gold's
-     14 fillers; normalizer unchanged. `format_text=False` still comes back
-     cased and punctuated ("Okay"); the scorer absorbs that.
-   - ElevenLabs refused `enable_logging=false` (403: zero-retention is
-     enterprise/trial only). Kate allowed logging for this clip
-     (`--elevenlabs-logging`); passed 2026-11-16: L0 WER 0.12, 2 speakers,
-     13 fillers; normalizer unchanged. More verbatim than AssemblyAI (keeps
-     the patient's overlapping "mm-hmm"s and the learner's false starts), so
-     part of its WER is words gold may have missed.
-   - Google passed 2026-11-16: L0 WER 0.12, 2 speakers, 11 fillers;
-     normalizer unchanged; staged clip deleted from the bucket. 327 s wall
-     for 60 s of audio (BatchRecognize queueing). Writes numbers as digits
-     ("4 months"), which our scorer counts as errors until number
-     canonicalization is built (see "Deliberately not built"). Its last
-     word came back with an empty speaker label (kept as no speaker).
-   - Project APIs enabled: Speech-to-Text and `aiplatform.googleapis.com`
-     (Vertex AI, now titled "Agent Platform API") for Gemini; the AI Studio
-     Gemini API (`generativelanguage`) deliberately not.
-3. **Google on a full recording** (252848, 64 min, 5 pieces, 549 s wall).
-   Overlap linking worked wherever the overlap had speech (44–162 shared
-   words), but one overlap fell in a near-silent stretch: the planner had
-   been drawn there by zero-length diarize flicker. Fixed 2026-11-16: the
-   planner ignores turns under 0.3 s, and a label an overlap can't link is
-   linked through the diarize stage's turns (`chunking.py` step 4). The
-   saved record was re-merged from its pieces: 4 real speakers (learner,
-   patient, preceptor, announcer) plus 7 tiny labels that are Google's own
-   splits within a piece, left as they are.
-   Also fixed 2026-11-16: an overlap now comes whole from a piece that heard
-   at least twice as many words there (piece 2 heard 7 words at its tail
-   where piece 3 heard 43). Google's WER on 252848 went 0.201 -> 0.208 with
-   those words back, because gold has only 3 words in 2650–2735 s, where the
-   diarize stage and AssemblyAI (64 words) both hear speech. **Kate: listen
-   to 252848 at 44:10–45:35 for a gap in gold.**
-   (On tofino, `conda run -n md-speech` runs md-utility's Python because the
-   shell puts md-utility first on PATH; call
-   `~/miniconda3/envs/md-speech/bin/python` directly. md-speech already has
-   everything; pympi-ling, jiwer and the Google clients went into
-   md-utility by mistake on 2026-11-16.)
-4. **Gemini 3.5 Transcribe** adapter built 2026-11-16
-   (`transcribers/gemini.py`, setting `gemini`): Vertex AI only, VERBATIM
-   mode, 14-minute pieces through the chunker (Vertex caps files at 15 min).
-   Run on all gold 2026-11-16 (Vertex's per-minute quota returned 429s;
-   the adapter now backs off and retries): second on WER (0.169), best on
-   252848, keeps more back-channels than AssemblyAI (55 of 187 against 9),
-   but weakest cloud cpWER (0.259): its 15-minute file cap means more
-   pieces whose speakers must be linked. **Still to confirm: BAA coverage
-   and price** (neither is on the model page). Why Gemini rather than Chirp: it
-   returns speakers and word times in one request, takes up to 15 minutes
-   per file synchronously instead of a batch queue, and Chirp was uneven on
-   gold (findings report).
-5. Done 2026-11-16: named settings in `benchmarks/configs/settings.yaml`;
-   `benchmarks/transcribe.py` runs them over the gold recordings, and
-   `benchmarks/run_benchmark.py` now only scores saved transcripts (the old
-   engine cache, `bench_runs.py` and `benchmarks/runs/` are gone; the two
-   folders can be deleted from disk). Still to do: `run_stage.py` running
-   the winning setting at scale.
+1. **Kate: confirm terms.** AssemblyAI's BAA (the lead candidate), and
+   Gemini's BAA coverage and price (neither is on its model page), before
+   any recording beyond gold goes to either.
+2. **Kate: listen to 252848 at 44:10–45:35.** Gold has 3 words where the
+   diarize stage and AssemblyAI (64 words) hear speech; probably a gap in
+   gold, which costs every engine in DER and insertions.
+3. **Back-channels.** AssemblyAI keeps 9 of gold's 187 "mm-hmm"/"uh-huh"
+   (Gemini 55, ElevenLabs 114). Listen to a sample, and try one AssemblyAI
+   `prompt` setting asking it to keep them (~$0.50 over gold).
+4. **Free combinations from saved responses.** AssemblyAI's or Gemini's
+   words with the diarize stage's speakers (`speakers: pipeline`), which
+   has the best DER. A new setting needs its `responses_dir` pointed at the
+   original setting's saved responses, or `transcribe.py` will call the
+   vendor again.
+5. **Gemini's speaker linking.** Its cpWER (0.259) suffers from 14-minute
+   pieces; look at which links fail on 261505 (cpWER 0.43).
+6. **Noise floor:** a second annotator on one or two blind excerpts; this
+   also settles how many of ElevenLabs'/Google's extra words are real.
+7. **More gold:** seeded pass 1s of 261466 and 259392 are with Kate;
+   261041 (seizure) is at pass 2.
+8. **At scale:** `run_stage.py` running the winning setting over all
+   recordings, once 1 and 3 are settled. Glossary runs wait for richer gold.
 
 Decided along the way: capture verbatim once and derive a clean
 (disfluency-free) view from it, rather than a second vendor run; vendors'
@@ -280,7 +249,7 @@ media" dialog.
 
 ## Housekeeping
 
-- Merged and safe to delete when convenient: `asr-provider-config`,
-  `benchmark-bookkeeping`, `annotation-standards-and-asr-providers`.
+- Branches cleaned up 2026-11-16: only `main` and the working branch remain;
+  merge work in through a PR, as before.
 - Kate's own in-progress edits are sometimes left uncommitted: check
   `git status`, and never sweep someone else's edits into a commit.
