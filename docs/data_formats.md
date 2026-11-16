@@ -212,15 +212,20 @@ copy with `sqlite3 manifest.sqlite ".backup copy.sqlite"`.
 
 ## Benchmark results: `benchmarks/results/runs.csv`
 
-In git, append-only, one row per scored run: `timestamp, recording_id, engine,
-model, audio_sha256, wer, cer, wall_s, source, git_commit, machine, notes,
-gold_pass1, wer_l1, scoring, gold_sha256`. `source`: `live` = engine ran,
-`cache_hit` / `cached` = it didn't. `gold_pass1`: `blind` or `seeded` (empty
-= blind, from before the column existed). `wer`/`cer` are at L0, `wer_l1` at
-L1. `scoring` names the scoring method and `gold_sha256` the reference file
-used; rows where either differs from today's aren't comparable, and
-`scripts/bench_status.py` hides them. Detail per run in
-`benchmarks/runs/<run_id>/` (gitignored).
+In git, append-only, one row per scored transcript: `timestamp,
+recording_id, engine, model, audio_sha256, wer, cer, wall_s, source,
+git_commit, machine, notes, gold_pass1, wer_l1, scoring, gold_sha256,
+setting, transcript, der, jer, cpwer`. `der`/`jer`/`cpwer` are the speaker
+scores (empty before 2026-11-16, or for a transcript without speakers).
+`setting` is the `settings.yaml` name of a variant
+(empty for a plain run); `transcript` is the file scored. `wall_s` is the
+engine's own run time from the transcript's provenance. `source` is history:
+before 2026-11-16 it said whether the engine ran (`live`) or not
+(`cache_hit`, `cached`); since then every row is `transcript`.
+`gold_pass1`: `blind` or `seeded` (empty = blind, from before the column
+existed). `wer`/`cer` are at L0, `wer_l1` at L1. `scoring` names the scoring
+method and `gold_sha256` the reference file used; rows where either differs
+from today's aren't comparable, and `scripts/bench_status.py` hides them.
 
 ---
 

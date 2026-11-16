@@ -25,7 +25,7 @@ you want to change one, change it here first.
 | 4 | Providers that diarize internally **do** diarize — but a **pyannote control arm** is available per provider (§5). |
 | 5 | Scoring is **dual-report**: L0 verbatim and L1 filler-neutral (§6). |
 | 6 | The **glossary is a swept axis**, not a fixed control. Headline cross-provider numbers run glossary-off (§3). |
-| 7 | Testing writes under `benchmarks/runs/<run_id>/`; the default pipeline writes under `data/`. **Same layout, swapped root** (§7). |
+| 7 | Benchmark and pipeline transcripts share one place and layout, `data/transcripts/`; a benchmark variant goes under `variants/<setting>/` (§7). |
 | 8 | `recordings.cloud_release` is a **safety interlock**, default false. No audio leaves this machine for a row that hasn't got it (§9). |
 | 9 | **BAA availability is a selection criterion**, reported beside WER. A provider you can't deploy shouldn't win. |
 
@@ -54,22 +54,19 @@ Fields per provider:
 | `no_train_flag` | how to assert zero-retention / no-training on each request |
 | `cost_per_minute` | non-trivial at 300–400 videos |
 
-### Capability matrix — **unverified, needs a docs pass**
+### Capability matrix — checked 2026-11-13
 
-> ⚠️ **Do not build against this table.** It was written from knowledge current
-> to roughly January 2026; AssemblyAI Universal-3 Pro and ElevenLabs Scribe v2
-> are at or past that horizon, and every vendor here ships changes faster than
-> this file gets edited. Verify each row against live documentation and record
-> the date you checked it. Treated as fact, this table will silently corrupt the
-> benchmark.
+`providers.yaml` is the authority, with sources and contradictions in each
+row's notes; this is the summary.
 
-| Provider | Diarizes | Word timings | Glossary mechanism | Keeps fillers | Notes to verify |
+| Provider | Diarizes | Word timings | Glossary mechanism | Keeps fillers | Watch for |
 |---|---|---|---|---|---|
 | `faster_whisper` (local) | no — pyannote merged | yes | `initial_prompt` (lossy — prose, not terms) | inconsistently | baseline; fully pinned |
 | `whisperx` (local) | yes (pyannote) | yes (wav2vec2 forced alignment) | `initial_prompt` | inconsistently | best local word timing |
-| `google` | model-dependent | yes | `phrase_set` + boost | largely **no** | Chirp variants differ on diarization *and* adaptation; >1 min needs GCS |
-| `assemblyai` | yes (`speaker_labels`) | yes | `word_boost` / keyterms prompt | **yes** (`disfluencies`) | Universal-3 Pro + Medical Mode unconfirmed |
-| `elevenlabs` | yes (`diarize`) | yes | possibly none | partially | emits audio-event tags natively — see §6 bracket rule |
+| `gemini` (`gemini-3.5-transcribe`, Vertex) | yes, `generate_content` | yes, Experimental; files up to 15 min | `custom_vocabulary` (up to 1,000) | **yes**, VERBATIM mode | GCS staging; 14-minute pieces through the shared chunker |
+| `google` (`chirp_3`) | yes, batch | yes, but caps a batch request at 20 min | `phrase_set` (up to 1,000) | largely **no** | GCS staging; long audio is chunked, speaker labels linked through the overlaps, else through the diarize turns (plan 7.4) |
+| `assemblyai` | yes (`speaker_labels`) | yes | `keyterms_prompt` (1,000 on universal-3-5-pro) | **yes** (`disfluencies`) — docs disagree for universal-3-5-pro | no retention flag; the adapter deletes after download |
+| `elevenlabs` | yes (`diarize`) | yes | `keyterms` (1,000) | yes unless `no_verbatim` | zero retention (`enable_logging=false`) is enterprise-only; audio-event tags (§6 bracket rule) |
 
 The **"keeps fillers"** column is the one with teeth: it drives which scoring
 profile a provider can be fairly compared on (§6).
@@ -162,13 +159,16 @@ But it entangles two things: DER for `assemblyai` scores AssemblyAI's diarizer, 
 DER for `faster_whisper` scores pyannote. A WER difference between them could be
 words *or* speaker assignment, and you can't tell which.
 
-So: **`--diarizer {provider,pyannote}`**. The pyannote arm discards provider
-speaker labels and merges the cached RTTM through the existing
-`asr._diarize_and_merge` path. Free at inference — the RTTM is already cached per
-recording (pipeline doc §6).
+So every transcriber takes **`speakers="engine"` or `"pipeline"`**
+(`transcribers/chunking.py`). `"pipeline"` discards the engine's speaker labels
+and gives each word the speaker of the diarize stage's cached RTTM turn it
+overlaps most. Free at inference — the RTTM is already cached per recording
+(pipeline doc §6).
+Cloud engines default to `"engine"`; the local Whisper engines default to
+`"pipeline"`, as the pipeline always has.
 
-Provenance carries `diarizer` as a **column distinct from `engine`**, so
-"universal + own diarizer" and "universal + pyannote@version" are never confused.
+`speakers` is recorded in the run's params, distinct from `engine`, so
+"universal + own diarizer" and "universal + pyannote" are never confused.
 
 Speaker-count hints (`speakers_expected` / `num_speakers` / `min`+`max`) are their
 own axis. Pass them consistently or not at all — never per-provider ad hoc.
@@ -223,27 +223,28 @@ absorbing six different vendor formatters.
 
 ## 7. Output layout and run identity
 
-Same relative layout, swapped root — one writer, one `--out-root` flag. That's
-what makes every tool usable from both paths without special-casing.
+Every transcript, pipeline or benchmark, is saved in one place:
 
 ```
-data/transcripts/<recording_id>/<camera>_<engine>_<model>.json    # default pipeline
-data/transcripts/<recording_id>/<camera>_<engine>_<model>.raw.json
-
-benchmarks/runs/<run_id>/                                    # testing
-├── config.resolved.yaml     # every param actually sent, post-defaults
-├── <recording_id>.json           # normalized record
-├── <recording_id>.raw.json       # verbatim provider response
-└── scores.json
+data/transcripts/<recording_id>/<camera>_<engine>_<model>.json        # normalized record
+data/transcripts/<recording_id>/<camera>_<engine>_<model>.raw.json    # verbatim provider response
+data/transcripts/<recording_id>/variants/<setting>/...                # a benchmark setting that changes more than the model
+data/transcripts/<recording_id>/responses/<setting>/<piece>.json      # each response, saved before normalizing
 ```
 
-`<run_id>` is timestamp + short config hash. `results/runs.csv` carries one
-append-only row per run pointing at it.
+A setting is a named engine + parameters in `benchmarks/configs/settings.yaml`
+(`benchmarks/transcribe.py` runs them); every parameter actually sent is in the
+record's provenance. `benchmarks/results/runs.csv` carries one append-only row
+per scored transcript, naming the file.
 
-**`benchmarks/runs/` is gitignored; only `results/runs.csv` is tracked.** Scores
+**`data/` is gitignored; only `results/runs.csv` is tracked.** Scores
 and provenance travel in git; transcript text does not. See §9 — students
-self-identify verbally, so raw responses carry real names. This fails safe and is
-less machinery than a commit-time redaction gate.
+self-identify verbally, so raw responses carry real names.
+
+Every `Transcription.save()` also adds a row to the manifest's `transcripts`
+table: recording, camera, engine, model, the params (and a short hash of
+them), the vendor's request id and reported model, and both file paths. The
+files stay authoritative; the table answers "what has been run on what".
 
 ---
 
@@ -257,7 +258,7 @@ exact config is noise (pipeline doc §8d). Beyond the existing columns:
 | `provider` | distinct from `model` |
 | `provider_model_returned` | vendors silently update model versions — record what they *say* they ran |
 | `request_id` | the vendor's own handle, for support and for disputes |
-| `diarizer` | `provider` or `pyannote@<version>` (§5) |
+| `speakers` (built, in params) | `engine` or `pipeline` (§5) |
 | `glossary_sha` | null for headline runs (§3) |
 | `glossary_lossiness` | what the renderer dropped |
 | `scoring` (built) | the normalizer/scoring method; scores are only comparable within one |
@@ -345,7 +346,7 @@ carries forward is the interlock and `baa_available` as a selection criterion.
 
 Before any of this is built:
 
-- [ ] Verify every row of §2's capability matrix against live vendor docs; record check dates
+- [x] Verify every row of §2's capability matrix against live vendor docs; record check dates (2026-11-13)
 - [ ] Confirm AssemblyAI Universal-3 Pro + Medical Mode availability and params
 - [ ] Confirm ElevenLabs Scribe v2 — diarization, word timings, any keyterm mechanism
 - [ ] Confirm which Google STT v2 / Chirp variants support diarization *and* adaptation together

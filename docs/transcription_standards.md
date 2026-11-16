@@ -290,9 +290,9 @@ One source, three renderings. Each is a deterministic transform of the one above
 Shared transforms applied identically to reference and hypothesis at every
 level: name redaction (§8), then **bracket stripping**, casing, punctuation,
 backchannel spelling variants and `ok` → `okay` (§6), and whitespace (`multidata.normalize`; the exact rules are in
-[asr_evaluation_methods.md](asr_evaluation_methods.md) §4.2). **Number
-canonicalization is not implemented yet**: until it is, a reference's "one
-twenty" against an engine's "120" counts as an error.
+[asr_evaluation_methods.md](asr_evaluation_methods.md) §4.2). Numbers are canonicalized to digits on both sides ("one twenty over
+eighty" and "120/80" both become `120 over 80`), so gold keeps writing them
+as spoken.
 
 > **Known limitation:** L1 and L2 drop the cut-off word but *not* the whole
 > abandoned phrase — `I was going- I drove` becomes `I was I drove`, not
@@ -417,7 +417,7 @@ a genuine engine weakness worth reporting.
 ### Using seeded gold in benchmarks
 
 - The seed engine is **never scored** against gold it seeded, at any model
-  size (`run_benchmark.py` refuses).
+  size (`run_benchmark.py` won't).
 - Results against seeded gold are reported **separately** from results
   against blind gold (`bench_status.py`, and `runs.csv`'s `gold_pass1`
   column), never averaged together.
@@ -500,9 +500,8 @@ benchmarks/
 
 ### Current gaps
 
-- **DER scoring is not implemented** in `run_benchmark.py`: it computes WER/CER
-  only. Collecting the RTTM layer is not wasted (§5 produces exactly what DER
-  needs), but don't expect a DER number until that path exists.
+- None open in this section. (DER, JER and cpWER are scored since
+  2026-11-16: [asr_evaluation_methods.md](asr_evaluation_methods.md) §4.3.)
 
 ---
 

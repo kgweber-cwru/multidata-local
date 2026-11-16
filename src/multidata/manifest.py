@@ -11,7 +11,8 @@ The two tables matching the two models in `multidata.models`:
 (what each stage run cost, for scaling estimates), `assignments` (who has
 which annotation pass) and `gold`
 (one row per gold reference produced, possibly several per recording for excerpt
-gold — implementation plan Phase 2.4), none of which have their own
+gold — implementation plan Phase 2.4) and `transcripts` (one row per saved
+transcript, `multidata.transcribers`), none of which have their own
 dataclass; `Recording`/`Video`/`Camera` exist because their columns get
 constructed programmatically in more than one place, not because every table
 needs one.
@@ -237,6 +238,32 @@ CREATE TABLE IF NOT EXISTS recording_scores (
 CREATE TABLE IF NOT EXISTS ls_rooms (
     room_guid TEXT PRIMARY KEY,
     room_number TEXT NOT NULL
+);
+-- One row per saved transcript (multidata.transcribers, `Transcription.save`):
+-- what was run on which recording, with which parameters. The transcript
+-- itself and the vendor's response stay in the two JSON files the row points
+-- to; `params` repeats the record's provenance so a query needn't open them.
+-- `params_hash` is a short fingerprint of `params`: equal hashes, same
+-- settings. Saving over a file replaces its row. No foreign key to
+-- recordings, as with assignments.
+CREATE TABLE IF NOT EXISTS transcripts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    recording_id TEXT NOT NULL,
+    camera TEXT NOT NULL,
+    engine TEXT NOT NULL,
+    kind TEXT NOT NULL DEFAULT '',
+    model TEXT NOT NULL,
+    model_returned TEXT NOT NULL DEFAULT '',
+    request_id TEXT NOT NULL DEFAULT '',
+    params TEXT NOT NULL DEFAULT '{}',
+    params_hash TEXT NOT NULL DEFAULT '',
+    audio TEXT NOT NULL DEFAULT '',
+    audio_duration_s REAL,
+    started_at TEXT NOT NULL DEFAULT '',
+    wall_s REAL,
+    normalized_path TEXT NOT NULL,
+    raw_path TEXT NOT NULL,
+    saved_at TEXT NOT NULL
 );
 """
 
@@ -467,17 +494,6 @@ def record_gold(recording_id, annotator="", pass1_frozen_at="", gold_at="",
         return cursor.lastrowid
 
 
-def gold_for_recording(recording_id, path=DEFAULT_PATH):
-    """Every gold row for one recording, oldest first -- possibly more than one
-    (standards §3: excerpt gold from several spans is a valid strategy for
-    stretching limited annotator time across more strata)."""
-    with closing(connect(path)) as conn:
-        rows = conn.execute(
-            "SELECT * FROM gold WHERE recording_id = ? ORDER BY id", (recording_id,)
-        ).fetchall()
-    return [dict(r) for r in rows]
-
-
 def all_gold(path=DEFAULT_PATH):
     """Every gold row across every recording, oldest first -- the query that makes
     "which recordings have usable gold?" a query instead of an `ls` on
@@ -666,14 +682,6 @@ def set_camera_room(camera_id, room_number, path=DEFAULT_PATH):
     return Camera(camera_id=camera_id, room_number=room_number)
 
 
-def get_camera_room(camera_id, path=DEFAULT_PATH):
-    with closing(connect(path)) as conn:
-        row = conn.execute(
-            "SELECT * FROM cameras WHERE camera_id = ?", (camera_id,)
-        ).fetchone()
-    return Camera.from_row(row) if row else None
-
-
 def all_camera_rooms(path=DEFAULT_PATH):
     with closing(connect(path)) as conn:
         rows = conn.execute("SELECT * FROM cameras ORDER BY camera_id").fetchall()
@@ -804,6 +812,53 @@ def record_stage_run(stage, recording_id, camera, status, started_at, wall_s, me
              json.dumps(params or {}, default=str), json.dumps(details or {}, default=str),
              error),
         )
+
+
+# --- transcripts -------------------------------------------------------------
+
+def params_hash(params):
+    """A short fingerprint of a parameter dict: equal settings, equal hash."""
+    import hashlib
+    import json
+
+    blob = json.dumps(params, sort_keys=True, default=str)
+    return hashlib.sha256(blob.encode()).hexdigest()[:12]
+
+
+def record_transcript(recording_id, camera, engine, model, normalized_path, raw_path,
+                      params=None, path=DEFAULT_PATH, **fields):
+    """Register one saved transcript (see the table's comment in SCHEMA).
+    `fields` are the table's other columns (kind, model_returned, request_id,
+    audio, audio_duration_s, started_at, wall_s). A row already pointing at
+    `normalized_path` is replaced. Returns the row id."""
+    import json
+
+    params = params or {}
+    row = {"recording_id": recording_id, "camera": camera, "engine": engine, "model": model,
+           "normalized_path": str(normalized_path), "raw_path": str(raw_path),
+           "params": json.dumps(params, sort_keys=True, default=str),
+           "params_hash": params_hash(params),
+           "saved_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+           **fields}
+    with closing(connect(path)) as conn, conn:
+        conn.execute("DELETE FROM transcripts WHERE normalized_path = ?", (row["normalized_path"],))
+        cursor = conn.execute(
+            f"INSERT INTO transcripts ({', '.join(row)}) VALUES ({', '.join('?' * len(row))})",
+            tuple(row.values()))
+        return cursor.lastrowid
+
+
+def all_transcripts(path=DEFAULT_PATH, recording_id=None):
+    """Every registered transcript (optionally one recording's), oldest first,
+    with `params` decoded."""
+    import json
+
+    sql, args = "SELECT * FROM transcripts", ()
+    if recording_id is not None:
+        sql, args = sql + " WHERE recording_id = ?", (recording_id,)
+    with closing(connect(path)) as conn:
+        rows = conn.execute(sql + " ORDER BY id", args).fetchall()
+    return [{**dict(r), "params": json.loads(r["params"])} for r in rows]
 
 
 def add_camera_view(camera, view_id, first_recording_id, samples, path=DEFAULT_PATH):

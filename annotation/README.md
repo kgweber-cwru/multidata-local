@@ -146,15 +146,13 @@ git push
 
 ### 7. Score it (host)
 
-For each engine (see `python scripts/bench_status.py` for the empty cells):
-
 ```bash
-python benchmarks/run_benchmark.py --recording <C> --audio data/audio/<C>/<camera>.wav \
-    --transcript data/transcripts/<C>/<camera>_<engine>_<model>.json --model <model>
+python benchmarks/transcribe.py --recordings <C>   # every setting in settings.yaml not yet run
+python benchmarks/run_benchmark.py                 # score every saved transcript not yet scored
+python scripts/bench_status.py                     # what's left
 ```
 
-Or leave out `--transcript` and give `--engine <engine>` to run the engine
-now. The excerpt window, if any, is read from the `.gold.json`. Commit
+The excerpt window, if any, is read from the `.gold.json`. Commit
 `benchmarks/results/runs.csv`.
 
 When a recording is finished, tidy its Box folders away (a `complete/` folder is

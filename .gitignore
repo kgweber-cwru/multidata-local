@@ -2,11 +2,9 @@
 data/
 logs/
 
-# Per-run benchmark outputs and the response cache hold transcript text, and
-# students self-identify verbally in OSCE encounters — so raw provider
-# responses carry real names. Scores and provenance travel in git
-# (benchmarks/results/runs.csv); the text does not. See
-# docs/asr_provider_spec.md §7/§9.
+# Old benchmark output folders (nothing writes them since 2026-11-16; safe to
+# delete). They hold transcript text, and learners say their names in our
+# simulated encounters, so they never enter git. See docs/asr_provider_spec.md §7/§9.
 benchmarks/runs/
 benchmarks/cache/
 *.mp4

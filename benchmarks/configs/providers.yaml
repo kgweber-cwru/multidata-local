@@ -4,15 +4,11 @@
 # below to be *present* on every entry (null is a valid value; a missing key
 # is not) — see that module's REQUIRED_FIELDS for the exact contract.
 #
-# ⚠️  CLOUD ROWS ARE A DRAFT.  Written from general knowledge
-# current to roughly January 2026; AssemblyAI Universal-3 Pro and ElevenLabs
-# Scribe v2 are at or past that horizon, and every vendor here ships changes
-# faster than this file gets edited. `verified: false` / `checked_on: null`
-# on a row means exactly that — do not build an adapter against it before
-# checking it against live vendor docs and flipping both fields
-# (implementation plan Phase 0.4). Kate: please correct anything wrong here,
-# especially the AssemblyAI Medical Mode and ElevenLabs glossary rows, which
-# are the least certain.
+# Cloud rows were checked against the vendors' public docs on the
+# `checked_on` date; where those docs contradict each other, the row's notes
+# say so. Vendors ship faster than this file gets edited: recheck a row before
+# a sweep that depends on it, and update `checked_on` when you do. A row with
+# `verified: false` hasn't been checked; don't build against it.
 #
 # Local rows (faster_whisper / whisperx / whisperx_disfluent) are
 # marked verified — that's not a vendor claim, it's a fact read straight off
@@ -101,94 +97,145 @@ providers:
 
   google:
     kind: cloud
-    diarizes_internally: true       # Chirp does, standard doesn't. 
-    word_timings: true
+    diarizes_internally: true       # chirp_3, BatchRecognize; diarization_config min/max_speaker_count
+    word_timings: true              # enable_word_time_offsets; caps chirp_3 batch at 20 min per request
     glossary_mechanism: phrase_set
-    glossary_limit: "5,000 phrases per phrase set, 100 PhraseSets per request"
+    glossary_limit: "5,000 phrases per phrase set, 100 PhraseSets per request; chirp_3 page says up to 1,000 phrases"
     disfluency_param: ITN          # Keep "Inverse Text Normalization" disabled in raw transcript output.
     best_disfluency_config: null
     speaker_hint_param: diarization_config['max_speaker_count', 'min_speaker_count']
-    formatting_off_param: "enableAutomaticPunctuation=false"
+    formatting_off_param: "enable_automatic_punctuation=false"
     long_audio:
-      sync_limit_s: 60              # TODO verify -- historically ~1 minute for synchronous recognize
-      async_path: "GCS staging required beyond the sync limit -- TODO verify current requirement"
+      sync_limit_s: 60              # Recognize: "audio shorter than one minute" (chirp_3 page)
+      async_path: >
+        BatchRecognize, audio in GCS only. chirp_3: about 1 h per request, 20 min
+        with word timestamps on (the batch page says 480 min; the chirp_3 page
+        wins for chirp_3). The adapter sends 19-minute pieces (chunk_s).
     baa_available: true
     no_train_flag: "No training as long as Data Logging is disabled"
-    cost_per_minute: 0.016
+    cost_per_minute: 0.016          # not rechecked 2026-11-13 (pricing page didn't load)
     verified: true
-    checked_on: 2026-08-26
+    checked_on: 2026-11-13
     notes: >
-      First cloud provider to implement (implementation plan Phase 4): inside
-      the institution's BAA, so no new paperwork. Also the hardest: GCS staging
-      for long audio, and Chirp variants may not support diarization and
-      adaptation (glossary) at the same time -- confirm before assuming both
-      can be requested together.
+      Adapter: multidata.transcribers.google (chirp_3 in the `us` multi-region;
+      chirp_2 is regional only). Its speaker labels are linked across pieces
+      through the overlaps (transcribers/chunking.py); unlinked ones are noted.
+      Chirp 3 word "confidence" isn't a real confidence score (vendor's words),
+      so the adapter leaves it off. Diarization and adaptation are both listed
+      for chirp_3 en-US; no page shows them combined -- confirm on the first run.
+      Data logging is a project-level opt-in, off by default; there is no
+      per-request flag.
+
+  gemini:
+    kind: cloud
+    diarizes_internally: true       # AudioTranscriptionConfig(diarization=True); up to 8 speakers, Experimental
+    word_timings: true              # word_timestamp=True; Experimental, "may degrade" accuracy
+    glossary_mechanism: custom_vocabulary
+    glossary_limit: "1,000 terms (vendor: best results up to 100)"
+    disfluency_param: mode          # VERBATIM (default) keeps what was said; SMART cleans it up and drops speakers/timestamps
+    best_disfluency_config: null
+    speaker_hint_param: null        # no speaker-count hint documented
+    formatting_off_param: null      # not documented
+    long_audio:
+      sync_limit_s: 900             # Vertex: files up to 15 min (AI Studio page says 30 with diarization/timestamps)
+      async_path: >
+        None documented for this model on Vertex; generate_content per file. The
+        adapter sends 14-minute pieces (chunk_s) through the shared chunker.
+    baa_available: null             # not stated on the model page; check the BAA's covered-services list
+    no_train_flag: null             # not stated on the model page
+    cost_per_minute: null           # not stated on the model page (2026-11-16)
+    verified: true
+    checked_on: 2026-11-16
+    notes: >
+      Adapter: multidata.transcribers.gemini, model gemini-3.5-transcribe on Vertex
+      (genai.Client(enterprise=True), location us/eu/global), audio by GCS URI.
+      Never through the AI Studio Gemini API (API key, outside the project's
+      agreements). Not yet run live.
 
   google_medical_conversation:
     kind: cloud
     diarizes_internally: true       # Medical does
     word_timings: true
-    glossary_mechanism: PhraseSet
-    glossary_limit: "5,000 phrases per phrase set, 100 PhraseSets per request"
+    glossary_mechanism: none        # the supported-languages table shows no model adaptation (2026-11-13)
+    glossary_limit: null
     disfluency_param: null          # The medical models aggressivley filter disfluencies
     best_disfluency_config: null
     speaker_hint_param: diarization_config['max_speaker_count', 'min_speaker_count']
-    formatting_off_param: "enableAutomaticPunctuation=false"
+    formatting_off_param: "enable_automatic_punctuation=false"
     long_audio:
-      sync_limit_s: 60              # TODO verify -- historically ~1 minute for synchronous recognize
-      async_path: "GCS staging required beyond the sync limit -- TODO verify current requirement"
+      sync_limit_s: 60
+      async_path: "GCS staging, as plain google"
     baa_available: true             # TODO verify
     no_train_flag: "No training as long as Data Logging is disabled"
     cost_per_minute: 0.078
     verified: true
-    checked_on: 2026-08-26
+    checked_on: 2026-11-13
     notes: >
       Medical Conversation variant, distinct from plain Google STT above --
       aggressively filters disfluencies per Kate's research (disfluency_param
       null), which cuts directly against this project's keep-disfluencies
-      policy (transcription_standards.md §1). Same GCS/long-audio caveat as
-      plain google applies.
+      policy (transcription_standards.md §1). Run it as
+      `transcribers.get_transcriber("google", model="medical_conversation")`;
+      offered in us, eu and global. Its batch duration limit wasn't on the
+      pages read (the models overview 404'd).
 
   assemblyai:
     kind: cloud
-    diarizes_internally: true       # `speaker_labels=true`
-    word_timings: true
-    glossary_mechanism: "keyterms_prompt"  # TODO verify current mechanism name/shape for Universal-3.5 Pro specifically
-    glossary_limit: "1000 terms"            # TODO verify
-    disfluency_param: "disfluencies (bool)"   # TODO verify still current under Universal-3 Pro
+    diarizes_internally: true       # speaker_labels=true (needs punctuate=true)
+    word_timings: true              # milliseconds in the response
+    glossary_mechanism: keyterm     # keyterms_prompt; exclusive with prompt on pre-recorded audio
+    glossary_limit: "1000 terms on universal-3-5-pro, 200 on universal-2; 6 words per term"
+    disfluency_param: "disfluencies (bool)"
     best_disfluency_config:
       disfluencies: true
-    speaker_hint_param: "speakers_expected"
-    formatting_off_param: "format_text=false / punctuate=false"
-    long_audio: "5GB or 10h"
-    baa_available: "self-serve"             # TODO verify
-    no_train_flag: "opt out via control panel"
-    cost_per_minute: "0.0035 + 0.0025(Medical) + 0.00083 (keyterms) + 0.00083 (prompting) + 0.0003 (Diarization)"    # TODO fill in from current pricing page
+      note: >
+        The docs disagree on whether universal-3-5-pro honours `disfluencies`
+        (the submit schema says yes; models.md says it is ignored and to use
+        `prompt`). Compare filler counts against universal-2 before trusting it.
+    speaker_hint_param: "speakers_expected, or speaker_options {min,max}_speakers_expected"
+    formatting_off_param: "format_text=false"
+    long_audio:
+      sync_limit_s: null
+      async_path: "upload (POST /v2/upload) then submit and poll; no duration limit stated"
+    baa_available: "self-serve, per the pricing page (models.md says contact sales)"
+    no_train_flag: >
+      No per-request flag. The adapter deletes the transcript and its uploaded
+      audio (DELETE /v2/transcript/{id}) once the response is saved.
+    cost_per_minute: "universal-3-5-pro 0.0035 (0.21/h), universal-2 0.0025 (0.15/h); + diarization 0.02/h, keyterms 0.05/h, prompting 0.05/h, Medical Mode 0.15/h"
     verified: true
-    checked_on: 2026-08-26
+    checked_on: 2026-11-13
     notes: >
-      Pricing stacks depending on what add-ons we want
+      Adapter: multidata.transcribers.assemblyai. Models are speech_models
+      [universal-3-5-pro] or [universal-2]; the adapter sends exactly one, so
+      the vendor can't fall back silently, and records speech_model_used.
+      Medical Mode is domain="medical-v1". The vendor strips inline audio tags
+      by default (remove_audio_tags). EU host: api.eu.assemblyai.com.
 
   elevenlabs:
     kind: cloud
-    diarizes_internally: true       # `diarize=true`
-    word_timings: true
-    glossary_mechanism: none        # TODO verify -- likely no keyterm/boost mechanism as of ~2026-01
-    glossary_limit: null
-    disfluency_param: null          # TODO verify: emits some disfluencies/audio-event tags natively per general docs
-    best_disfluency_config: null
-    speaker_hint_param: null        # TODO verify
-    formatting_off_param: null      # TODO verify
-    long_audio: null                # TODO verify
-    baa_available: null             # TODO verify
-    no_train_flag: null             # TODO verify
-    cost_per_minute: null           # TODO fill in from current pricing page
-    verified: false
-    checked_on: null
+    diarizes_internally: true       # diarize=true; up to 32 speakers
+    word_timings: true              # timestamps_granularity=word (or character)
+    glossary_mechanism: keyterm     # `keyterms`, +20% cost
+    glossary_limit: "1000 terms; each at most 50 characters and 5 words; no <>{}[]\\"
+    disfluency_param: "no_verbatim=false (true strips fillers and false starts)"
+    best_disfluency_config:
+      no_verbatim: false
+    speaker_hint_param: "num_speakers (or diarization_threshold when num_speakers is unset)"
+    formatting_off_param: "numbers_format=words (scribe_v3 only); no punctuation switch"
+    long_audio:
+      sync_limit_s: null            # one synchronous request; files to 5 GB / 15 h
+      async_path: "webhook=true returns early; not used by the adapter"
+    baa_available: "enterprise; scribe_v2_medical is sold as HIPAA-eligible with a BAA"
+    no_train_flag: "enable_logging=false (zero-retention mode; enterprise accounts only)"
+    cost_per_minute: "0.0033 (0.20/h, scribe_v2 / v2_medical / v3); keyterms +0.05/h"
+    verified: true
+    checked_on: 2026-11-13
     notes: >
-      "Scribe v2" is UNCONFIRMED against public docs as of this draft --
-      verify the product name and its capabilities before building against
-      this row. Emits native audio-event tags (e.g. laughter) per Scribe v1
-      behavior -- if true here too, that's exactly what
-      normalize.strip_brackets exists to neutralize for scoring, PROVIDED
-      this adapter's normalizer emits them in the same [tag] bracket form.
+      Adapter: multidata.transcribers.elevenlabs. Models: scribe_v3 (the
+      vendor's pick for recorded audio), scribe_v2, scribe_v2_medical;
+      scribe_v1 is deprecated. Audio events come back as "(laughter)"-style
+      words of type audio_event; the adapter writes them as [laughter] so the
+      bracket rule drops them. No per-word confidence, only logprob. The
+      response doesn't say which model ran. Whether a non-enterprise account
+      can use enable_logging=false is unconfirmed; the adapter sends it
+      anyway, so such an account gets an error rather than a retained request.

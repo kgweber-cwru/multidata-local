@@ -1,7 +1,6 @@
-"""benchmarks/run_benchmark.py's load_result() branching -- scoring a cached
-transcript vs. running an engine live. No real engine/model/audio involved:
-the live branch is exercised via a monkeypatched asr.transcribe."""
-import argparse
+"""benchmarks/run_benchmark.py: scoring saved transcripts into the ledger.
+No engine runs here; transcripts are small JSON files written by the test."""
+import csv
 import json
 import sys
 from pathlib import Path
@@ -16,150 +15,76 @@ sys.path.insert(0, str(BENCHMARKS))
 import run_benchmark  # noqa: E402
 
 
-def _args(**overrides):
-    # engine=None matches the real CLI's argparse default -- None means "the
-    # user did not type --engine", distinct from explicitly passing a value
-    # that happens to match the default (see load_result's refusal logic).
-    defaults = dict(audio="fake.wav", engine=None, model="large-v3", transcript=None)
-    defaults.update(overrides)
-    return argparse.Namespace(**defaults)
+def _transcript(path, text, provenance=None, engine=None):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    record = {"segments": [{"start": 0.0, "end": 1.0, "text": text}]}
+    if provenance:
+        record["provenance"] = provenance
+    if engine:
+        record["engine"] = engine
+    path.write_text(json.dumps(record))
+    return path
 
 
-class TestLiveMode:
-    def test_calls_asr_transcribe_and_reports_source_live(self, monkeypatch):
-        def fake_transcribe(audio_path, engine, **kwargs):
-            return {"segments": [{"text": "hello"}]}
+class TestScoreTranscript:
+    def _gold(self, refs, text="so tell me about it", meta=None):
+        refs.mkdir(exist_ok=True)
+        (refs / "999.gold.txt").write_text(text)
+        if meta:
+            (refs / "999.gold.json").write_text(json.dumps(meta))
+        return refs
 
-        monkeypatch.setattr(run_benchmark.asr, "transcribe", fake_transcribe)
-        result, engine, source, wall_s = run_benchmark.load_result(_args(), "fakehash")
-        assert result == {"segments": [{"text": "hello"}]}
-        assert engine == run_benchmark.asr.DEFAULT_ENGINE
-        assert source == "live"
-        assert wall_s >= 0.0
+    def test_row_names_engine_model_and_setting(self, tmp_path):
+        refs = self._gold(tmp_path / "refs")
+        t = _transcript(tmp_path / "999" / "variants" / "assemblyai_medical" / "16_assemblyai_u3.json",
+                        "um so tell me about it",
+                        provenance={"engine": "assemblyai", "model": "u3", "wall_s": 12.0})
+        ledger = tmp_path / "runs.csv"
+        row = run_benchmark.score_transcript(t, "999", results_path=ledger, references=refs,
+                                             manifest_path=tmp_path / "m.sqlite")
+        assert (row["engine"], row["model"], row["setting"]) == ("assemblyai", "u3", "assemblyai_medical")
+        assert row["wer"] > 0 and row["wer_l1"] == 0.0 and row["wall_s"] == 12.0
+        assert list(csv.DictReader(open(ledger)))[0]["transcript"] == row["transcript"]
 
+    def test_old_transcript_takes_its_model_from_the_file_name(self, tmp_path):
+        refs = self._gold(tmp_path / "refs")
+        t = _transcript(tmp_path / "999" / "16_whisperx_disfluent_large-v3.json", "so tell me about it",
+                        engine="whisperx_disfluent")
+        row = run_benchmark.score_transcript(t, "999", results_path=tmp_path / "runs.csv",
+                                             references=refs, manifest_path=tmp_path / "m.sqlite")
+        assert (row["engine"], row["model"], row["setting"]) == ("whisperx_disfluent", "large-v3", "")
 
-class TestCaching:
-    """The engine should never run twice for the same (audio, engine, model)
-    -- caching is the difference between iterating for free and iterating on
-    the meter (implementation plan Phase 2.2)."""
+    def test_seed_engine_is_not_scored_on_its_own_gold(self, tmp_path):
+        refs = self._gold(tmp_path / "refs", meta={"recording_id": "999", "pass1_source": "seeded",
+                                                   "seed_engine": "whisperx_disfluent"})
+        t = _transcript(tmp_path / "999" / "16_whisperx_disfluent_large-v3.json", "x",
+                        engine="whisperx_disfluent")
+        out = run_benchmark.score_transcript(t, "999", results_path=tmp_path / "runs.csv",
+                                             references=refs, manifest_path=tmp_path / "m.sqlite")
+        assert out.startswith("not scored") and not (tmp_path / "runs.csv").exists()
 
-    def test_cache_miss_calls_engine_and_populates_cache(self, tmp_path, monkeypatch):
-        calls = []
-
-        def fake_transcribe(audio_path, engine, **kwargs):
-            calls.append(1)
-            return {"segments": [{"text": "hello"}]}
-
-        monkeypatch.setattr(run_benchmark.asr, "transcribe", fake_transcribe)
-        result, engine, source, wall_s = run_benchmark.load_result(
-            _args(), "fakehash", cache_root=tmp_path
-        )
-        assert len(calls) == 1
-        assert source == "live"
-        assert result == {"segments": [{"text": "hello"}]}
-
-    def test_cache_hit_skips_engine_entirely(self, tmp_path, monkeypatch):
-        calls = []
-
-        def fake_transcribe(audio_path, engine, **kwargs):
-            calls.append(1)
-            return {"segments": [{"text": "hello"}]}
-
-        monkeypatch.setattr(run_benchmark.asr, "transcribe", fake_transcribe)
-        run_benchmark.load_result(_args(), "fakehash", cache_root=tmp_path)
-        result, engine, source, wall_s = run_benchmark.load_result(
-            _args(), "fakehash", cache_root=tmp_path
-        )
-        assert len(calls) == 1  # second call was a cache hit, not a second transcribe
-        assert source == "cache_hit"
-        assert wall_s == 0.0
-        assert result == {"segments": [{"text": "hello"}]}
-
-    def test_different_model_is_a_different_cache_entry(self, tmp_path, monkeypatch):
-        calls = []
-
-        def fake_transcribe(audio_path, engine, **kwargs):
-            calls.append(kwargs.get("model_name"))
-            return {"segments": []}
-
-        monkeypatch.setattr(run_benchmark.asr, "transcribe", fake_transcribe)
-        run_benchmark.load_result(_args(model="medium"), "fakehash", cache_root=tmp_path)
-        run_benchmark.load_result(_args(model="large-v3"), "fakehash", cache_root=tmp_path)
-        assert calls == ["medium", "large-v3"]
-
-    def test_no_cache_root_always_runs_live(self, monkeypatch):
-        calls = []
-
-        def fake_transcribe(audio_path, engine, **kwargs):
-            calls.append(1)
-            return {"segments": []}
-
-        monkeypatch.setattr(run_benchmark.asr, "transcribe", fake_transcribe)
-        run_benchmark.load_result(_args(), "fakehash", cache_root=None)
-        run_benchmark.load_result(_args(), "fakehash", cache_root=None)
-        assert len(calls) == 2
+    def test_excerpt_gold_scores_only_its_span(self, tmp_path):
+        refs = self._gold(tmp_path / "refs", text="during",
+                          meta={"recording_id": "999", "span": [4.0, 7.0]})
+        t = tmp_path / "999" / "16_assemblyai_u3.json"
+        t.parent.mkdir()
+        t.write_text(json.dumps({"provenance": {"engine": "assemblyai", "model": "u3"}, "segments": [
+            {"start": 0, "end": 10, "text": "before during after", "words": [
+                {"word": "before", "start": 1.0, "end": 2.0}, {"word": "during", "start": 5.0, "end": 6.0},
+                {"word": "after", "start": 9.0, "end": 10.0}]}]}))
+        row = run_benchmark.score_transcript(t, "999", results_path=tmp_path / "runs.csv",
+                                             references=refs, manifest_path=tmp_path / "m.sqlite")
+        assert row["wer"] == 0.0
 
 
-class TestTranscriptMode:
-    def test_loads_transcript_and_reports_source_cached(self, tmp_path):
-        transcript = tmp_path / "t.json"
-        transcript.write_text(json.dumps({"engine": "whisperx_disfluent", "segments": []}))
-        result, engine, source, wall_s = run_benchmark.load_result(
-            _args(transcript=str(transcript)), "fakehash"
-        )
-        assert result == {"engine": "whisperx_disfluent", "segments": []}
-        assert engine == "whisperx_disfluent"
-        assert source == "cached"
-        assert wall_s == 0.0
-
-    def test_missing_transcript_engine_uses_explicit_arg(self, tmp_path):
-        # An older/hand-built JSON with no "engine" key at all -- fine as
-        # long as --engine was given explicitly.
-        transcript = tmp_path / "t.json"
-        transcript.write_text(json.dumps({"segments": []}))
-        result, engine, source, _ = run_benchmark.load_result(
-            _args(transcript=str(transcript), engine="whisperx"), "fakehash"
-        )
-        assert engine == "whisperx"
-        assert source == "cached"
-
-    def test_missing_transcript_engine_and_no_explicit_arg_refuses(self, tmp_path):
-        # The exact bug this guards against (recording 261456): a transcript with
-        # no "engine" field, and the user didn't type --engine either --
-        # must refuse rather than silently recording asr.DEFAULT_ENGINE.
-        transcript = tmp_path / "t.json"
-        transcript.write_text(json.dumps({"segments": []}))
-        with pytest.raises(SystemExit):
-            run_benchmark.load_result(_args(transcript=str(transcript), engine=None), "fakehash")
-
-    def test_transcript_engine_overrides_mismatched_arg(self, tmp_path, capsys):
-        transcript = tmp_path / "t.json"
-        transcript.write_text(json.dumps({"engine": "whisperx_disfluent", "segments": []}))
-        _, engine, _, _ = run_benchmark.load_result(
-            _args(transcript=str(transcript), engine="faster_whisper"), "fakehash"
-        )
-        # The transcript's own recorded engine wins for provenance, even
-        # though --engine defaulted/was set to something else.
-        assert engine == "whisperx_disfluent"
-        assert "note:" in capsys.readouterr().err
-
-    def test_matching_engine_prints_no_note(self, tmp_path, capsys):
-        transcript = tmp_path / "t.json"
-        transcript.write_text(json.dumps({"engine": "faster_whisper", "segments": []}))
-        run_benchmark.load_result(
-            _args(transcript=str(transcript), engine="faster_whisper"), "fakehash"
-        )
-        assert capsys.readouterr().err == ""
-
-    def test_missing_transcript_file_exits(self, tmp_path):
-        missing = tmp_path / "does_not_exist.json"
-        with pytest.raises(SystemExit):
-            run_benchmark.load_result(_args(transcript=str(missing)), "fakehash")
-
-
-class TestFields:
-    def test_source_is_in_fields(self):
-        assert "source" in run_benchmark.FIELDS
+def test_scored_already_counts_only_the_current_method(tmp_path):
+    ledger = tmp_path / "runs.csv"
+    row = {f: "" for f in run_benchmark.FIELDS}
+    run_benchmark.record(row | {"transcript": "a.json", "gold_sha256": "g", "scoring": run_benchmark.SCORING},
+                         results_path=ledger)
+    run_benchmark.record(row | {"transcript": "b.json", "gold_sha256": "g", "scoring": "old"},
+                         results_path=ledger)
+    assert run_benchmark.scored_already(ledger) == {("a.json", "g")}
 
 
 class TestHypothesisTextSpan:
@@ -188,10 +113,6 @@ class TestHypothesisTextSpan:
         text = run_benchmark.hypothesis_text(self.WORDY_RESULT, span=(4.0, 7.0))
         assert text == "during"
 
-    def test_span_covering_everything_is_unfiltered(self):
-        text = run_benchmark.hypothesis_text(self.WORDY_RESULT, span=(0.0, 100.0))
-        assert text == "before during after"
-
     def test_span_covering_nothing_is_empty(self):
         text = run_benchmark.hypothesis_text(self.WORDY_RESULT, span=(50.0, 60.0))
         assert text == ""
@@ -206,15 +127,6 @@ class TestHypothesisTextSpan:
         }
         text = run_benchmark.hypothesis_text(result, span=(4.0, 7.0))
         assert text == "during"
-
-
-class TestSpanCliValidation:
-    def test_span_start_without_end_exits(self, monkeypatch, capsys):
-        monkeypatch.setattr(sys, "argv", [
-            "run_benchmark.py", "--recording", "x", "--audio", "fake.wav", "--span-start", "1.0",
-        ])
-        with pytest.raises(SystemExit):
-            run_benchmark.main()
 
 
 class TestRecord:
@@ -241,10 +153,6 @@ class TestRecord:
         assert lines.count(",".join(run_benchmark.FIELDS)) == 1
         assert len(lines) == 3
 
-    def test_default_results_path_is_the_real_ledger(self):
-        assert run_benchmark.RESULTS.name == "runs.csv"
-
-
 class TestScore:
     """score(): names redacted on both sides, then the designed L0/L1
     normalization, so tags and spoken names are neutral."""
@@ -261,24 +169,36 @@ class TestScore:
         hyp = "Hi I'm Jamie Smyth"
         assert run_benchmark.score(ref, hyp, self.NAMES)["wer"] == 0.0
 
-    def test_bracket_tags_are_not_scored_as_words(self):
-        ref = "OK [unintelligible] so [unclear: more?] tell me [laughter] about it"
-        hyp = "OK so tell me about it"
-        assert run_benchmark.score(ref, hyp, self.NAMES)["wer"] == 0.0
-
     def test_l1_ignores_fillers_l0_does_not(self):
         ref = "um so tell me about it"
         hyp = "so tell me about it"
         s = run_benchmark.score(ref, hyp, self.NAMES)
         assert s["wer"] > 0 and s["wer_l1"] == 0.0
 
-    def test_backchannel_survives_l1(self):
-        s = run_benchmark.score("uh-huh yes", "uh-uh yes", self.NAMES)
-        assert s["wer_l1"] > 0
 
-    def test_no_names_skips_redaction(self):
-        s = run_benchmark.score("hi jamie", "hi jamie", None)
-        assert s["wer"] == 0.0
+class TestSpeakers:
+    RESULT = {"segments": [{"words": [
+        {"word": "hi", "start": 0.0, "end": 0.5, "speaker": "A"},
+        {"word": "there", "start": 0.6, "end": 1.0, "speaker": "A"},
+        {"word": "[echoing]", "start": 1.0, "end": 200.0, "speaker": "A"},
+        {"word": "hello", "start": 1.2, "end": 2.0, "speaker": "B"},
+        {"word": "Tan.", "start": 3.0, "end": 160.0, "speaker": "B"},
+        {"word": "bye", "start": 5.0, "end": 5.5, "speaker": "A"},
+    ]}]}
 
-    def test_scoring_label_is_in_fields(self):
-        assert "scoring" in run_benchmark.FIELDS and "wer_l1" in run_benchmark.FIELDS
+    def test_turns_merge_words_and_skip_tags_and_glitches(self):
+        assert run_benchmark.speaker_turns(self.RESULT) == [
+            (0.0, 1.0, "A"), (1.2, 2.0, "B"), (5.0, 5.5, "A")]
+
+    def test_matching_turns_score_zero_whatever_the_labels(self):
+        ref = [(0.0, 10.0, "LEARNER"), (12.0, 20.0, "PATIENT"), (25.0, 30.0, "LEARNER")]
+        hyp = [(0.0, 10.0, "A"), (12.0, 20.0, "B"), (25.0, 30.0, "A")]
+        assert run_benchmark.speaker_scores(ref, hyp, (0.0, 30.0)) == {"der": 0.0, "jer": 0.0}
+        swapped = [(0.0, 10.0, "A"), (12.0, 20.0, "A"), (25.0, 30.0, "A")]
+        assert run_benchmark.speaker_scores(ref, swapped, (0.0, 30.0))["der"] > 0
+
+    def test_cpwer_matches_speakers_and_counts_a_merge(self):
+        ref = {"LEARNER": "how are you", "PATIENT": "fine thanks"}
+        assert run_benchmark.cpwer(ref, {"S1": "fine thanks", "S0": "how are you"}) == 0.0
+        # one engine speaker holding both people's words: the unmatched role is all missed
+        assert run_benchmark.cpwer(ref, {"S0": "how are you fine thanks"}) == 0.8

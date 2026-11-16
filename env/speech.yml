@@ -22,5 +22,9 @@ dependencies:
       - pandas
       - jupyter
       - python-dotenv
+      - requests              # multidata.transcribers: ElevenLabs, AssemblyAI (plain HTTP)
+      - google-cloud-speech   # multidata.transcribers.google (Speech-to-Text v2)
+      - google-cloud-storage  # ... which reads audio only from Cloud Storage
+      - google-genai          # multidata.transcribers.gemini (Gemini 3.5 Transcribe on Vertex)
       - pyyaml                # providers.yaml / glossary.yaml (multidata.providers/.glossary)
       - pytest                # tests/ -- see pyproject.toml [tool.pytest.ini_options]

@@ -151,7 +151,7 @@ in `benchmarks/references/`, the only place gold is tracked in git:
 | File | Contents | Used for |
 |---|---|---|
 | `<recording>.gold.txt` | the text of every speech tier (`LEARNER`, `PATIENT`, `PRECEPTOR`, `ANNOUNCEMENT`, `OUTSIDE_ROOM`), in time order, as one line, with names replaced by tags | WER, CER |
-| `<recording>.gold.rttm` | the same tiers as speaker turns (same-tier utterances 0.3 s or less apart are merged into one turn), labelled with role names | DER (not computed yet, §3.4) |
+| `<recording>.gold.rttm` | the same tiers as speaker turns (same-tier utterances 0.3 s or less apart are merged into one turn), labelled with role names | DER, JER (§4.3) |
 | `<recording>.gold.json` | how pass 1 was made (blind or seeded, and if seeded, which engine, model and transcript hash), the standards version, the export date, the excerpt window | refusing biased comparisons; reporting |
 
 `ANNOUNCEMENT` and `OUTSIDE_ROOM` are in both the text and the turns,
@@ -193,7 +193,7 @@ assignments row (`annotation/assignments.py note`). A re-export undoes the mask,
 | adjudicated original | `data/gold/<recording>/<recording>.gold.eaf` | no | the reference with real names |
 | publishable reference | `benchmarks/references/<recording>.gold.*` | yes | redacted text, turns, provenance |
 | scores | `benchmarks/results/runs.csv` | yes | one row per scored run |
-| per-run detail | `benchmarks/runs/<run_id>/` | no | the engine's full output (contains names) |
+| transcripts | `data/transcripts/<recording>/` (variants under `variants/<setting>/`) | no | each engine's output and raw response (contains names) |
 
 The processing host is backed up nightly ([operations.md](operations.md)).
 Box is only a courier.
@@ -204,15 +204,17 @@ Box is only a courier.
 
 ### 4.1 Producing the hypothesis
 
-`benchmarks/run_benchmark.py` either runs an engine on the recording's WAV or
-scores a transcript the pipeline already made. Engine outputs are cached by
-(engine, model, audio hash), so re-scoring never re-runs or re-bills an
-engine. The engine's words are joined in time order into one string. If the
+`benchmarks/transcribe.py` runs each named setting in
+`benchmarks/configs/settings.yaml` on each gold recording through
+`multidata.transcribers` and saves the transcript; one that exists is
+skipped, and engine responses are saved before normalizing, so nothing is
+paid for twice. `benchmarks/run_benchmark.py` then scores every saved
+transcript of every gold recording that hasn't been scored with the current
+method. The engine's words are joined in time order into one string. If the
 reference is an excerpt, only words that start inside the window are kept;
 the window is read from `<recording>.gold.json`.
 
-Before scoring, the script refuses to score an engine against gold seeded
-by that same engine.
+It never scores an engine against gold seeded by that same engine.
 
 ### 4.2 Making the two texts comparable
 
@@ -234,6 +236,15 @@ The same steps are applied to the reference and the hypothesis
      (`mhm`, `mmhmm`, `mmm-hmm` → `mm-hmm`; `uhhuh` → `uh-huh`; `hmmm` →
      `hmm`; `mmm` → `mm`), and `ok` (`OK`, `O.K.`) to `okay`. A run-together
      `uhuh` is left alone: it could be yes or no;
+   - canonicalize numbers to digits, after taking written forms apart
+     (`120/80` → `120 over 80`, `98.6` → `98 point 6`, `3:30` → `330`,
+     `M4` → `m 4`): spoken runs read as standard English, a new number
+     starting where the grammar can't continue (`nine three seven` → `9 3 7`),
+     and the colloquial "one twenty" / "nineteen eighty-four" read as 120 and
+     1984; ordinals become `21st`, except `second`, which stays a word.
+     Exact rules and tests: `multidata.normalize`, `tests/test_normalize.py`.
+     Digits are the target because spoken → digits is deterministic and the
+     reverse isn't;
    - take the annotators' markup off words: the prolongation colon (`so:` →
      `so`) and the cut-off hyphen (`I-` → `I`). No engine writes these marks,
      so an engine that wrote the word gets credit, and one that left out a
@@ -253,17 +264,42 @@ The same steps are applied to the reference and the hypothesis
 | WER | L0 | `wer` | did it hear every word spoken, restarts and fillers included? |
 | WER | L1 | `wer_l1` | did it hear every word that carries meaning? |
 | CER | L0 | `cer` | the same, by character |
-| DER, JER | gold turns | not yet | did its diarizer get who spoke when, through overlap and noise? |
+| DER, JER | gold turns | `der`, `jer` | did it get who spoke when, through overlap and noise? |
+| cpWER | L0, per speaker | `cpwer` | did each word go to the right person? |
 
-WER and CER are computed with `jiwer`. Engines that never write filled
+WER and CER are computed with `jiwer`.
+
+**Speaker scoring rules** (decided 2026-11-16, before the first numbers):
+
+- The engine's turns are built from its words: same speaker, gaps up to
+  0.3 s merged, the rule gold's turns were built with. Bracketed audio-event
+  tags and any "word" timed longer than 3 s (a vendor timing glitch; one
+  tag spanned 233 s) are not speech. So DER here also counts speech an
+  engine failed to transcribe, not only speaker mistakes.
+- DER and JER come from `pyannote.metrics`, which matches engine labels to
+  gold roles itself. Overlap is scored. Every gold role is a speaker,
+  `ANNOUNCEMENT` and `OUTSIDE_ROOM` included, as in WER.
+- Boundaries: 0.5 s either side of each gold boundary is not scored. Gold
+  boundaries are placed by hand around phrases; on 261498 and 252848, DER
+  fell 10–12 points from no collar to ±0.25 s, another 2–5 to ±0.5 s, and
+  then levelled off.
+- Region: the whole recording, or gold's excerpt span. Speech gold left out
+  counts as the engine's false alarm, so gaps in gold cost more here than
+  in WER.
+- cpWER: each engine speaker's words are matched to one gold role's words
+  (the assignment with fewest errors) and WER is taken over all of them, at
+  L0 with names redacted. The per-role gold text comes from the gold `.eaf`
+  on the processing host. An engine that merges two people loses the
+  unmatched person's words entirely. Engines that never write filled
 pauses lose at L0 for a formatting policy rather than for what they heard;
 L1 is the fair comparison for them.
 
-Each run appends one row to `benchmarks/results/runs.csv`. It records the
-engine, model, audio hash, the three scores, how the reference's pass 1 was
-made (`gold_pass1`), the scoring method (`scoring`), the hash of the
-reference file (`gold_sha256`), the git commit and the machine. The full
-output and configuration go to `benchmarks/runs/<run_id>/`.
+Each scored transcript appends one row to `benchmarks/results/runs.csv`. It
+records the engine, model, setting (for a variant), the transcript file,
+audio hash, the three scores, how the reference's pass 1 was made
+(`gold_pass1`), the scoring method (`scoring`), the hash of the reference
+file (`gold_sha256`), the git commit and the machine. The transcript itself,
+with every parameter in its provenance, stays in `data/transcripts/`.
 
 ### 4.4 Which numbers can be compared
 
@@ -287,13 +323,13 @@ reference as it is now. Older rows stay in the ledger as history.
 
 ## 5. Known limitations
 
-Current as of 2026-11-11. When one is fixed, delete it here.
+Current as of 2026-11-16. When one is fixed, delete it here.
 
-- **No diarization score yet.** Gold turns exist (with overlap), but DER and
-  JER are not computed, so the second half of the question is open.
 - **No noise floor.** No recording has two independent blind passes (§2.4).
-- **Numbers are not canonicalized.** Gold writes "one twenty over eighty";
-  an engine writing "120/80" is counted wrong.
+- **Number readings the canonicalizer can't know.** "One twenty" is read
+  as 120, so a genuine "one, twenty" (two items) is too, on both sides;
+  "3:00" becomes `300` while "three o'clock" stays words; a digit string
+  written run together (`93762`) doesn't meet the spoken `9 3 7 6 2`.
 - **Spelling variants of ordinary words count as errors.** For example
   `kinda`/`kind of`, `follow-up`/`follow up`. Only backchannel and hum
   spellings, and `ok`/`okay`, are unified.

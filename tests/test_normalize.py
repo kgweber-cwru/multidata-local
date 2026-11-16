@@ -210,3 +210,44 @@ class TestContinuer:
 
     def test_hmm_is_a_filler_dropped_at_l1(self):
         assert normalize.to_filler_neutral("hmm let me see") == "let me see"
+
+
+class TestNumbers:
+    """Gold writes numbers as spoken, engines write digits; both sides must
+    land on the same tokens (transcription_standards.md §6)."""
+
+    @pytest.mark.parametrize("spoken, written", [
+        ("one twenty over seventy-six", "120/76"),
+        ("two to three drinks", "2 to 3 drinks"),
+        ("six months ago", "6 months ago"),
+        ("a hundred and twenty", "120"),
+        ("one hundred twenty", "120"),
+        ("ninety eight point six", "98.6"),
+        ("three thirty", "3:30"),
+        ("fifteen hundred milligrams", "1,500 milligrams"),
+        ("one thousand five hundred", "1500"),
+        ("ten to fifteen percent", "10-15%"),
+        ("nineteen eighty-four", "1984"),
+        ("the twenty-first", "the 21st"),
+        ("fourth year", "4th year"),
+        ("the second time", "the 2nd time"),
+        ("I'm an M four", "I'm an M4."),
+        ("ninety-nine ninety-nine", "99 99"),
+    ])
+    def test_spoken_and_written_meet(self, spoken, written):
+        for level in ("l0", "l1"):
+            assert normalize.normalize(spoken, level) == normalize.normalize(written, level)
+
+    def test_digit_runs_stay_separate(self):
+        assert normalize.scoring_base("nine three seven six two") == "9 3 7 6 2"
+
+    def test_cut_off_number_is_a_fragment(self):
+        assert normalize.scoring_base("two- er three") == "2 er 3"
+        assert normalize.to_filler_neutral("two- er three") == "er 3"
+
+    def test_and_outside_a_number_survives(self):
+        assert normalize.scoring_base("one and a half") == "1 and a half"
+        assert normalize.scoring_base("bread and butter") == "bread and butter"
+
+    def test_words_that_merely_contain_numbers_are_untouched(self):
+        assert normalize.scoring_base("someone often tone weighty") == "someone often tone weighty"

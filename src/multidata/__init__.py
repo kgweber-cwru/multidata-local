@@ -23,7 +23,7 @@ Video stages                                                         [md-pose]
   views        when each PTZ camera moves, and which view it holds
 
 ASR benchmarking (see docs/asr_provider_spec.md)                     [md-speech]
-  normalize, redact, records, providers, glossary, bench_runs
+  normalize, redact, records, providers, glossary, transcribers
 
 Helpers
   device          best GPU/CPU choice for the speech models

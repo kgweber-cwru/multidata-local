@@ -6,10 +6,11 @@ Parameters are whatever the engine function takes (`model_name`, `prompt`,
 `asr.transcribe` takes. Defaults come from the function's own signature, so
 `resolved_params()` is exactly what ran.
 
-`diarizer="pipeline"` (the default) takes speaker labels from the diarize
-stage's RTTM, `data/diarization/<recording>/<camera>.rttm`, written if
-missing -- the same labels the pipeline's transcript, prosody and ELAN files
-use. `diarizer="engine"` lets the whisperx family use its own pyannote run
+`speakers="pipeline"` (the default here, unlike the cloud engines) takes
+speaker labels from the diarize stage's RTTM,
+`data/diarization/<recording>/<camera>.rttm`, written if missing -- the same
+labels the pipeline's transcript, prosody and ELAN files use.
+`speakers="engine"` lets the whisperx family use its own pyannote run
 (faster_whisper still gets a fresh pyannote run merged in, without an RTTM
 being kept).
 
@@ -24,7 +25,7 @@ from multidata.paths import DATA_DIR
 
 from .base import Transcriber
 
-DIARIZE_PARAMS = {"diarizer": "pipeline", "diarize_device": None,
+DIARIZE_PARAMS = {"speakers": "pipeline", "diarize_device": None,
                   "num_speakers": None, "min_speakers": None, "max_speakers": None}
 PACKAGES = {"faster_whisper": ("faster-whisper", "pyannote.audio", "whisperx"),
             "whisperx": ("whisperx", "faster-whisper", "pyannote.audio"),
@@ -45,11 +46,8 @@ class WhisperTranscriber(Transcriber):
             raise TypeError(f"{engine} takes no parameter(s) {sorted(unknown)}; "
                             f"it takes {sorted(defaults)}")
         self.params = {**defaults, **params}
-        self.check_params()
-
-    def check_params(self):
-        if self.params["diarizer"] not in ("pipeline", "engine"):
-            raise ValueError("diarizer must be 'pipeline' or 'engine'")
+        self.speakers = self.params["speakers"]
+        self.check_speakers()
 
     def resolved_params(self):
         return dict(self.params)
@@ -60,14 +58,16 @@ class WhisperTranscriber(Transcriber):
 
     def call(self, audio_path, recording_id, camera):
         kwargs = dict(self.params)
-        diarizer = kwargs.pop("diarizer")
         rttm = None
-        if diarizer == "pipeline":
+        if kwargs.pop("speakers") == "pipeline":
             rttm = DATA_DIR / "diarization" / recording_id / f"{camera}.rttm"
             rttm.parent.mkdir(parents=True, exist_ok=True)
         result = asr.transcribe(audio_path, engine=self.engine, diarize_rttm=rttm, **kwargs)
         notes = f"speaker labels from {rttm.relative_to(DATA_DIR.parent)}" if rttm else None
         return copy.deepcopy(result), {"model_returned": self.model, "notes": notes}
+
+    def assign_pipeline_speakers(self, result, audio, recording_id, camera):
+        return result   # asr.transcribe already took them from the RTTM, in `call`
 
     def normalize(self, native):
         segments = []

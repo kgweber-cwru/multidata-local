@@ -58,9 +58,11 @@ vendor, a key, or a gold file.
       Phase 3.3) with a starting config — this item is about actually running
       the sweep against real audio and picking a winner, not building the
       engine.
-- [ ] **0.4 Verify the capability matrix** against live vendor docs; record the
+- [x] **0.4 Verify the capability matrix** against live vendor docs; record the
       check date per row. *Gates Phase 4 only.*
-      *Done when:* spec §2's ⚠️ can be removed.
+      *Done 2026-11-13* for google, assemblyai and elevenlabs (`providers.yaml`).
+      Where the vendors' own pages contradict each other, the row's notes say
+      so; Google's pricing page didn't load, so its cost wasn't rechecked.
 - [x] **0.5 IRB position** on third-party processing of learner/preceptor voice
       — **cleared 2026-09-10**: inference with online vendors is approved.
       Does not cover *storing* the corpus with a third party, which is settled
@@ -149,22 +151,15 @@ Provider-independent. All testable without a single API call.
 between a sweep you can read and a directory you're afraid of. See
 [Run bookkeeping](#run-bookkeeping) below for the design.
 
-- [x] **2.1 Run identity + layout** (`multidata/bench_runs.py`) —
-      `benchmarks/runs/<run_id>/` holding `config.resolved.yaml`, `record.json`
-      (the normalized record), and `scores.json`. `run_id` is
-      `<UTC timestamp>_<engine>_<model>_<8-char config hash>`.
-      *Done:* `ls benchmarks/runs/` reads as a log, confirmed by real smoke
-      test. A separate `raw.json` per spec §4 isn't written yet — today's
-      local engines have no response distinct from their normalized record;
-      a cloud adapter should write one into the same directory once one
-      exists.
-- [x] **2.2 Response cache** (`bench_runs.cache_key`/`cache_get`/`cache_put`,
-      wired into `run_benchmark.py`'s live path) — key
-      `(audio_sha256, provider, params)`, on by default (`--cache-root`),
-      with `--no-cache` as an escape hatch for a genuine timing measurement.
-      *Done:* verified via real smoke test — a repeated identical call made
-      zero engine calls (`source: cache_hit`, `wall_s: 0.0`), a changed
-      model made a fresh one.
+- [x] **2.1 Run identity + layout** and **2.2 Response cache** — built as
+      `bench_runs.py` (a `benchmarks/runs/<run_id>/` folder per run, a
+      response cache keyed by audio hash and params), then **replaced
+      2026-11-16**: every run is a transcript saved by `multidata.transcribers`
+      in `data/transcripts/` with its params in its provenance, named
+      settings live in `benchmarks/configs/settings.yaml`, and
+      `benchmarks/transcribe.py` saves each engine response before
+      normalizing and skips transcripts that exist. One way to run an engine
+      instead of two.
 - [x] **2.3 `--out-root`** — done as "the testing tool's output root is a
       flag, not hardcoded," not as literally sharing run_stage.py's writer
       function. The two tools' layouts don't cleanly unify (production is
@@ -211,7 +206,12 @@ The shared layer, end to end, at zero marginal cost.
 > No ordering violation — it's provider-independent, same reasoning as
 > Phase 0's parallelism.
 
-- [ ] **3.1 Adapter contract** — the minimal protocol a provider implements.
+- [x] **3.1 Adapter contract** — the minimal protocol a provider implements.
+      *Done 2026-11-13:* `multidata.transcribers` — a `Transcriber` with a
+      `Params` dataclass, `call()` and `normalize()`, returning a
+      `Transcription` (native response, normalized record, resolved params).
+      Built once there were four implementations to generalize from, as below
+      advised. The original note:
       Resist a base class until there are three implementations to generalize
       from. **Deliberately still not built**: today's `whisperx_disfluent`
       addition used the existing sibling-function pattern
@@ -219,8 +219,11 @@ The shared layer, end to end, at zero marginal cost.
       rather than introducing a protocol, per this exact "resist a base class"
       note. Revisit once a cloud adapter (Phase 4) needs shape enforcement
       that four sibling functions can no longer provide informally.
-- [ ] **3.2 Port `faster_whisper` onto it** — blocked on 3.1 (no adapter
-      contract to port onto yet). **Not the same as** the device-portability
+- [x] **3.2 Port `faster_whisper` onto it** — done by wrapping rather than
+      moving: `transcribers.whisper.WhisperTranscriber` runs any `asr.ENGINES`
+      entry through `asr.transcribe`, taking its parameters from the engine
+      function's signature. `run_stage.py` still calls `asr.transcribe`
+      directly. The original note: **Not the same as** the device-portability
       change already made to `transcribe_faster_whisper` (now routes through
       `device.best_ct2_device`/`best_ct2_compute_type` instead of hardcoding
       cpu/int8) — that change needed no contract, it's still the same
@@ -250,9 +253,14 @@ The shared layer, end to end, at zero marginal cost.
 Gated on 0.4 (matrix verified) and 0.6 (keys). Everything new here is
 cloud-specific.
 
-- [ ] **4.1 Credentials** from `.env`; never in configs or the manifest.
-- [ ] **4.2 `cloud_release` enforcement** in the adapter path.
-- [ ] **4.3 Google STT v2 adapter** — request construction, data logging
+- [x] **4.1 Credentials** from `.env`; never in configs or the manifest.
+      (`ELEVENLABS_API_KEY`, `ASSEMBLYAI_API_KEY`, `GOOGLE_CLOUD_PROJECT`,
+      `GOOGLE_STT_BUCKET`, plus Google application-default credentials.)
+- [x] **4.2 `cloud_release` enforcement** in the adapter path.
+      `CloudTranscriber.preflight` refuses before the audio is located;
+      `test_transcribers.py::TestInterlock` checks that for every cloud engine.
+- [ ] **4.3 Google STT v2 adapter** — *written, not yet run against the live
+      API* (`transcribers/google.py`); `run_stage.py` isn't wired to it. — request construction, data logging
       off (the no-train condition), GCS staging for audio over the sync
       limit, raw response persisted, normalization to the §4 record. Confirm
       which Chirp variants allow diarization and adaptation together before
@@ -260,7 +268,8 @@ cloud-specific.
       *Done when:* `run_stage.py asr --engine google --only <recording>` produces a
       conforming record.
 - [ ] **4.4 Glossary renderer for `phrase_set`** — first weighted mechanism.
-- [ ] **4.5 `--diarizer {provider,pyannote}`** control arm (spec §5).
+- [x] **4.5 Speaker-source control arm** (spec §5) — `speakers="engine"` or
+      `"pipeline"` on every transcriber. *Not yet a `run_benchmark.py` option.*
       *Done when:* both arms differ only in speaker labels.
 
 > **Verify the interlock deliberately.** Point the adapter at a
@@ -303,17 +312,18 @@ from annotator output to a scoreable reference.
 
 Blocked on Phases 1, 2, and 5. First real numbers.
 
-- [ ] **6.1 Rework `run_benchmark.py`** — dual report, per-run directory, full
-      provenance row including **`gold_sha`**. *Partly done 2026-11-11:*
-      names redacted on both sides, L0 `wer`/`cer` + L1 `wer_l1`, `scoring`
-      and `gold_sha256` columns. Still missing: provider/diarizer/glossary
-      columns, `cost_usd`.
+- [x] **6.1 Rework `run_benchmark.py`** — now a scorer only (2026-11-16):
+      scores every saved transcript of every gold recording not yet scored
+      with today's method; L0 `wer`/`cer` + L1 `wer_l1`, names redacted on
+      both sides, `scoring`, `gold_sha256`, `setting` and `transcript`
+      columns. Not done: `cost_usd`.
 - [x] **6.2 Comparability guard** (minimal) — `bench_status.py` shows only
       rows whose `scoring` and `gold_sha256` match today's.
 - [ ] **6.3 Per-recording reporting, not just means.** With n≈5, a mean hides
       everything; per-recording is where "this config helps recording 1 and hurts recording 2"
       becomes visible.
-- [ ] **6.4 DER via `pyannote.metrics`** — the long-standing gap.
+- [x] **6.4 DER via `pyannote.metrics`** — done 2026-11-16, with JER and
+      cpWER; rules in asr_evaluation_methods.md §4.3.
 - [ ] **6.5 Noise floor** — annotator-vs-annotator WER/DER beside every engine
       number, *or* an explicit statement that there's only one annotator and no
       floor exists (standards §10).
@@ -322,15 +332,27 @@ Blocked on Phases 1, 2, and 5. First real numbers.
 
 ## Phase 7 — Remaining providers, then the bake-off
 
-- [ ] **7.1 AssemblyAI** — `disfluencies` switch: the most informative
+- [ ] **7.1 AssemblyAI** — *adapter written, not yet run live*
+      (`transcribers/assemblyai.py`) — `disfluencies` switch: the most informative
       comparison under the keep-disfluencies standard.
 - [ ] **7.2 Google Medical Conversation** — registry entry
       `google_medical_conversation`; filters disfluencies aggressively, so
       score it on the clean profile only.
-- [ ] **7.3 ElevenLabs Scribe v2** — likely `glossary_mechanism: none`; the real
-      test of whether lossiness reporting is honest.
-- [ ] **7.4 Long-audio handling** — if any adapter chunks, it sets
-      `chunked: true` and records boundaries.
+- [ ] **7.3 ElevenLabs Scribe** — *adapter written and run live 2026-11-16*
+      (`transcribers/elevenlabs.py`; default `scribe_v3`; on a
+      non-enterprise account only with `enable_logging=True`). It does have a
+      glossary mechanism after all (`keyterms`, up to 1000).
+- [ ] **7.3b Gemini 3.5 Transcribe** — *adapter written and smoke-tested
+      2026-11-16* (`transcribers/gemini.py`, Vertex only, VERBATIM). Gold
+      run waits on the BAA covered-services check.
+- [x] **7.4 Long-audio handling** — shared by every adapter with a length
+      cap (`transcribers/chunking.py`; Google's chirp_3 caps word-timestamped
+      batch requests at 20 minutes). Cuts are planned from the diarize stage's
+      turns, so the `audio` and `diarize` stages run first; the vendor's
+      speaker labels are linked across pieces through the overlaps, and
+      through the diarize stage's turns where an overlap can't link them; the
+      record says `chunked: true` and the native response keeps each piece's
+      offset. First real run 2026-11-16 (Google, 252848): see status.md.
 - [ ] **7.5 Headline sweep** — glossary-off, all providers, all gold.
 - [ ] **7.6 Glossary-on sweep.**
 - [ ] **7.7 Selection report** — WER/DER **beside `baa_available` and
@@ -343,20 +365,18 @@ Blocked on Phases 1, 2, and 5. First real numbers.
 The thing that keeps a sweep legible. Three ideas, and the mental model is just
 the first line of each.
 
-### One directory per run
+### One transcript per run
 
-`benchmarks/runs/<run_id>/` holds **everything** about that run: the resolved
-config (every param actually sent, post-defaults), the normalized record, the
-raw provider response, and the scores. Nothing about a run lives anywhere else.
-
-`run_id` = `<UTC timestamp>_<engine>_<model>_<8-char config hash>`. The hash
-guarantees uniqueness; the human-readable prefix means `ls` is a useful command
-instead of a wall of hex.
+Each run is a transcript in `data/transcripts/<recording>/` (a variant setting
+under `variants/<setting>/`), with every param actually sent in its
+provenance and a row in the manifest's `transcripts` table. Nothing about a
+run lives anywhere else. (Until 2026-11-16 runs had their own folders under
+`benchmarks/runs/`; that was a second copy of the same thing.)
 
 ### One row per run
 
-`benchmarks/results/runs.csv` — append-only, git-tracked, one row per run,
-pointing at its directory. The append-only-ness *is* the traceability, and being
+`benchmarks/results/runs.csv` — append-only, git-tracked, one row per scored
+transcript, naming the file. The append-only-ness *is* the traceability, and being
 a text file in git means you get the history free.
 
 **Why not put runs in `manifest.sqlite`:** the manifest is gitignored because it

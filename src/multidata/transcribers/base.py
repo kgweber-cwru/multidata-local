@@ -5,17 +5,23 @@ A transcriber starts from a `recording_id`, takes the parameters its vendor's
 models accept, and returns a `Transcription`: the vendor's response verbatim
 (`native`), the normalized record every consumer reads (`record`), and every
 parameter that produced them (`params`, also in `record["provenance"]`).
+`save()` writes both views to disk and indexes them in the manifest.
 
 Subclasses supply three things: a `Params` dataclass (so a misspelled or
 foreign parameter fails at construction, naming itself), `call()` (send the
 audio, return the response) and `normalize()` (response -> segments). The
-manifest lookup, the cloud interlock, stamping and validation live here, once.
+manifest lookup, the cloud interlock, chunking, speaker source, stamping and
+validation live here, once (chunking and speakers: `chunking.py`).
+
+Every transcriber also takes `speakers`: "engine" keeps the engine's own
+speaker labels, "pipeline" replaces them with the diarize stage's.
 """
 import dataclasses
 import datetime
 import importlib.metadata
 import json
 import os
+import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -41,12 +47,13 @@ class Transcription:
     def stem(self):
         return f"{self.camera}_{self.engine}_{self.model}"
 
-    def save(self, out_dir=None, overwrite=False):
+    def save(self, out_dir=None, overwrite=False, manifest_path=MANIFEST_PATH):
         """Write `<camera>_<engine>_<model>.json` (normalized) and `.raw.json`
         (native) to `out_dir`, default `data/transcripts/<recording_id>/`
-        (spec §7). Refuses to replace an existing file unless `overwrite`:
-        the default directory also holds the pipeline's own transcripts, and
-        seeded annotation kits were built from some of them."""
+        (spec §7), and register them in the manifest's `transcripts` table.
+        Refuses to replace an existing file unless `overwrite`: the default
+        directory also holds the pipeline's own transcripts, and seeded
+        annotation kits were built from some of them."""
         out_dir = Path(out_dir) if out_dir else DATA_DIR / "transcripts" / self.recording_id
         normalized = out_dir / f"{self.stem()}.json"
         raw = out_dir / f"{self.stem()}.raw.json"
@@ -57,24 +64,43 @@ class Transcription:
         out_dir.mkdir(parents=True, exist_ok=True)
         normalized.write_text(json.dumps(self.record, indent=2))
         raw.write_text(json.dumps(self.native, indent=2))
+        prov = self.record.get("provenance", {})
+        manifest.record_transcript(
+            self.recording_id, self.camera, self.engine, self.model,
+            _repo_relative(normalized), _repo_relative(raw), params=self.params,
+            path=manifest_path, kind=prov.get("kind") or "",
+            model_returned=prov.get("model_returned") or "",
+            request_id=prov.get("request_id") or "", audio=prov.get("audio") or "",
+            audio_duration_s=prov.get("audio_duration_s"),
+            started_at=prov.get("started_at") or "", wall_s=prov.get("wall_s"))
         return normalized, raw
+
+
+SPEAKER_SOURCES = ("engine", "pipeline")
 
 
 class Transcriber:
     engine = None        # registry name, as in providers.yaml
     kind = "local"       # "local" | "cloud"
-    Params = None        # a dataclass of everything this engine accepts
+    Params = None        # a dataclass of everything this engine accepts; a
+                         # `chunk_s` field (with `chunk_overlap_s`) turns on chunking
     packages = ()        # distributions whose versions go into provenance
 
-    def __init__(self, **params):
+    def __init__(self, speakers="engine", **params):
+        self.speakers = speakers
         self.params = self.Params(**params)   # an unknown name is a TypeError here
+        self.check_speakers()
         self.check_params()
+
+    def check_speakers(self):
+        if self.speakers not in SPEAKER_SOURCES:
+            raise ValueError(f"speakers must be one of {SPEAKER_SOURCES}")
 
     def check_params(self):
         """Raise ValueError for combinations the vendor rejects."""
 
     def resolved_params(self):
-        return dataclasses.asdict(self.params)
+        return {**dataclasses.asdict(self.params), "speakers": self.speakers}
 
     @property
     def model(self):
@@ -93,26 +119,91 @@ class Transcriber:
     def preflight(self, recording):
         """Checks that must pass before any audio is read."""
 
-    def transcribe(self, recording_id, manifest_path=MANIFEST_PATH, audio_path=None):
+    def _call(self, audio, recording_id, camera, index, responses_dir):
+        """`call`, with its response saved to `responses_dir/<index>.json` before
+        anything else touches it and reused from there on a later run, so a
+        normalizer or merge failure never pays for the same audio twice."""
+        if responses_dir is None:
+            return self.call(audio, recording_id, camera)
+        saved = Path(responses_dir) / f"{index}.json"
+        if saved.exists():
+            reply = json.loads(saved.read_text())
+            return reply["native"], reply["meta"]
+        native, meta = self.call(audio, recording_id, camera)
+        saved.parent.mkdir(parents=True, exist_ok=True)
+        saved.write_text(json.dumps({"native": native, "meta": meta}))
+        return native, meta
+
+    def run(self, audio, recording_id, camera, excerpt=False, responses_dir=None):
+        """`call` + `normalize`, in planned pieces when the audio is longer than
+        `chunk_s` (`chunking.py`) -> (native, meta, result). A chunked run's
+        `native` is `{"chunks": [{index, offset_s, duration_s, response}]}`."""
+        from . import chunking
+
+        chunk_s = getattr(self.params, "chunk_s", None)
+        total = _duration(audio)
+        if not chunk_s or (total or 0) <= chunk_s:
+            native, meta = self._call(audio, recording_id, camera, 0, responses_dir)
+            return native, meta, self.normalize(native)
+        if excerpt:
+            raise ValueError(f"audio over {chunk_s} s is cut where the diarize stage's turns "
+                             "say, which are timed on the whole recording; send an excerpt "
+                             "shorter than that")
+
+        turns = _pipeline_turns(recording_id, camera)
+        spans = chunking.plan(turns, total, chunk_s, self.params.chunk_overlap_s)
+        chunks, metas, results = [], [], []
+        with tempfile.TemporaryDirectory() as tmp:
+            for index, (piece, offset_s, duration_s) in enumerate(
+                    chunking.cut(audio, Path(tmp), spans)):
+                native, meta = self._call(piece, recording_id, camera, index, responses_dir)
+                chunks.append({"index": index, "offset_s": offset_s,
+                               "duration_s": duration_s, "response": native})
+                metas.append(meta)
+                results.append((offset_s, duration_s, self.normalize(native)))
+        result, merge_notes = chunking.merge(results, turns)
+        notes = [f"{len(chunks)} pieces overlapping {self.params.chunk_overlap_s} s"]
+        notes += merge_notes + [m["notes"] for m in metas if m.get("notes")]
+        meta = {"request_id": ";".join(str(m.get("request_id")) for m in metas),
+                "model_returned": metas[0].get("model_returned"),
+                "chunked": True, "notes": "; ".join(notes)}
+        return {"chunks": chunks}, meta, result
+
+    def assign_pipeline_speakers(self, result, audio, recording_id, camera):
+        """`result` with the diarize stage's speaker labels (`speakers="pipeline"`)."""
+        from . import chunking
+
+        return chunking.assign_speakers(result, _pipeline_turns(recording_id, camera))
+
+    def transcribe(self, recording_id, manifest_path=MANIFEST_PATH, audio_path=None,
+                   responses_dir=None):
         """Transcribe one recording's canonical audio (or `audio_path`, such as an
         excerpt of it). The recording must be in the manifest either way: that
-        is where the cloud interlock lives."""
+        is where the cloud interlock lives. With `responses_dir`, each engine
+        response is saved there first and reused on a later run (`_call`)."""
         recording = manifest.get_recording(recording_id, manifest_path)
         if recording is None:
             raise KeyError(f"recording_id {recording_id!r} not in {manifest_path}")
         self.preflight(recording)
 
         camera = manifest.ensure_audio_camera(recording_id, manifest_path)
-        audio = Path(audio_path) if audio_path else _audio_path(recording_id, camera, manifest_path)
+        canonical = _audio_path(recording_id, camera, manifest_path)
+        audio = Path(audio_path) if audio_path else canonical
         if not audio.exists():
             raise FileNotFoundError(audio)
+        excerpt = audio.resolve() != canonical.resolve()
+        if self.speakers == "pipeline" and excerpt:
+            # The diarize stage's turns are timed on the whole recording.
+            raise ValueError("speakers='pipeline' needs the recording's own audio, "
+                             "not an excerpt; pass speakers='engine'")
 
         started = datetime.datetime.now(datetime.timezone.utc)
         t0 = time.monotonic()
-        native, meta = self.call(audio, recording_id, camera)
+        native, meta, result = self.run(audio, recording_id, camera, excerpt, responses_dir)
+        if self.speakers == "pipeline":
+            result = self.assign_pipeline_speakers(result, audio, recording_id, camera)
         wall_s = round(time.monotonic() - t0, 1)
 
-        result = self.normalize(native)
         params = self.resolved_params()
         provenance = {
             "engine": self.engine,
@@ -124,7 +215,7 @@ class Transcriber:
             "recording_id": recording_id,
             "camera": camera,
             "audio": _repo_relative(audio),
-            "audio_duration_s": meta.get("audio_duration_s"),
+            "audio_duration_s": meta.get("audio_duration_s") or _duration(audio),
             "started_at": started.isoformat(timespec="seconds"),
             "wall_s": wall_s,
             "software": _versions(self.packages),
@@ -173,11 +264,32 @@ def _audio_path(recording_id, camera, manifest_path):
     return DATA_DIR / "audio" / recording_id / f"{camera}.wav"
 
 
+def _pipeline_turns(recording_id, camera):
+    """The diarize stage's turns [(start_s, end_s, speaker)] for one recording."""
+    from multidata.prosody import read_rttm
+
+    from . import chunking
+
+    rttm = chunking.pipeline_rttm(recording_id, camera)
+    if not rttm.exists():
+        raise FileNotFoundError(f"{rttm} -- run the audio and diarize stages first")
+    return read_rttm(rttm)
+
+
 def _repo_relative(path):
     try:
         return str(Path(path).resolve().relative_to(ROOT))
     except ValueError:
         return str(path)
+
+
+def _duration(audio):
+    try:
+        import soundfile
+
+        return round(soundfile.info(str(audio)).duration, 3)
+    except Exception:
+        return None
 
 
 def _versions(packages):

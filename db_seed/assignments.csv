@@ -3,6 +3,7 @@ recording_id,annotator,pass,route,camera,status,assigned_on,returned_on,notes
 252848,kate2,2,blind,24,gold,2026-11-12,2026-11-13,The learner's first name and the preceptor's name escaped redaction; masked by hand in the .gold.txt.
 255048,kate,1,seeded,12,assigned,2026-11-02,,"Kit built under kate as a placeholder. 2025 format: encounter, then an oral presentation to camera; no preceptor. History-taking (learner + patient) diarized as one speaker, seeded on PATIENT."
 255387,shruti,1,blind,15,abandoned,2026-10-28,,Annotator left 2026-10-30. Case dropped with all large-room (L) data 2026-10-30; kit deleted.
+259392,kate,1,seeded,42,assigned,2026-11-16,,Only recording of CSE 2A (2025): GI history plus presentation; a possible third party after 30 min. SPEAKER_01/02/04 left on UNASSIGNED. Chosen 2026-11-16.
 261041,kate,1,blind,10,returned,2026-10-05,2026-11-12,Pass 1 updated and re-frozen 2026-11-12 (first returned 2026-10-26).
 261041,kelli,2,blind,10,assigned,2026-10-28,,Kit rebuilt 2026-11-12 from an updated pass 1.
 261320,kate,1,seeded,9,returned,2026-11-02,2026-11-12,Kit built under kate as a placeholder. Patient's history answers mostly on LEARNER (diarization); exam answers on PATIENT.
@@ -10,6 +11,7 @@ recording_id,annotator,pass,route,camera,status,assigned_on,returned_on,notes
 261456,kate,1,blind,16,returned,,2026-08-25,Was exported as gold without a pass 2; moved back to pass 1 2026-10-28.
 261456,shruti,1,blind,16,abandoned,2026-10-05,,Dropped 2026-10-28 before she started; removed from Box.
 261456,kate2,2,blind,16,gold,2026-11-13,2026-11-13,Reviewed in the pass-1 file without a formal pass 2; pass-2 kit built from it 2026-11-13 and exported as gold. The learner's surname escaped redaction; masked by hand in the .gold.txt. One common word wrongly redacted as [PRECEPTOR_NAME]; restored by hand in the .gold.txt.
+261466,kate,1,seeded,39,assigned,2026-11-16,,"First gold for the 2026 long station (abdominal pain), the largest scenario with no gold: dense speech, three substantial speakers, many spoken numbers. Chosen 2026-11-16."
 261473,kate,1,blind,23,returned,,2026-08-31,Was exported as gold without a pass 2; moved back to pass 1 2026-10-28.
 261473,kate2,2,blind,23,gold,2026-11-13,2026-11-13,Reviewed in the pass-1 file without a formal pass 2; pass-2 kit built from it 2026-11-13 and exported as gold.
 261495,kate,1,seeded,22,returned,2026-11-01,2026-11-12,Kit built under kate as a placeholder; rebuild for another annotator if reassigned.
