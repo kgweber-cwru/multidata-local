@@ -94,17 +94,36 @@ in our diarize stage's labels instead (the comparison arm).
 
 **Pick up here, in order:**
 
-1. **Kate:** API keys into `.env` (`ELEVENLABS_API_KEY`,
-   `ASSEMBLYAI_API_KEY`), and `cloud_release=1` with a basis on one
-   recording that is safe to send on trial accounts (no BAA there).
-2. **Smoke script** (not written yet): one ~60 s clip per vendor with
-   `speakers="engine"`; fix the normalizers against real responses.
-   ElevenLabs will likely refuse `enable_logging=false` on a non-enterprise
-   account; that's the safe default, flip it only for a releasable clip.
-3. **Google** after that: install `google-cloud-speech` and
-   `google-cloud-storage` in md-speech (listed in `env/speech.yml`), set
-   `GOOGLE_CLOUD_PROJECT`, `GOOGLE_STT_BUCKET` and application-default
-   credentials. Then a full recording, to see the chunk linking on real output.
+1. Done 2026-11-16: API keys and Google project/bucket in `.env`, gcloud
+   logged in, `cloud_release=1` on all 57 recordings (basis "simulated
+   patient").
+2. **Smoke test** (`scripts/smoke_cloud.py`): one 60 s clip per vendor with
+   `speakers="engine"`, scored against gold for the span; vendor responses
+   are saved under `data/smoke/` and reused, so reruns are free. Clip:
+   **252848, 344.5–404.5 s of `24.wav`**, chosen from gold as name-free
+   (redactor and a read-through), two speakers, overlaps, fillers,
+   self-repairs, durations and medical terms.
+   - AssemblyAI passed 2026-11-16: L0 WER 0.09, 2 speakers, 11 of gold's
+     14 fillers; normalizer unchanged. `format_text=False` still comes back
+     cased and punctuated ("Okay"); the scorer absorbs that.
+   - ElevenLabs refused `enable_logging=false` (403: zero-retention is
+     enterprise/trial only). Kate allowed logging for this clip
+     (`--elevenlabs-logging`); passed 2026-11-16: L0 WER 0.12, 2 speakers,
+     13 fillers; normalizer unchanged. More verbatim than AssemblyAI (keeps
+     the patient's overlapping "mm-hmm"s and the learner's false starts), so
+     part of its WER is words gold may have missed.
+   - Google passed 2026-11-16: L0 WER 0.12, 2 speakers, 11 fillers;
+     normalizer unchanged; staged clip deleted from the bucket. 327 s wall
+     for 60 s of audio (BatchRecognize queueing). Writes numbers as digits
+     ("4 months"), which our scorer counts as errors until number
+     canonicalization is built (see "Deliberately not built"). Its last
+     word came back with an empty speaker label (kept as no speaker).
+   - Project APIs enabled: Speech-to-Text and `aiplatform.googleapis.com`
+     (Vertex AI, now titled "Agent Platform API") for Gemini; the AI Studio
+     Gemini API (`generativelanguage`) deliberately not.
+3. **Google** after its smoke test: a full recording, to see the chunk
+   linking on real output. (md-speech had drifted from `env/speech.yml`;
+   pympi-ling, jiwer and the Google clients were installed 2026-11-16.)
 4. **Gemini 3.5 Transcribe** adapter (verbatim mode; ~30 min cap with
    diarization, so it uses the chunker). Check it is on the BAA's covered
    services list before sending audio.
@@ -127,7 +146,7 @@ Decided along the way: capture verbatim once and derive a clean
   instance under BAA. A BAA covers a named list of services, not "Google"
   in general.
 - **Vendor inference:** IRB-cleared (2026-09-10). Each recording sent needs
-  `cloud_release=1` and a basis; 0 have it today.
+  `cloud_release=1` and a basis; all 57 have it (2026-11-16).
 - **Pose:** HALPE_26 keeps 5 face points only, partly so the dataset can't
   identify faces. Demo clips blur faces by default (best effort: check before
   sharing).
@@ -157,7 +176,8 @@ So a fresh read doesn't mistake these for forgotten:
 
 - A glossary -> Whisper prompt renderer (Phase 3.4): the loader exists.
 - DER scoring against `.gold.rttm` (Phase 6.4).
-- Number canonicalization in `normalize.py`: waiting for gold with numbers.
+- Number canonicalization in `normalize.py`: gold spells numbers out and
+  Google writes digits, so build it before scoring Google for real.
 - Cutting an `.eaf` down to an excerpt at export (Phase 5.2): scoring a span
   works; annotators only segment the excerpt anyway.
 - Scripted download from the recording system: not until manual ingest has
