@@ -417,7 +417,7 @@ a genuine engine weakness worth reporting.
 ### Using seeded gold in benchmarks
 
 - The seed engine is **never scored** against gold it seeded, at any model
-  size (`run_benchmark.py` refuses).
+  size (`run_benchmark.py` won't).
 - Results against seeded gold are reported **separately** from results
   against blind gold (`bench_status.py`, and `runs.csv`'s `gold_pass1`
   column), never averaged together.

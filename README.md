@@ -63,15 +63,15 @@ scripts/        run_stage.py       run any stage over the manifest
                 ingest_raw.py      register new raw videos
                 review_views.py    contact sheets + spreadsheet to name camera views
                 demo_clip.py       demo video of a recording: both cameras, pose, faces blurred
-                sample_pose_overlays.py   pose drawn on whole videos, for quality checks
                 test_detect_every.py      does detecting every Nth frame change pose?
                 eaf_to_gold.py     adjudicated pass 2 -> gold reference
                 bench_status.py    gold coverage and scores at a glance
-                label_views_2026-11-01.py one-off: the first provisional view labels
+                smoke_cloud.py     one short clip through each cloud transcriber
                 backup_to_raid.sh  nightly backup (cron)
 notebooks/      ingest_walkthrough.ipynb (start here); the others are personal scratch
-benchmarks/     ASR benchmarking: run_benchmark.py, configs/, references/ (gold),
-                results/ (runs.csv); runs/ and cache/ are gitignored
+benchmarks/     ASR benchmarking: transcribe.py (run settings) then run_benchmark.py
+                (score); configs/ (settings, providers, glossary), references/
+                (gold), results/ (runs.csv)
 annotation/     gold-annotation kits (via Box) and who has which pass
 elan/           the versioned ELAN template for gold annotation
 db_seed/        git-tracked copy of the hand-verified camera -> room table

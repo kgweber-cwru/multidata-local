@@ -59,12 +59,3 @@ def pitch_bucket(median_hz):
     if median_hz > HIGHER_TYPICAL_MIN:
         return "higher"
     return "ambiguous"
-
-
-def speaker_register_summary(audio_path, annotation, min_voiced_frames=10):
-    """`speaker_pitch_stats` plus a `bucket` label per speaker -- the
-    convenience entry point for sampling decisions."""
-    stats = speaker_pitch_stats(audio_path, annotation, min_voiced_frames)
-    for speaker, s in stats.items():
-        s["bucket"] = pitch_bucket(s["median_hz"])
-    return stats

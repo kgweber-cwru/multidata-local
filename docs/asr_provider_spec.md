@@ -25,7 +25,7 @@ you want to change one, change it here first.
 | 4 | Providers that diarize internally **do** diarize — but a **pyannote control arm** is available per provider (§5). |
 | 5 | Scoring is **dual-report**: L0 verbatim and L1 filler-neutral (§6). |
 | 6 | The **glossary is a swept axis**, not a fixed control. Headline cross-provider numbers run glossary-off (§3). |
-| 7 | Testing writes under `benchmarks/runs/<run_id>/`; the default pipeline writes under `data/`. **Same layout, swapped root** (§7). |
+| 7 | Benchmark and pipeline transcripts share one place and layout, `data/transcripts/`; a benchmark variant goes under `variants/<setting>/` (§7). |
 | 8 | `recordings.cloud_release` is a **safety interlock**, default false. No audio leaves this machine for a row that hasn't got it (§9). |
 | 9 | **BAA availability is a selection criterion**, reported beside WER. A provider you can't deploy shouldn't win. |
 
@@ -222,27 +222,23 @@ absorbing six different vendor formatters.
 
 ## 7. Output layout and run identity
 
-Same relative layout, swapped root — one writer, one `--out-root` flag. That's
-what makes every tool usable from both paths without special-casing.
+Every transcript, pipeline or benchmark, is saved in one place:
 
 ```
-data/transcripts/<recording_id>/<camera>_<engine>_<model>.json    # default pipeline
-data/transcripts/<recording_id>/<camera>_<engine>_<model>.raw.json
-
-benchmarks/runs/<run_id>/                                    # testing
-├── config.resolved.yaml     # every param actually sent, post-defaults
-├── <recording_id>.json           # normalized record
-├── <recording_id>.raw.json       # verbatim provider response
-└── scores.json
+data/transcripts/<recording_id>/<camera>_<engine>_<model>.json        # normalized record
+data/transcripts/<recording_id>/<camera>_<engine>_<model>.raw.json    # verbatim provider response
+data/transcripts/<recording_id>/variants/<setting>/...                # a benchmark setting that changes more than the model
+data/transcripts/<recording_id>/responses/<setting>/<piece>.json      # each response, saved before normalizing
 ```
 
-`<run_id>` is timestamp + short config hash. `results/runs.csv` carries one
-append-only row per run pointing at it.
+A setting is a named engine + parameters in `benchmarks/configs/settings.yaml`
+(`benchmarks/transcribe.py` runs them); every parameter actually sent is in the
+record's provenance. `benchmarks/results/runs.csv` carries one append-only row
+per scored transcript, naming the file.
 
-**`benchmarks/runs/` is gitignored; only `results/runs.csv` is tracked.** Scores
+**`data/` is gitignored; only `results/runs.csv` is tracked.** Scores
 and provenance travel in git; transcript text does not. See §9 — students
-self-identify verbally, so raw responses carry real names. This fails safe and is
-less machinery than a commit-time redaction gate.
+self-identify verbally, so raw responses carry real names.
 
 Every `Transcription.save()` also adds a row to the manifest's `transcripts`
 table: recording, camera, engine, model, the params (and a short hash of

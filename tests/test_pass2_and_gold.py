@@ -202,17 +202,3 @@ class TestFromPass2Kit:
         p.write_text(eaf([("LEARNER", 0, 1000, "hi"), ("PRECEPTOR", 0, 1000, "hello")]))
         names = {"learner": "Jamie", "patient": "Alex", "preceptor": ""}
         assert eaf_to_gold.unredactable_tiers(p, names) == ["PRECEPTOR"]
-
-
-class TestBenchStatusCurrent:
-    def test_only_current_method_and_gold_count(self, tmp_path):
-        pytest.importorskip("pympi")
-        import bench_status
-        import run_benchmark
-        (tmp_path / "1.gold.txt").write_text("hello")
-        sha = run_benchmark.sha256(tmp_path / "1.gold.txt")
-        ok = {"recording_id": "1", "scoring": run_benchmark.SCORING, "gold_sha256": sha}
-        assert bench_status.is_current(ok, tmp_path)
-        assert not bench_status.is_current(ok | {"scoring": ""}, tmp_path)
-        assert not bench_status.is_current(ok | {"gold_sha256": "old"}, tmp_path)
-        assert not bench_status.is_current(ok | {"recording_id": "2"}, tmp_path)

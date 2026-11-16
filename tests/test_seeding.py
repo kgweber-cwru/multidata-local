@@ -121,10 +121,9 @@ def test_benchmark_refuses_seed_engine_only():
     import run_benchmark
     meta = {"recording_id": "x", "pass1_source": "seeded", "seed_engine": "whisperx_disfluent",
             "seed_model": "large-v3"}
-    with pytest.raises(SystemExit):
-        run_benchmark.refuse_seed_engine("whisperx_disfluent", meta)
-    run_benchmark.refuse_seed_engine("faster_whisper", meta)                     # allowed
-    run_benchmark.refuse_seed_engine("whisperx_disfluent", {"pass1_source": "blind"})
+    assert run_benchmark.seed_conflict("whisperx_disfluent", meta)
+    assert run_benchmark.seed_conflict("faster_whisper", meta) is None
+    assert run_benchmark.seed_conflict("whisperx_disfluent", {"pass1_source": "blind"}) is None
 
 
 def test_ledger_header_upgrade_keeps_rows(tmp_path):

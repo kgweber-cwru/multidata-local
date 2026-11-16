@@ -59,21 +59,6 @@ def gold_text(recording_id, start, end):
     return " ".join(text for s, _, text in spans if start <= s < end)
 
 
-def cache_calls(transcriber, raw_path, fresh):
-    """Save the vendor's response before anything else touches it, and reuse it."""
-    call = transcriber.call
-
-    def cached(audio, recording_id, camera):
-        if raw_path.exists() and not fresh:
-            saved = json.loads(raw_path.read_text())
-            return saved["native"], saved["meta"]
-        native, meta = call(audio, recording_id, camera)
-        raw_path.write_text(json.dumps({"native": native, "meta": meta}, indent=2))
-        return native, meta
-
-    transcriber.call = cached
-
-
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--recording", default="252848")
@@ -99,9 +84,12 @@ def main():
     for engine in args.engines:
         transcriber = transcribers.get_transcriber(engine, speakers="engine",
                                                    **engine_params.get(engine, {}))
-        cache_calls(transcriber, out_dir / f"{engine}.raw.json", args.fresh)
+        responses = out_dir / "responses" / engine
+        if args.fresh:
+            for old in responses.glob("*.json"):
+                old.unlink()
         try:
-            t = transcriber.transcribe(args.recording, audio_path=clip)
+            t = transcriber.transcribe(args.recording, audio_path=clip, responses_dir=responses)
         except Exception as e:
             print(f"{engine}: FAILED {type(e).__name__}: {e}\n")
             failed = True

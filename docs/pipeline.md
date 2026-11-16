@@ -254,7 +254,9 @@ Measures how well ASR and diarization work on this audio, and compares
 engines. The design (local + cloud providers, glossary, scoring profiles) is
 [asr_provider_spec.md](asr_provider_spec.md); what's built is
 [asr_provider_implementation_plan.md](asr_provider_implementation_plan.md).
-`benchmarks/run_benchmark.py` runs and scores one configuration;
+Two steps: `benchmarks/transcribe.py` runs the named settings in
+`benchmarks/configs/settings.yaml` over the gold recordings, and
+`benchmarks/run_benchmark.py` scores every saved transcript against gold;
 `scripts/bench_status.py` shows what's been scored against what. The whole
 procedure, from annotation to reported number, is
 [asr_evaluation_methods.md](asr_evaluation_methods.md). Expect
@@ -269,7 +271,7 @@ adjudicated `.eaf` by `scripts/eaf_to_gold.py`, never typed by hand, with a
 `.gold.json` saying how its pass 1 was made. **Blind** gold (route A) can
 score any engine. **Seeded** gold (route B: pass 1 corrected from the
 `whisperx_disfluent`/`large-v3` transcript; `multidata.seeding`) leans toward
-that engine, so `run_benchmark.py` refuses to score it there, every ledger
+that engine, so `run_benchmark.py` won't score it there, every ledger
 row records which kind of gold it used (`gold_pass1`), and
 `bench_status.py` reports the two kinds separately
 ([transcription_standards.md](transcription_standards.md) §9). The audio a
@@ -289,18 +291,21 @@ profile gives `wer`/`cer` and its L1 filler-neutral profile gives `wer_l1`
 
 ### 8c. Sweep design
 
-Vary **one axis at a time**, everything else pinned: model size, engine,
-VAD, speaker-count hints, prompt, audio preparation (raw vs. normalized).
-Engine responses are cached (`multidata.bench_runs`), so a repeated
-identical run costs nothing.
+Vary **one axis at a time**, everything else pinned: add a setting to
+`settings.yaml` that differs from a plain one in a single parameter. A
+setting that changes more than the model is saved under
+`data/transcripts/<recording>/variants/<name>/`. `transcribe.py` skips
+transcripts that exist and saves each engine response under
+`responses/<name>/` before normalizing, so nothing is paid for twice.
 
 ### 8d. Provenance
 
-Every run appends a row to `benchmarks/results/runs.csv` (append-only, in
-git): engine, model, audio hash, scores, scoring method, gold hash, commit,
-wall time, machine; the full config and normalized output go in
-`benchmarks/runs/<run_id>/` (gitignored, since it holds transcript text). A
-result that can't be traced to an exact configuration is noise.
+Every transcript is saved with its full parameters in its provenance and
+registered in the manifest's `transcripts` table. Scoring one appends a row
+to `benchmarks/results/runs.csv` (append-only, in git): engine, model,
+setting, the transcript file, audio hash, scores, scoring method, gold hash,
+commit, wall time, machine. A result that can't be traced to an exact
+configuration is noise.
 
 ---
 
@@ -377,7 +382,7 @@ both cameras of a room, so it shows up as a recurring *pair* of views
 
 After new recordings go through `views`, repeat from step 1: new views appear with
 no label. The first 65 recurring views were labelled provisionally by eye on
-2026-11-01 (`scripts/label_views_2026-11-01.py`, confidence in each note).
+2026-11-01 (a one-off script, in git history; confidence in each note).
 
 ---
 
@@ -483,8 +488,8 @@ python scripts/review_views.py sheets | export | import [--write]
 python scripts/demo_clip.py 261498
 
 # benchmarking (md-speech)
-python scripts/eaf_to_gold.py --eaf <path.eaf> --recording <recording_id>
-python benchmarks/run_benchmark.py --recording <recording_id> --audio data/audio/<recording_id>/<camera>.wav \
-    --engine whisperx_disfluent --model medium
+python scripts/eaf_to_gold.py --from-kit annotation/kits/<recording_id>/<pass-2 annotator>
+python benchmarks/transcribe.py [--settings <name> ...] [--recordings <recording_id> ...]
+python benchmarks/run_benchmark.py
 python scripts/bench_status.py
 ```

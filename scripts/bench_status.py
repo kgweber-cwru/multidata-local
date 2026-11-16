@@ -22,12 +22,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
-from multidata import asr, manifest, seeding  # noqa: E402
+from multidata import manifest, seeding, transcribers  # noqa: E402
 
 REFERENCES = ROOT / "benchmarks" / "references"
 RESULTS = ROOT / "benchmarks" / "results" / "runs.csv"
 
-LOCAL_ENGINES = sorted(name for name, fn in asr.ENGINES.items())
+ENGINES = transcribers.engines()
 
 
 def gold_status(manifest_path):
@@ -83,12 +83,12 @@ def is_current(row, references=REFERENCES):
 
 
 def latest_per_config(runs):
-    """One row per (recording_id, engine, model) -- the most recent run, since a
-    re-run supersedes an earlier one for "what's the current number" even
-    though every run stays in runs.csv for history."""
+    """One row per (recording_id, engine, model, setting) -- the most recent
+    run, since a re-run supersedes an earlier one for "what's the current
+    number" even though every run stays in runs.csv for history."""
     latest = {}
     for row in runs:
-        key = (row["recording_id"], row["engine"], row["model"])
+        key = (row["recording_id"], row["engine"], row["model"], row.get("setting") or "")
         if key not in latest or row["timestamp"] > latest[key]["timestamp"]:
             latest[key] = row
     return latest
@@ -122,7 +122,7 @@ def print_gold_section(gold_status_rows):
 
 
 def print_runs_section(latest):
-    print("=== Latest score per (recording, engine, model) ===")
+    print("=== Latest score per (recording, engine, model, variant) ===")
     if not latest:
         print("  (no runs yet)")
         return
@@ -134,30 +134,30 @@ def print_runs_section(latest):
         if not rows:
             continue
         print(f"  -- against {kind} gold --")
-        for (recording_id, engine, model), row in rows:
-            print(f"  {recording_id:<12}{engine:<20}{model:<12}"
-                  f"WER {row['wer']:<8}CER {row['cer']:<8}({row['source']})")
+        for (recording_id, engine, model, setting), row in rows:
+            print(f"  {recording_id:<12}{engine:<20}{model:<20}{setting:<20}"
+                  f"WER {row['wer']:<8}L1 {row.get('wer_l1') or '':<8}CER {row['cer']}")
     print()
 
 
 def print_matrix_gaps(gold_rows, latest):
-    print("=== Empty cells (gold recording x local engine, not yet scored) ===")
+    print("=== Empty cells (gold recording x engine, not yet scored) ===")
     gold_recordings = sorted({row["recording_id"] for row in gold_rows})
     if not gold_recordings:
         print("  (no gold recordings yet)")
         return
     scored = defaultdict(set)
-    for (recording_id, engine, _model) in latest:
+    for (recording_id, engine, _model, _setting) in latest:
         scored[recording_id].add(engine)
 
     any_gap = False
     for recording_id in gold_recordings:
-        missing = [e for e in LOCAL_ENGINES if e not in scored[recording_id]]
+        missing = [e for e in ENGINES if e not in scored[recording_id]]
         if missing:
             any_gap = True
             print(f"  {recording_id:<12}missing: {', '.join(missing)}")
     if not any_gap:
-        print("  (every gold recording has been scored against every local engine)")
+        print("  (every gold recording has been scored against every engine)")
     print()
 
 

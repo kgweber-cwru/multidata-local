@@ -151,22 +151,15 @@ Provider-independent. All testable without a single API call.
 between a sweep you can read and a directory you're afraid of. See
 [Run bookkeeping](#run-bookkeeping) below for the design.
 
-- [x] **2.1 Run identity + layout** (`multidata/bench_runs.py`) —
-      `benchmarks/runs/<run_id>/` holding `config.resolved.yaml`, `record.json`
-      (the normalized record), and `scores.json`. `run_id` is
-      `<UTC timestamp>_<engine>_<model>_<8-char config hash>`.
-      *Done:* `ls benchmarks/runs/` reads as a log, confirmed by real smoke
-      test. A separate `raw.json` per spec §4 isn't written yet — today's
-      local engines have no response distinct from their normalized record;
-      a cloud adapter should write one into the same directory once one
-      exists.
-- [x] **2.2 Response cache** (`bench_runs.cache_key`/`cache_get`/`cache_put`,
-      wired into `run_benchmark.py`'s live path) — key
-      `(audio_sha256, provider, params)`, on by default (`--cache-root`),
-      with `--no-cache` as an escape hatch for a genuine timing measurement.
-      *Done:* verified via real smoke test — a repeated identical call made
-      zero engine calls (`source: cache_hit`, `wall_s: 0.0`), a changed
-      model made a fresh one.
+- [x] **2.1 Run identity + layout** and **2.2 Response cache** — built as
+      `bench_runs.py` (a `benchmarks/runs/<run_id>/` folder per run, a
+      response cache keyed by audio hash and params), then **replaced
+      2026-11-16**: every run is a transcript saved by `multidata.transcribers`
+      in `data/transcripts/` with its params in its provenance, named
+      settings live in `benchmarks/configs/settings.yaml`, and
+      `benchmarks/transcribe.py` saves each engine response before
+      normalizing and skips transcripts that exist. One way to run an engine
+      instead of two.
 - [x] **2.3 `--out-root`** — done as "the testing tool's output root is a
       flag, not hardcoded," not as literally sharing run_stage.py's writer
       function. The two tools' layouts don't cleanly unify (production is
@@ -319,11 +312,11 @@ from annotator output to a scoreable reference.
 
 Blocked on Phases 1, 2, and 5. First real numbers.
 
-- [ ] **6.1 Rework `run_benchmark.py`** — dual report, per-run directory, full
-      provenance row including **`gold_sha`**. *Partly done 2026-11-11:*
-      names redacted on both sides, L0 `wer`/`cer` + L1 `wer_l1`, `scoring`
-      and `gold_sha256` columns. Still missing: provider/diarizer/glossary
-      columns, `cost_usd`.
+- [x] **6.1 Rework `run_benchmark.py`** — now a scorer only (2026-11-16):
+      scores every saved transcript of every gold recording not yet scored
+      with today's method; L0 `wer`/`cer` + L1 `wer_l1`, names redacted on
+      both sides, `scoring`, `gold_sha256`, `setting` and `transcript`
+      columns. Not done: `cost_usd`.
 - [x] **6.2 Comparability guard** (minimal) — `bench_status.py` shows only
       rows whose `scoring` and `gold_sha256` match today's.
 - [ ] **6.3 Per-recording reporting, not just means.** With n≈5, a mean hides
@@ -368,20 +361,18 @@ Blocked on Phases 1, 2, and 5. First real numbers.
 The thing that keeps a sweep legible. Three ideas, and the mental model is just
 the first line of each.
 
-### One directory per run
+### One transcript per run
 
-`benchmarks/runs/<run_id>/` holds **everything** about that run: the resolved
-config (every param actually sent, post-defaults), the normalized record, the
-raw provider response, and the scores. Nothing about a run lives anywhere else.
-
-`run_id` = `<UTC timestamp>_<engine>_<model>_<8-char config hash>`. The hash
-guarantees uniqueness; the human-readable prefix means `ls` is a useful command
-instead of a wall of hex.
+Each run is a transcript in `data/transcripts/<recording>/` (a variant setting
+under `variants/<setting>/`), with every param actually sent in its
+provenance and a row in the manifest's `transcripts` table. Nothing about a
+run lives anywhere else. (Until 2026-11-16 runs had their own folders under
+`benchmarks/runs/`; that was a second copy of the same thing.)
 
 ### One row per run
 
-`benchmarks/results/runs.csv` — append-only, git-tracked, one row per run,
-pointing at its directory. The append-only-ness *is* the traceability, and being
+`benchmarks/results/runs.csv` — append-only, git-tracked, one row per scored
+transcript, naming the file. The append-only-ness *is* the traceability, and being
 a text file in git means you get the history free.
 
 **Why not put runs in `manifest.sqlite`:** the manifest is gitignored because it

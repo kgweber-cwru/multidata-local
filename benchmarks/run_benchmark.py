@@ -1,33 +1,24 @@
 #!/usr/bin/env python
-"""ASR benchmarking wing — run one config, score it, log provenance (doc §8).
+"""Score saved transcripts against gold (step 2 of 2; `transcribe.py` makes
+the transcripts).
 
-    python benchmarks/run_benchmark.py --recording 132704 \
-        --audio data/audio/132704/41.wav \
-        --engine whisperx_disfluent --model medium
+    python benchmarks/run_benchmark.py                        # every saved transcript of every gold recording
+    python benchmarks/run_benchmark.py --recordings 261505
+    python benchmarks/run_benchmark.py --transcript data/transcripts/261505/16_assemblyai_universal-3-5-pro.json
 
-    # score a transcript already on disk instead of re-running the engine --
-    # e.g. one run_stage.py already produced, or a slow engine you don't want
-    # to pay for twice:
-    python benchmarks/run_benchmark.py --recording 132704 \
-        --audio data/audio/132704/41.wav \
-        --transcript data/transcripts/132704/41_whisperx_disfluent_medium.json \
-        --model medium
-
-Vary ONE axis at a time, everything else pinned (doc §8c). Every run appends a
-fully-attributed row to benchmarks/results/runs.csv — a benchmark you can't
-attribute to an exact config is noise (doc §8d).
-
-Requires a gold reference at benchmarks/references/<recording_id>.gold.txt (see
-scripts/eaf_to_gold.py to produce one from an annotated .eaf). Those are the
-expensive, essential part; see docs/transcription_standards.md.
+Looks in `data/transcripts/<recording>/` and its `variants/<setting>/`
+folders, and appends one row per transcript to benchmarks/results/runs.csv,
+the tracked ledger. A transcript already scored with today's method against
+today's gold file is skipped (`--rescore` scores it again). `python
+scripts/bench_status.py` shows the current numbers.
 
 Scoring (`score()`): the manifest's names for the recording are redacted from
 BOTH reference and hypothesis (`multidata.redact`), then both are normalized
 with `multidata.normalize` -- L0 verbatim for `wer`/`cer`, L1 filler-neutral
-for `wer_l1`. Bracket tags (`[LEARNER_NAME]`, `[unintelligible]`,
-`[unclear: ...]`, `[laughter]`) are deleted at both levels. The `scoring`
-column names the method; rows with it empty were scored before this, with
-plain lowercase/punctuation stripping, and are not comparable.
+for `wer_l1`. Bracket tags are deleted and numbers canonicalized at both
+levels. Excerpt gold (a `span` in the `.gold.json`) is scored on that span
+only. A transcript from the engine that seeded a recording's gold is never
+scored against it (standards §9).
 """
 import argparse
 import csv
@@ -37,7 +28,6 @@ import json
 import platform
 import subprocess
 import sys
-import time
 from pathlib import Path
 
 import jiwer
@@ -45,33 +35,21 @@ import jiwer
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
-from multidata import asr, bench_runs, manifest, normalize, redact, seeding  # noqa: E402
+from multidata import manifest, normalize, redact, seeding  # noqa: E402
 from multidata.elan import words_of  # noqa: E402
 from multidata.models import upgrade_keys  # noqa: E402
+from multidata.paths import DATA_DIR  # noqa: E402
 
 RESULTS = ROOT / "benchmarks" / "results" / "runs.csv"
 REFERENCES = ROOT / "benchmarks" / "references"
-RUNS_ROOT = ROOT / "benchmarks" / "runs"
-CACHE_ROOT = ROOT / "benchmarks" / "cache"
 
-# "source" distinguishes three ways a result reached the scorer -- without
-# this, a near-zero wall_s (cache_hit/cached) would look like a suspiciously
-# fast engine rather than what it is: no engine ran at all.
-#   live      -- the engine actually ran just now
-#   cache_hit -- a prior identical (engine, model, audio) call was reused;
-#                the engine would have run, but didn't need to
-#   cached    -- an externally supplied --transcript file was scored; some
-#                other process (a notebook, run_stage.py) produced it
+# `source` is history: rows before 2026-11-16 say whether the engine ran live,
+# came from the old response cache, or was a saved transcript; every row
+# since is a saved transcript. `setting` is the settings.yaml name for a
+# variant run ("" for a plain one); `transcript` is the file scored.
 FIELDS = ["timestamp", "recording_id", "engine", "model", "audio_sha256",
           "wer", "cer", "wall_s", "source", "git_commit", "machine", "notes",
-          "gold_pass1", "wer_l1", "scoring", "gold_sha256"]
-# gold_sha256: the reference file actually scored against. A re-exported
-# gold file gets a new hash, so older rows stop counting as current
-# (bench_status.py) instead of silently mixing with new ones.
-# gold_pass1: how the reference's pass 1 was made -- "blind", or "seeded"
-# from a machine draft (standards §9). Rows from before the column existed
-# are blind. Seeded and blind results are reported separately, and the seed
-# engine is never scored against gold it seeded (see main()).
+          "gold_pass1", "wer_l1", "scoring", "gold_sha256", "setting", "transcript"]
 
 # Names the scoring method in each ledger row. Change it whenever score()
 # changes in a way that moves numbers, so old and new rows aren't compared.
@@ -81,7 +59,7 @@ SCORING = "redact+L0/L1 v4"  # v2: markup off words at L0; L1 drops cut-off word
 def score(ref, hyp, names):
     """WER/CER at L0 and WER at L1, after redacting `names` from both sides.
 
-    Redaction runs on the raw text (it matches names recording-sensitively, before
+    Redaction runs on the raw text (it matches names case-sensitively, before
     punctuation is gone); the resulting `[ROLE_NAME]` tags are then deleted
     by normalization like every other bracket tag, so a name counts neither
     for nor against an engine. `names` may be None (no manifest row): then
@@ -99,22 +77,10 @@ def score(ref, hyp, names):
 
 
 def hypothesis_text(result, span=None):
-    """Flatten an engine result dict to a plain transcript string.
-
-    `span`, if given, is `(start_s, end_s)` -- only text starting inside that
-    window is included. Required for excerpt gold (docs/transcription_
-    standards.md §3): the reference file already covers only the excerpt (it
-    was exported that way), but a live/cached hypothesis normally covers the
-    *whole* audio -- score it unfiltered against an excerpt reference and
-    every word outside the excerpt shows up as a spurious insertion,
-    inflating WER for no real reason.
-
-    Filters at word level when word-level timing exists (the common case),
-    for a boundary that doesn't depend on where a segment happened to be cut.
-    Falls back to segment-level filtering only when there's no word-level
-    timing to filter with (`word_timing: false` -- asr_provider_spec.md §4)
-    -- coarser, but the best available without per-word timestamps.
-    """
+    """A transcript as plain text; with `span` `(start_s, end_s)`, only the
+    words starting inside it (excerpt gold covers part of the audio, and
+    words outside it would count as insertions). Filters by word when word
+    timing exists, by segment otherwise."""
     segments = result.get("segments") or []
     if span is None:
         if segments and all("text" in s for s in segments):
@@ -124,14 +90,9 @@ def hypothesis_text(result, span=None):
     start, end = span
     words = words_of(result)
     if words:
-        return " ".join(
-            w.get("word", "").strip() for w in words
-            if start <= w.get("start", 0) < end
-        )
-    return " ".join(
-        s["text"].strip() for s in segments
-        if start <= s.get("start", 0) < end
-    )
+        return " ".join(w.get("word", "").strip() for w in words
+                        if start <= (w.get("start") or 0) < end)
+    return " ".join(s["text"].strip() for s in segments if start <= s.get("start", 0) < end)
 
 
 def sha256(path, buf=1 << 20):
@@ -143,15 +104,8 @@ def sha256(path, buf=1 << 20):
 
 
 def record(row, results_path=RESULTS):
-    """Append-only provenance log; writes the header on first run.
-
-    `results_path` defaults to the real ledger (`RESULTS`) but is a
-    parameter, not a hardcoded reach at module scope, specifically so a test
-    or a manual smoke run can redirect it -- every other output path
-    (`--reference`, `--out-root`, `--cache-root`) already had this, and this
-    one didn't, which is exactly how a synthetic smoke-test row twice ended
-    up in the real runs.csv before being caught and cleaned up by hand.
-    """
+    """Append one row to the ledger, writing the header on first use.
+    `results_path` lets a test or a scratch run keep away from the real one."""
     results_path = Path(results_path)
     results_path.parent.mkdir(parents=True, exist_ok=True)
     _upgrade_header(results_path)
@@ -165,9 +119,8 @@ def record(row, results_path=RESULTS):
 
 def _upgrade_header(results_path):
     """Rewrite an existing ledger whose header predates a column in FIELDS:
-    same rows, the new column left empty. Append-only in spirit: no value
-    changes, only the header widens. A `case_id` column (before the rename to
-    LearningSpace's terms) becomes `recording_id`."""
+    same rows, the new column left empty. A `case_id` column (before the
+    rename to LearningSpace's terms) becomes `recording_id`."""
     if not results_path.exists():
         return
     with open(results_path, newline="") as f:
@@ -182,192 +135,129 @@ def _upgrade_header(results_path):
             w.writerow({k: r.get(k, "") for k in FIELDS})
 
 
-def refuse_seed_engine(engine, meta):
-    """Exit if `engine` seeded this gold: scoring it would flatter it."""
+def seed_conflict(engine, meta):
+    """Why `engine` may not be scored against this gold, or None: an engine
+    that seeded a recording's gold would be scored in its own favour."""
     if meta.get("pass1_source") == "seeded" and engine == meta.get("seed_engine"):
-        sys.exit(f"Refusing: recording {meta['recording_id']}'s gold was seeded from {engine} "
-                 f"({meta.get('seed_model')}), so scoring {engine} against it would be "
-                 "biased in its favour (docs/transcription_standards.md §9). Score it on "
-                 "blind gold, or on gold seeded by another engine.")
+        return (f"its gold was seeded from {engine} ({meta.get('seed_model')}); "
+                "score it on blind gold or gold seeded by another engine (standards §9)")
+    return None
 
 
-def load_result(args, audio_sha256, cache_root=None):
-    """`(result, engine, source, wall_s)` -- either run `args.engine` live
-    (checking `cache_root` first, if given), or load `args.transcript` from
-    disk and skip the engine entirely.
+def describe(path):
+    """(engine, model, setting) of a saved transcript. Older local transcripts
+    carry no provenance; their model comes from the file name
+    (`<camera>_<engine>_<model>.json`)."""
+    result = json.loads(Path(path).read_text())
+    prov = result.get("provenance") or {}
+    engine = prov.get("engine") or result.get("engine")
+    if not engine:
+        raise ValueError(f"{path} records no engine")
+    model = prov.get("model") or Path(path).stem.split(f"_{engine}_", 1)[-1]
+    parent = Path(path).parent
+    setting = parent.name if parent.parent.name == "variants" else ""
+    return result, engine, model, setting
 
-    In cached-transcript mode, the transcript's *own* `engine` field (which
-    `asr.transcribe()` stamps, but a bare `transcribe_whisperx_disfluent()`-
-    style call does not) is the source of truth for the provenance row. If
-    it's present and `--engine` disagrees, that's a note, not an error --
-    the recorded field wins. If it's **absent**, `--engine` must be given
-    explicitly (`args.engine is not None`, i.e. actually typed, not just
-    defaulted) -- refusing rather than silently falling back to
-    `asr.DEFAULT_ENGINE` is the whole point: a missing field with a silent
-    guess produces a confidently-wrong provenance row with no signal
-    anything was off, which is worse than an error.
 
-    `audio_sha256` is a parameter, not recomputed here, so a caller that also
-    needs it for the provenance row only hashes the (possibly large) audio
-    file once.
-    """
-    if args.transcript:
-        transcript_path = Path(args.transcript)
-        if not transcript_path.exists():
-            sys.exit(f"No transcript at {transcript_path}")
-        with open(transcript_path) as f:
-            result = json.load(f)
-        recorded_engine = result.get("engine")
+def transcripts_of(recording_id):
+    base = DATA_DIR / "transcripts" / recording_id
+    found = list(base.glob("*.json")) + list(base.glob("variants/*/*.json"))
+    return sorted(p for p in found if not p.name.endswith(".raw.json"))
 
-        if recorded_engine:
-            if args.engine and args.engine != recorded_engine:
-                print(f"note: scoring transcript's own engine={recorded_engine!r}, "
-                      f"not --engine={args.engine!r}", file=sys.stderr)
-            engine = recorded_engine
-        elif args.engine:
-            engine = args.engine
-        else:
-            sys.exit(
-                f"{transcript_path} has no 'engine' field recorded -- it was likely "
-                "produced by calling a transcribe_*() function directly rather than "
-                "asr.transcribe(), which stamps this. Pass --engine explicitly so the "
-                "provenance row isn't a silent guess (this bit Kate on recording 261456: "
-                "two rows silently recorded as faster_whisper when the transcript was "
-                "actually whisperx_disfluent)."
-            )
 
-        # No engine ran, so there's no transcription time to report -- 0.0,
-        # not a timed-but-meaningless JSON-load duration (see FIELDS comment
-        # on why `source` exists to disambiguate this from a genuinely fast
-        # live run rather than this field carrying a misleading non-zero
-        # number).
-        return result, engine, "cached", 0.0
+def scored_already(results_path):
+    """{(transcript, gold_sha256)} scored with today's method."""
+    if not Path(results_path).exists():
+        return set()
+    with open(results_path, newline="") as f:
+        return {(r.get("transcript"), r.get("gold_sha256")) for r in csv.DictReader(f)
+                if r.get("scoring") == SCORING and r.get("transcript")}
 
-    engine = args.engine or asr.DEFAULT_ENGINE
-    kwargs = {"model_name": args.model}
 
-    cache_params = dict(kwargs)
-    key = bench_runs.cache_key(audio_sha256, engine, cache_params) if cache_root else None
-    if key is not None:
-        cached_result = bench_runs.cache_get(cache_root, key)
-        if cached_result is not None:
-            return cached_result, engine, "cache_hit", 0.0
+def score_transcript(path, recording_id, results_path=RESULTS, manifest_path=manifest.DEFAULT_PATH,
+                     references=REFERENCES, notes="", audio_hashes=None):
+    """Score one saved transcript and append its ledger row; returns the row,
+    or a string saying why it was not scored."""
+    reference = Path(references) / f"{recording_id}.gold.txt"
+    meta = seeding.read_gold_meta(recording_id, reference.parent)
+    result, engine, model, setting = describe(path)
+    conflict = seed_conflict(engine, meta)
+    if conflict:
+        return f"not scored: {conflict}"
 
-    started = time.perf_counter()
-    result = asr.transcribe(args.audio, engine=engine, **kwargs)
-    wall_s = time.perf_counter() - started
+    hyp = hypothesis_text(result, span=tuple(meta["span"]) if meta.get("span") else None)
+    try:
+        names = manifest.names_for_recording(recording_id, manifest_path)
+    except KeyError:
+        names = None
+        print(f"WARNING: no manifest row for {recording_id}: names not redacted before scoring",
+              file=sys.stderr)
+    scores = score(reference.read_text(), hyp, names)
 
-    if key is not None:
-        bench_runs.cache_put(cache_root, key, result)
+    prov = result.get("provenance") or {}
+    audio = ROOT / prov["audio"] if prov.get("audio") else None
+    if audio_hashes is not None and audio is not None and audio.exists():
+        audio_sha = audio_hashes.setdefault(audio, sha256(audio))
+    else:
+        audio_sha = ""
+    row = {
+        "timestamp": datetime.datetime.now().isoformat(),
+        "recording_id": recording_id, "engine": engine, "model": model,
+        "audio_sha256": audio_sha, **scores, "wall_s": prov.get("wall_s", ""),
+        "source": "transcript", "git_commit": subprocess.getoutput("git rev-parse --short HEAD"),
+        "machine": platform.platform(), "notes": notes,
+        "gold_pass1": meta.get("pass1_source", "blind"), "scoring": SCORING,
+        "gold_sha256": sha256(reference), "setting": setting,
+        "transcript": _relative(path),
+    }
+    record(row, results_path=results_path)
+    return row
 
-    return result, engine, "live", wall_s
+
+def _relative(path):
+    try:
+        return str(Path(path).resolve().relative_to(ROOT))
+    except ValueError:
+        return str(path)
 
 
 def main():
-    ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--recording", required=True)
-    ap.add_argument("--audio", required=True,
-                     help="for provenance hashing (doc §8a) -- required even with --transcript")
-    ap.add_argument("--engine", default=None, choices=sorted(asr.ENGINES),
-                     help=f"engine to run live (default: {asr.DEFAULT_ENGINE}); with "
-                          "--transcript, only used when the transcript has no recorded "
-                          "engine of its own, and REQUIRED in that case -- no silent guess")
-    ap.add_argument("--model", default="large-v3",
-                     help="for the provenance row -- a transcript JSON doesn't record its "
-                          "own model size, so this isn't inferred from --transcript")
-    ap.add_argument("--transcript",
-                     help="score an existing transcript JSON instead of running --engine live "
-                          "(e.g. data/transcripts/<recording>/<camera>_<engine>_<model>.json)")
-    ap.add_argument("--reference", help="defaults to benchmarks/references/<recording>.gold.txt")
-    ap.add_argument("--span-start", type=float, default=None,
-                     help="seconds -- for excerpt gold (standards §3), trims the hypothesis "
-                          "to this window before scoring, since the reference only covers "
-                          "the excerpt but the hypothesis normally covers the whole audio. "
-                          "Default: the span recorded in <recording>.gold.json, if any. "
-                          "Requires --span-end.")
-    ap.add_argument("--span-end", type=float, default=None)
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--recordings", nargs="+", help="default: every gold recording")
+    ap.add_argument("--transcript", help="score this one file (its recording is in its path)")
+    ap.add_argument("--rescore", action="store_true", help="score again even if already current")
     ap.add_argument("--notes", default="")
-    ap.add_argument("--manifest", default=str(ROOT / "manifest.sqlite"),
-                     help="source of the recording's names, redacted from both sides before scoring")
-    ap.add_argument("--out-root", default=str(RUNS_ROOT),
-                     help=f"default: {RUNS_ROOT} -- per-run directory holding the resolved "
-                          "config, the normalized record, and scores.json (implementation "
-                          "plan Phase 2.1). runs.csv stays the fast-glance ledger; this is "
-                          "the full detail behind each row.")
-    ap.add_argument("--cache-root", default=str(CACHE_ROOT),
-                     help=f"default: {CACHE_ROOT} -- reuse a prior identical (engine, model, "
-                          "audio) live result instead of re-running the engine. Ignored in "
-                          "--transcript mode.")
-    ap.add_argument("--no-cache", action="store_true",
-                     help="always run the engine live, even if a cached result exists -- for "
-                          "a genuine timing measurement, or a non-deterministic engine")
     ap.add_argument("--results", default=str(RESULTS),
-                     help=f"default: {RESULTS} -- the append-only provenance ledger. "
-                          "Override for a smoke test or a scratch sweep so it never touches "
-                          "the real one.")
+                    help="the ledger; point a scratch run somewhere else")
     args = ap.parse_args()
 
-    if (args.span_start is None) != (args.span_end is None):
-        sys.exit("--span-start and --span-end must be given together")
-    span = (args.span_start, args.span_end) if args.span_start is not None else None
-    cache_root = None if args.no_cache else args.cache_root
+    if args.transcript:
+        path = Path(args.transcript).resolve()
+        recording_id = next(p for p in path.parents if p.parent.name == "transcripts").name
+        jobs = [(recording_id, path)]
+    else:
+        recordings = args.recordings or sorted(
+            p.name.removesuffix(".gold.txt") for p in REFERENCES.glob("*.gold.txt"))
+        jobs = [(r, p) for r in recordings for p in transcripts_of(r)]
 
-    reference_path = Path(args.reference or REFERENCES / f"{args.recording}.gold.txt")
-    if not reference_path.exists():
-        sys.exit(f"No gold reference at {reference_path} — see docs/transcription_standards.md")
-    ref = reference_path.read_text()
-    meta = seeding.read_gold_meta(args.recording, reference_path.parent)
-    if span is None and meta.get("span"):
-        span = tuple(meta["span"])
-        print(f"excerpt gold: scoring only {span[0]:.1f}s-{span[1]:.1f}s (from the .gold.json)")
-    if not args.transcript:
-        refuse_seed_engine(args.engine or asr.DEFAULT_ENGINE, meta)   # before any GPU time
-
-    audio_sha256 = sha256(args.audio)
-    result, engine, source, wall_s = load_result(args, audio_sha256, cache_root=cache_root)
-    refuse_seed_engine(engine, meta)
-
-    hyp = hypothesis_text(result, span=span)
-    try:
-        names = manifest.names_for_recording(args.recording, args.manifest)
-    except KeyError:
-        names = None
-        print(f"WARNING: no manifest row for {args.recording}: names not redacted before scoring",
-              file=sys.stderr)
-    scores = score(ref, hyp, names)
-
-    row = {
-        "timestamp": datetime.datetime.now().isoformat(),
-        "recording_id": args.recording,
-        "engine": engine,
-        "model": args.model,
-        "audio_sha256": audio_sha256,
-        "wer": scores["wer"],
-        "cer": scores["cer"],
-        "wall_s": round(wall_s, 1),
-        "source": source,
-        "git_commit": subprocess.getoutput("git rev-parse --short HEAD"),
-        "machine": platform.platform(),
-        "notes": args.notes,
-        "gold_pass1": meta.get("pass1_source", "blind"),
-        "wer_l1": scores["wer_l1"],
-        "scoring": SCORING,
-        "gold_sha256": sha256(reference_path),
-    }
-    record(row, results_path=args.results)
-
-    run_config = {
-        "recording_id": args.recording, "engine": engine, "model": args.model, "source": source,
-        "audio_sha256": audio_sha256, "reference": str(reference_path),
-        "span": list(span) if span else None, "transcript": args.transcript,
-    }
-    run_id = bench_runs.make_run_id(engine, args.model, run_config)
-    run_dir = bench_runs.write_run(args.out_root, run_id, run_config, result,
-                                    scores | {"scoring": SCORING})
-
-    print(f"WER {scores['wer']} (L1 {scores['wer_l1']})  CER {scores['cer']}  ({row['wall_s']}s, {source}; gold: {seeding.describe(meta)})")
-    print(f"  ledger: {args.results}")
-    print(f"  run:    {run_dir}")
+    done = set() if args.rescore else scored_already(args.results)
+    audio_hashes = {}
+    for recording_id, path in jobs:
+        reference = REFERENCES / f"{recording_id}.gold.txt"
+        if not reference.exists():
+            print(f"{recording_id}: no gold at {reference}")
+            continue
+        if (_relative(path), sha256(reference)) in done:
+            continue
+        out = score_transcript(path, recording_id, results_path=args.results,
+                               notes=args.notes, audio_hashes=audio_hashes)
+        label = _relative(path).removeprefix(f"data/transcripts/{recording_id}/")
+        if isinstance(out, str):
+            print(f"{recording_id:<8} {label:<62} {out}")
+        else:
+            print(f"{recording_id:<8} {label:<62} WER {out['wer']:.3f} (L1 {out['wer_l1']:.3f})  "
+                  f"CER {out['cer']:.3f}")
+    print(f"ledger: {args.results}")
 
 
 if __name__ == "__main__":

@@ -119,7 +119,22 @@ class Transcriber:
     def preflight(self, recording):
         """Checks that must pass before any audio is read."""
 
-    def run(self, audio, recording_id, camera, excerpt=False):
+    def _call(self, audio, recording_id, camera, index, responses_dir):
+        """`call`, with its response saved to `responses_dir/<index>.json` before
+        anything else touches it and reused from there on a later run, so a
+        normalizer or merge failure never pays for the same audio twice."""
+        if responses_dir is None:
+            return self.call(audio, recording_id, camera)
+        saved = Path(responses_dir) / f"{index}.json"
+        if saved.exists():
+            reply = json.loads(saved.read_text())
+            return reply["native"], reply["meta"]
+        native, meta = self.call(audio, recording_id, camera)
+        saved.parent.mkdir(parents=True, exist_ok=True)
+        saved.write_text(json.dumps({"native": native, "meta": meta}))
+        return native, meta
+
+    def run(self, audio, recording_id, camera, excerpt=False, responses_dir=None):
         """`call` + `normalize`, in planned pieces when the audio is longer than
         `chunk_s` (`chunking.py`) -> (native, meta, result). A chunked run's
         `native` is `{"chunks": [{index, offset_s, duration_s, response}]}`."""
@@ -128,7 +143,7 @@ class Transcriber:
         chunk_s = getattr(self.params, "chunk_s", None)
         total = _duration(audio)
         if not chunk_s or (total or 0) <= chunk_s:
-            native, meta = self.call(audio, recording_id, camera)
+            native, meta = self._call(audio, recording_id, camera, 0, responses_dir)
             return native, meta, self.normalize(native)
         if excerpt:
             raise ValueError(f"audio over {chunk_s} s is cut where the diarize stage's turns "
@@ -141,7 +156,7 @@ class Transcriber:
         with tempfile.TemporaryDirectory() as tmp:
             for index, (piece, offset_s, duration_s) in enumerate(
                     chunking.cut(audio, Path(tmp), spans)):
-                native, meta = self.call(piece, recording_id, camera)
+                native, meta = self._call(piece, recording_id, camera, index, responses_dir)
                 chunks.append({"index": index, "offset_s": offset_s,
                                "duration_s": duration_s, "response": native})
                 metas.append(meta)
@@ -160,10 +175,12 @@ class Transcriber:
 
         return chunking.assign_speakers(result, _pipeline_turns(recording_id, camera))
 
-    def transcribe(self, recording_id, manifest_path=MANIFEST_PATH, audio_path=None):
+    def transcribe(self, recording_id, manifest_path=MANIFEST_PATH, audio_path=None,
+                   responses_dir=None):
         """Transcribe one recording's canonical audio (or `audio_path`, such as an
         excerpt of it). The recording must be in the manifest either way: that
-        is where the cloud interlock lives."""
+        is where the cloud interlock lives. With `responses_dir`, each engine
+        response is saved there first and reused on a later run (`_call`)."""
         recording = manifest.get_recording(recording_id, manifest_path)
         if recording is None:
             raise KeyError(f"recording_id {recording_id!r} not in {manifest_path}")
@@ -182,7 +199,7 @@ class Transcriber:
 
         started = datetime.datetime.now(datetime.timezone.utc)
         t0 = time.monotonic()
-        native, meta, result = self.run(audio, recording_id, camera, excerpt)
+        native, meta, result = self.run(audio, recording_id, camera, excerpt, responses_dir)
         if self.speakers == "pipeline":
             result = self.assign_pipeline_speakers(result, audio, recording_id, camera)
         wall_s = round(time.monotonic() - t0, 1)

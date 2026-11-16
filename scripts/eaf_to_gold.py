@@ -13,8 +13,9 @@ pass-2 kit's kit.json. Everything can still be given by hand instead:
 
     python scripts/eaf_to_gold.py --eaf data/gold/132704/132704.gold.eaf --recording 132704 \
         --kit annotation/kits/132704/kate --annotator kate
-    python scripts/run_benchmark.py --recording 132704 --audio data/audio/132704/41.wav \
-        --engine whisperx_disfluent --model medium
+
+Then `python benchmarks/transcribe.py --recordings 132704` and
+`python benchmarks/run_benchmark.py` score every engine against it.
 
 Redacts real names via the manifest's learner_name/sp_name/preceptor_name
 columns (multidata.redact) before anything is written to --out-dir, which

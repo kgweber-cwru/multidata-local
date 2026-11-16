@@ -79,8 +79,8 @@ AssemblyAI is best on every recording; Medical Mode changes nothing (not
 worth +$0.15/h). ElevenLabs' BAA model costs ~0.7 points against
 `scribe_v3`. Google is uneven (0.30–0.33 on the two short chest-pain
 recordings; not yet looked at). Still five recordings and no noise floor.
-Variant runs live in `data/transcripts/<recording>/variants/<tag>/` and carry
-`variant <tag>` in the ledger's notes. **Next:** more gold and a first double
+Variant runs live in `data/transcripts/<recording>/variants/<setting>/`; the
+ledger names the setting and the transcript file. **Next:** more gold and a first double
 annotation for a noise floor; glossary runs wait for richer gold.
 **Pending gold:** 261466 (2026 long station, abdominal pain; the largest
 scenario had none) and 259392 (the only CSE 2A recording: GI history and presentation)
@@ -163,9 +163,12 @@ in our diarize stage's labels instead (the comparison arm).
 4. **Gemini 3.5 Transcribe** adapter (verbatim mode; ~30 min cap with
    diarization, so it uses the chunker). Check it is on the BAA's covered
    services list before sending audio.
-5. **Benchmark wiring:** a file of named settings (engine + params) that
-   `run_benchmark.py` sweeps over the gold recordings and `run_stage.py`
-   later runs at scale with the winner; skip runs already in `transcripts`.
+5. Done 2026-11-16: named settings in `benchmarks/configs/settings.yaml`;
+   `benchmarks/transcribe.py` runs them over the gold recordings, and
+   `benchmarks/run_benchmark.py` now only scores saved transcripts (the old
+   engine cache, `bench_runs.py` and `benchmarks/runs/` are gone; the two
+   folders can be deleted from disk). Still to do: `run_stage.py` running
+   the winning setting at scale.
 
 Decided along the way: capture verbatim once and derive a clean
 (disfluency-free) view from it, rather than a second vendor run; vendors'

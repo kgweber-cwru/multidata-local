@@ -494,17 +494,6 @@ def record_gold(recording_id, annotator="", pass1_frozen_at="", gold_at="",
         return cursor.lastrowid
 
 
-def gold_for_recording(recording_id, path=DEFAULT_PATH):
-    """Every gold row for one recording, oldest first -- possibly more than one
-    (standards §3: excerpt gold from several spans is a valid strategy for
-    stretching limited annotator time across more strata)."""
-    with closing(connect(path)) as conn:
-        rows = conn.execute(
-            "SELECT * FROM gold WHERE recording_id = ? ORDER BY id", (recording_id,)
-        ).fetchall()
-    return [dict(r) for r in rows]
-
-
 def all_gold(path=DEFAULT_PATH):
     """Every gold row across every recording, oldest first -- the query that makes
     "which recordings have usable gold?" a query instead of an `ls` on
@@ -691,14 +680,6 @@ def set_camera_room(camera_id, room_number, path=DEFAULT_PATH):
             (camera_id, room_number),
         )
     return Camera(camera_id=camera_id, room_number=room_number)
-
-
-def get_camera_room(camera_id, path=DEFAULT_PATH):
-    with closing(connect(path)) as conn:
-        row = conn.execute(
-            "SELECT * FROM cameras WHERE camera_id = ?", (camera_id,)
-        ).fetchone()
-    return Camera.from_row(row) if row else None
 
 
 def all_camera_rooms(path=DEFAULT_PATH):

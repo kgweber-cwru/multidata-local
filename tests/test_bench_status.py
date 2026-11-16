@@ -10,6 +10,7 @@ pytest.importorskip("pympi")  # bench_status imports multidata.elan transitively
 
 SCRIPTS = Path(__file__).resolve().parent.parent / "scripts"
 sys.path.insert(0, str(SCRIPTS))
+sys.path.insert(0, str(SCRIPTS.parent / "benchmarks"))
 
 import bench_status  # noqa: E402
 
@@ -90,7 +91,7 @@ class TestLatestPerConfig:
              "timestamp": "2026-06-01", "wer": "0.3"},
         ]
         latest = bench_status.latest_per_config(runs)
-        assert latest[("999", "whisperx", "medium")]["wer"] == "0.3"
+        assert latest[("999", "whisperx", "medium", "")]["wer"] == "0.3"
 
     def test_different_configs_kept_separate(self):
         runs = [
@@ -100,3 +101,15 @@ class TestLatestPerConfig:
         ]
         latest = bench_status.latest_per_config(runs)
         assert len(latest) == 2
+
+
+class TestBenchStatusCurrent:
+    def test_only_current_method_and_gold_count(self, tmp_path):
+        import run_benchmark
+        (tmp_path / "1.gold.txt").write_text("hello")
+        sha = run_benchmark.sha256(tmp_path / "1.gold.txt")
+        ok = {"recording_id": "1", "scoring": run_benchmark.SCORING, "gold_sha256": sha}
+        assert bench_status.is_current(ok, tmp_path)
+        assert not bench_status.is_current(ok | {"scoring": ""}, tmp_path)
+        assert not bench_status.is_current(ok | {"gold_sha256": "old"}, tmp_path)
+        assert not bench_status.is_current(ok | {"recording_id": "2"}, tmp_path)

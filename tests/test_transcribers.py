@@ -35,13 +35,6 @@ class TestRegistry:
     def test_every_engine_is_local_whisper_or_a_cloud_vendor(self):
         assert set(transcribers.engines()) == set(asr.ENGINES) | {"elevenlabs", "assemblyai", "google"}
 
-    def test_cloud_engines_have_registry_rows(self):
-        from multidata.paths import ROOT
-        from multidata.providers import load_providers
-
-        rows = load_providers(ROOT / "benchmarks" / "configs" / "providers.yaml")
-        assert set(transcribers.CLOUD) <= set(rows)
-
     def test_unknown_engine(self):
         with pytest.raises(ValueError, match="unknown engine"):
             transcribers.get_transcriber("nope")

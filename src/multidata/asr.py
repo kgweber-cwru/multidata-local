@@ -14,7 +14,7 @@ Engines (doc §6: "keep those code paths behind a --engine flag"):
   own — `transcribe()` below merges in a `diarize.diarize()` result (reusing
   an existing RTTM if one's already on disk, writing one otherwise) via
   whisperx's own engine-agnostic `assign_word_speakers`. Confirmed empirically
-  (benchmarks/timing_bench.py) to be slightly *faster* end-to-end than
+  (benchmarks/results/timing_bench.csv) to be slightly *faster* end-to-end than
   whisperx at the same model size.
 - ``whisperx`` — bundles transcribe + wav2vec2 word alignment + pyannote
   diarization in one call. Available for testing/comparison via `--engine`;

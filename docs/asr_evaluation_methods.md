@@ -193,7 +193,7 @@ assignments row (`annotation/assignments.py note`). A re-export undoes the mask,
 | adjudicated original | `data/gold/<recording>/<recording>.gold.eaf` | no | the reference with real names |
 | publishable reference | `benchmarks/references/<recording>.gold.*` | yes | redacted text, turns, provenance |
 | scores | `benchmarks/results/runs.csv` | yes | one row per scored run |
-| per-run detail | `benchmarks/runs/<run_id>/` | no | the engine's full output (contains names) |
+| transcripts | `data/transcripts/<recording>/` (variants under `variants/<setting>/`) | no | each engine's output and raw response (contains names) |
 
 The processing host is backed up nightly ([operations.md](operations.md)).
 Box is only a courier.
@@ -204,15 +204,17 @@ Box is only a courier.
 
 ### 4.1 Producing the hypothesis
 
-`benchmarks/run_benchmark.py` either runs an engine on the recording's WAV or
-scores a transcript the pipeline already made. Engine outputs are cached by
-(engine, model, audio hash), so re-scoring never re-runs or re-bills an
-engine. The engine's words are joined in time order into one string. If the
+`benchmarks/transcribe.py` runs each named setting in
+`benchmarks/configs/settings.yaml` on each gold recording through
+`multidata.transcribers` and saves the transcript; one that exists is
+skipped, and engine responses are saved before normalizing, so nothing is
+paid for twice. `benchmarks/run_benchmark.py` then scores every saved
+transcript of every gold recording that hasn't been scored with the current
+method. The engine's words are joined in time order into one string. If the
 reference is an excerpt, only words that start inside the window are kept;
 the window is read from `<recording>.gold.json`.
 
-Before scoring, the script refuses to score an engine against gold seeded
-by that same engine.
+It never scores an engine against gold seeded by that same engine.
 
 ### 4.2 Making the two texts comparable
 
@@ -268,11 +270,12 @@ WER and CER are computed with `jiwer`. Engines that never write filled
 pauses lose at L0 for a formatting policy rather than for what they heard;
 L1 is the fair comparison for them.
 
-Each run appends one row to `benchmarks/results/runs.csv`. It records the
-engine, model, audio hash, the three scores, how the reference's pass 1 was
-made (`gold_pass1`), the scoring method (`scoring`), the hash of the
-reference file (`gold_sha256`), the git commit and the machine. The full
-output and configuration go to `benchmarks/runs/<run_id>/`.
+Each scored transcript appends one row to `benchmarks/results/runs.csv`. It
+records the engine, model, setting (for a variant), the transcript file,
+audio hash, the three scores, how the reference's pass 1 was made
+(`gold_pass1`), the scoring method (`scoring`), the hash of the reference
+file (`gold_sha256`), the git commit and the machine. The transcript itself,
+with every parameter in its provenance, stays in `data/transcripts/`.
 
 ### 4.4 Which numbers can be compared
 

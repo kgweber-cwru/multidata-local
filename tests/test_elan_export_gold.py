@@ -135,14 +135,8 @@ class TestFileWriting:
 
 
 class TestUri:
-    def test_uri_defaults_to_eaf_stem(self, tmp_path):
+    def test_uri_is_the_eaf_stem_unless_given(self, tmp_path):
         eaf_path = tmp_path / "132704.pass1.eaf"
         _build_eaf(eaf_path, {"LEARNER": [(0, 1000, "hello")]})
-        _, rttm_lines, _ = export_gold(eaf_path)
-        assert rttm_lines[0].split()[1] == "132704.pass1"
-
-    def test_uri_override(self, tmp_path):
-        eaf_path = tmp_path / "recording.eaf"
-        _build_eaf(eaf_path, {"LEARNER": [(0, 1000, "hello")]})
-        _, rttm_lines, _ = export_gold(eaf_path, uri="132704")
-        assert rttm_lines[0].split()[1] == "132704"
+        assert export_gold(eaf_path)[1][0].split()[1] == "132704.pass1"
+        assert export_gold(eaf_path, uri="132704")[1][0].split()[1] == "132704"

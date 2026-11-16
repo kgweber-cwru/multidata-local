@@ -60,7 +60,8 @@ def params(engine):
 
 
 def transcribe_recording(recording_id, engine, *, audio_path=None, manifest_path=MANIFEST_PATH,
-                         **engine_params):
+                         responses_dir=None, **engine_params):
     """Transcribe one recording with one engine -> `Transcription`."""
     return get_transcriber(engine, **engine_params).transcribe(
-        recording_id, manifest_path=manifest_path, audio_path=audio_path)
+        recording_id, manifest_path=manifest_path, audio_path=audio_path,
+        responses_dir=responses_dir)

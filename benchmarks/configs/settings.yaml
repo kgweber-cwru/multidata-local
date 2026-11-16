@@ -1,0 +1,23 @@
+# Named transcription settings for the benchmark (docs/asr_evaluation_methods.md §4).
+# `python benchmarks/transcribe.py` runs them over the gold recordings;
+# `python benchmarks/run_benchmark.py` scores what they produced.
+#
+# Each entry is `engine` plus that engine's parameters
+# (`multidata.transcribers.params(engine)` lists them and their defaults).
+# Change one thing at a time against a plain setting. A setting that changes
+# anything beyond the model is saved under data/transcripts/<recording>/variants/<name>/
+# so it never collides with the plain run of the same engine and model.
+
+faster_whisper_medium:        {engine: faster_whisper, model_name: medium}
+whisperx_large-v3:            {engine: whisperx, model_name: large-v3}
+whisperx_disfluent_large-v3:  {engine: whisperx_disfluent, model_name: large-v3}
+
+assemblyai:                   {engine: assemblyai}
+assemblyai_medical:           {engine: assemblyai, domain: medical-v1}    # no gain on 5 gold (2026-11-16)
+
+# enable_logging: ElevenLabs refuses zero-retention below the enterprise tier.
+# Kate approved logging for every gold recording (2026-11-16); nothing else.
+elevenlabs:                   {engine: elevenlabs, enable_logging: true}
+elevenlabs_medical:           {engine: elevenlabs, model: scribe_v2_medical, enable_logging: true}
+
+google:                       {engine: google}
