@@ -14,6 +14,12 @@ whisperx_disfluent_large-v3:  {engine: whisperx_disfluent, model_name: large-v3}
 
 assemblyai:                   {engine: assemblyai}
 assemblyai_medical:           {engine: assemblyai, domain: medical-v1}    # no gain on 5 gold (2026-11-16)
+assemblyai_backchannels:     # no effect: 10 of 187 back-channels against 9 (2026-11-16)
+  engine: assemblyai
+  prompt: >-
+    Transcribe verbatim, exactly as spoken. Keep filler words (um, uh), false
+    starts and repetitions, and every backchannel response such as mm-hmm,
+    uh-huh, uh-uh and mm, including short ones spoken over another speaker.
 
 # enable_logging: ElevenLabs refuses zero-retention below the enterprise tier.
 # Kate approved logging for every gold recording (2026-11-16); nothing else.
@@ -22,3 +28,9 @@ elevenlabs_medical:           {engine: elevenlabs, model: scribe_v2_medical, ena
 
 google:                       {engine: google}
 gemini:                       {engine: gemini}                            # Gemini 3.5 Transcribe on Vertex, VERBATIM
+
+# Our diarize stage's speakers on a vendor's words, from that vendor's saved
+# responses (no new vendor call for audio already sent). Worse cpWER than the
+# vendors' own labels for both (2026-11-16).
+assemblyai_pipeline_speakers: {engine: assemblyai, speakers: pipeline, responses_from: assemblyai}
+gemini_pipeline_speakers:     {engine: gemini, speakers: pipeline, responses_from: gemini}

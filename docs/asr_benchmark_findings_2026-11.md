@@ -150,19 +150,19 @@ and gaps, so compare engines with it rather than read it absolutely.
    speaker linking can be improved (or its text paired with AssemblyAI's or
    our diarization's speakers), it could overtake on words and
    back-channels together.
-2. **Look into the back-channel loss before committing.** Listen to a
-   sample of AssemblyAI's missed "mm-hmm"/"uh-uh", and try one prompt
-   setting asking it to keep them (about $0.50 across the gold set). If
-   they can't be recovered, decide whether downstream work needs them.
+2. **Decide whether downstream work needs back-channels.** A prompt asking
+   AssemblyAI to keep them was tried after this report and changed nothing
+   (10 of 187), so if they matter they must come from another engine.
 3. **Establish a noise floor.** Have a second annotator transcribe one or
    two excerpts blind. This also settles how many "added" words are real.
    Listen first to 252848 at 44:10–45:35.
 4. **Broaden gold.** Finish the two seeded pass-1 kits now assigned (261466,
    long-station abdominal pain; 259392, the only CSE 2A recording); the
    seizure recordings already in progress add a fourth scenario.
-5. **Try AssemblyAI's text with our diarization's labels** (free from the
-   saved responses): our diarizer finds speaker time best, AssemblyAI the
-   words; the combination may beat both.
+5. ~~Try AssemblyAI's text with our diarization's labels.~~ Tried after
+   this report: worse (cpWER 0.171 -> 0.275); the vendor's own labels win.
+   Gemini's weak cpWER comes from merging people once a third speaker is
+   present, not from how its pieces are joined.
 6. **Drop Google Chirp 3 and AssemblyAI Medical Mode** from further runs
    unless new gold changes the picture; keep one ElevenLabs model as the
    runner-up.

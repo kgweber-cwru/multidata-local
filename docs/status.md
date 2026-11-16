@@ -135,16 +135,21 @@ skips what exists, saves each vendor response before normalizing) then
 2. **Kate: listen to 252848 at 44:10–45:35.** Gold has 3 words where the
    diarize stage and AssemblyAI (64 words) hear speech; probably a gap in
    gold, which costs every engine in DER and insertions.
-3. **Back-channels.** AssemblyAI keeps 9 of gold's 187 "mm-hmm"/"uh-huh"
-   (Gemini 55, ElevenLabs 114). Listen to a sample, and try one AssemblyAI
-   `prompt` setting asking it to keep them (~$0.50 over gold).
-4. **Free combinations from saved responses.** AssemblyAI's or Gemini's
-   words with the diarize stage's speakers (`speakers: pipeline`), which
-   has the best DER. A new setting needs its `responses_dir` pointed at the
-   original setting's saved responses, or `transcribe.py` will call the
-   vendor again.
-5. **Gemini's speaker linking.** Its cpWER (0.259) suffers from 14-minute
-   pieces; look at which links fail on 261505 (cpWER 0.43).
+3. **Back-channels: decide whether downstream work needs them.**
+   AssemblyAI keeps 9 of gold's 187 "mm-hmm"/"uh-huh" (Gemini 55,
+   ElevenLabs 114). A prompt asking it to keep them (setting
+   `assemblyai_backchannels`, 2026-11-16; the response echoes the prompt)
+   changed nothing: 10 of 187, scores unchanged. If they matter, they have
+   to come from another engine or from audio, not from AssemblyAI.
+4. Done 2026-11-16, no gain: the diarize stage's speakers on vendor words
+   (settings `*_pipeline_speakers`, from saved responses via
+   `responses_from`). cpWER gets worse: AssemblyAI 0.171 -> 0.275, Gemini
+   0.259 -> 0.288. Vendors' own speaker labels win.
+5. Done 2026-11-16: Gemini's weak cpWER is not cross-piece linking. On
+   261505 its second piece (the debrief) gives one label 1,077 words that
+   are half learner, half preceptor: it merges people once a third speaker
+   is present (Google marks 3+ speaker attribution Experimental). Its API
+   has no speaker-count hint, so there is no setting to try.
 6. **Noise floor:** a second annotator on one or two blind excerpts; this
    also settles how many of ElevenLabs'/Google's extra words are real.
 7. **More gold:** seeded pass 1s of 261466 and 259392 are with Kate;

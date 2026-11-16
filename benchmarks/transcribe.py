@@ -13,6 +13,9 @@ table); a setting that changes more than the model goes under `variants/<name>/`
 there (`out_dir`). A transcript that already exists is skipped, so re-running
 costs nothing. Each engine response is saved under `responses/<name>/` before
 it is normalized, so a failure after the vendor has answered never pays twice.
+A setting with `responses_from: <other setting>` reads that setting's saved
+responses instead, so it changes only what happens after the vendor answers
+(such as `speakers: pipeline`) and calls no vendor for audio already sent.
 
 Cloud engines still refuse a recording without `cloud_release`.
 """
@@ -42,9 +45,14 @@ def load_settings(path=SETTINGS):
     return yaml.safe_load(Path(path).read_text())
 
 
+def engine_params(setting):
+    """The engine's parameters: the setting minus `engine` and `responses_from`."""
+    return {k: v for k, v in setting.items() if k not in ("engine", "responses_from")}
+
+
 def is_variant(setting):
     """Does `setting` change anything beyond the model and operational choices?"""
-    engine, params = setting["engine"], {k: v for k, v in setting.items() if k != "engine"}
+    engine, params = setting["engine"], engine_params(setting)
     defaults = transcribers.params(engine)
     return any(k not in OPERATIONAL and defaults.get(k) != v for k, v in params.items())
 
@@ -75,15 +83,15 @@ def main():
         camera = manifest.ensure_audio_camera(recording_id)
         for name in names:
             setting = settings[name]
-            params = {k: v for k, v in setting.items() if k != "engine"}
-            transcriber = transcribers.get_transcriber(setting["engine"], **params)
+            transcriber = transcribers.get_transcriber(setting["engine"], **engine_params(setting))
             target = out_dir(recording_id, name, setting) / f"{camera}_{setting['engine']}_{transcriber.model}.json"
             if target.exists():
                 print(f"{recording_id} {name}: exists")
                 continue
             try:
+                responses = setting.get("responses_from", name)
                 result = transcriber.transcribe(
-                    recording_id, responses_dir=DATA_DIR / "transcripts" / recording_id / "responses" / name)
+                    recording_id, responses_dir=DATA_DIR / "transcripts" / recording_id / "responses" / responses)
                 result.save(out_dir=target.parent)
                 print(f"{recording_id} {name}: saved ({result.record['provenance']['wall_s']} s)")
             except Exception as e:
