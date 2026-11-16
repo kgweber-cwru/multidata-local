@@ -60,23 +60,29 @@ Kate), and since 2026-11-13 **252848**, **261456** and **261473**
 without a formal pass-2 assignment). Their older rows in `runs.csv` were
 scored the old way and are history only.
 
-First scores against current gold (2026-11-16, 252848, the whole 64 min;
-`python scripts/bench_status.py` shows the rest as empty cells):
+Scores against current gold (2026-11-16, scoring v4 with numbers
+canonicalized; all five gold recordings, ~14,400 words, pooled by gold word
+count; `runs.csv` has each recording):
 
-| Engine | L0 WER | L1 WER |
-|---|---|---|
-| `assemblyai universal-3-5-pro` | 0.161 | 0.168 |
-| `elevenlabs scribe_v3` | 0.194 | 0.198 |
-| `google chirp_3` (digits count as errors) | 0.201 | 0.207 |
-| `whisperx_disfluent large-v3` | 0.214 | 0.216 |
-| `faster_whisper medium` | 0.258 | 0.210 |
-| `whisperx large-v3` | 0.265 | 0.223 |
+| Engine | L0 WER | L1 WER | Per recording L0 (252848, 261456, 261473, 261498, 261505) |
+|---|---|---|---|
+| `assemblyai universal-3-5-pro` | 0.162 | 0.165 | 0.16 0.17 0.19 0.16 0.16 |
+| same, `domain=medical-v1` | 0.162 | 0.165 | 0.16 0.17 0.19 0.16 0.16 |
+| `elevenlabs scribe_v3` | 0.187 | 0.188 | 0.19 0.19 0.23 0.20 0.16 |
+| `elevenlabs scribe_v2_medical` (BAA model) | 0.194 | 0.194 | 0.20 0.19 0.26 0.17 0.17 |
+| `google chirp_3` | 0.207 | 0.209 | 0.20 0.18 0.30 0.33 0.18 |
+| `faster_whisper medium` | 0.243 | 0.211 | 0.26 0.20 0.35 0.28 0.22 |
+| `whisperx_disfluent large-v3` | 0.265 | 0.264 | 0.21 0.32 0.37 0.20 0.29 |
+| `whisperx large-v3` (252848 only) | 0.262 | 0.220 | |
 
-One recording, so no ranking yet. An earlier trial (not in the ledger) gave
-L0 WER 0.25–0.31 on 261498 and 0.23–0.30 on 261505 for the two local
-engines, trading places between recordings. **Next:** every engine on every
-gold recording, then more gold and a first double annotation for a noise
-floor. **Pending gold:** 261466 (2026 long station, abdominal pain; the largest
+AssemblyAI is best on every recording; Medical Mode changes nothing (not
+worth +$0.15/h). ElevenLabs' BAA model costs ~0.7 points against
+`scribe_v3`. Google is uneven (0.30–0.33 on the two short chest-pain
+recordings; not yet looked at). Still five recordings and no noise floor.
+Variant runs live in `data/transcripts/<recording>/variants/<tag>/` and carry
+`variant <tag>` in the ledger's notes. **Next:** more gold and a first double
+annotation for a noise floor; glossary runs wait for richer gold.
+**Pending gold:** 261466 (2026 long station, abdominal pain; the largest
 scenario had none) and 259392 (the only CSE 2A recording: GI history and presentation)
 went to Kate as seeded pass 1s on 2026-11-16. The procedure is
 [asr_evaluation_methods.md](asr_evaluation_methods.md); its §5 lists what
@@ -134,12 +140,21 @@ in our diarize stage's labels instead (the comparison arm).
    - Project APIs enabled: Speech-to-Text and `aiplatform.googleapis.com`
      (Vertex AI, now titled "Agent Platform API") for Gemini; the AI Studio
      Gemini API (`generativelanguage`) deliberately not.
-3. **Google chunk linking falls short on real output.** 252848 (64 min) went
-   in 5 pieces; 5 labels didn't link through the overlaps, so the record has
-   13 speaker labels for 2–3 people plus announcements. Look at
-   `link_labels` against this run (vendor responses are cached in
-   `data/transcripts/252848/responses/`, so re-merging is free). Wall time
-   549 s.
+3. **Google on a full recording** (252848, 64 min, 5 pieces, 549 s wall).
+   Overlap linking worked wherever the overlap had speech (44–162 shared
+   words), but one overlap fell in a near-silent stretch: the planner had
+   been drawn there by zero-length diarize flicker. Fixed 2026-11-16: the
+   planner ignores turns under 0.3 s, and a label an overlap can't link is
+   linked through the diarize stage's turns (`chunking.py` step 4). The
+   saved record was re-merged from its pieces: 4 real speakers (learner,
+   patient, preceptor, announcer) plus 7 tiny labels that are Google's own
+   splits within a piece, left as they are.
+   Also fixed 2026-11-16: an overlap now comes whole from a piece that heard
+   at least twice as many words there (piece 2 heard 7 words at its tail
+   where piece 3 heard 43). Google's WER on 252848 went 0.201 -> 0.208 with
+   those words back, because gold has only 3 words in 2650–2735 s, where the
+   diarize stage and AssemblyAI (64 words) both hear speech. **Kate: listen
+   to 252848 at 44:10–45:35 for a gap in gold.**
    (On tofino, `conda run -n md-speech` runs md-utility's Python because the
    shell puts md-utility first on PATH; call
    `~/miniconda3/envs/md-speech/bin/python` directly. md-speech already has
@@ -188,6 +203,14 @@ Decided along the way: capture verbatim once and derive a clean
   `.gold.txt` for names before committing stays a required step; that one is
   masked by hand. Older versions of `261498.gold.txt` in git history still
   carry it (same decision as the history item above).
+- **Open (noted 2026-11-16): the committed gold text carries hand
+  corrections the redactor can't reproduce.** Re-exporting 261505, 261456 or
+  252848 from its `.eaf` brings back surnames and short forms of names that
+  the committed files mask, and 261456's export masks the ordinary word
+  "roads" as a preceptor name. So never regenerate a `.gold.txt` without
+  diffing it against the committed one; edit gold text in place (as the
+  number fixes were). The scorer runs the same redactor on hypotheses, so
+  engines that hear those names take a small insertion penalty.
 
 ---
 
@@ -197,8 +220,6 @@ So a fresh read doesn't mistake these for forgotten:
 
 - A glossary -> Whisper prompt renderer (Phase 3.4): the loader exists.
 - DER scoring against `.gold.rttm` (Phase 6.4).
-- Number canonicalization in `normalize.py`: gold spells numbers out and
-  Google writes digits, so build it before scoring Google for real.
 - Cutting an `.eaf` down to an excerpt at export (Phase 5.2): scoring a span
   works; annotators only segment the excerpt anyway.
 - Scripted download from the recording system: not until manual ingest has
@@ -214,6 +235,7 @@ Newest first. One line each; the reasoning is in the linked doc.
 
 | Date | Decision |
 |---|---|
+| 2026-11-16 | Chunk speaker labels the overlap can't link are linked through the diarize stage's turns (whole-recording labels), never merged within a piece; the chunk planner ignores sub-0.3 s diarize turns; an overlap comes whole from a piece that heard twice as many words there. |
 | 2026-11-16 | One transcriber interface for local and cloud engines; transcript runs indexed in the manifest (`transcripts`), files stay authoritative. Long audio chunked at turn-rich overlaps with vendor speakers linked through them; silences sent, not skipped ([asr_provider_spec.md](asr_provider_spec.md) §5, plan 7.4). |
 | 2026-11-11 | Our words follow LearningSpace's: what we called a *case* is a **recording** (`recording_id`, same numbers); *case* now means the scenario (`case_title`); `event_name` is `activity_title`; a video's `v309407` number is `file_number`. The manifest renames itself on first open. Recordings are linked to the LearningSpace Data API (`scripts/ls_backfill.py`): GUIDs, exact start, file links, preceptor (the faculty observer) and grade. The manifest was trimmed to the 57 recordings with video. |
 | 2026-11-11 | Gold text includes `ANNOUNCEMENT` and `OUTSIDE_ROOM` (standards 1.2): the question is whether engines hear what humans hear. Scorer redacts names on both sides and uses the L0/L1 profiles. Pass-2 kits and gold import scripted (`make_pass2_kit.py`, `eaf_to_gold.py --from-kit`). |

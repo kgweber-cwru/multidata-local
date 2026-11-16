@@ -290,9 +290,9 @@ One source, three renderings. Each is a deterministic transform of the one above
 Shared transforms applied identically to reference and hypothesis at every
 level: name redaction (§8), then **bracket stripping**, casing, punctuation,
 backchannel spelling variants and `ok` → `okay` (§6), and whitespace (`multidata.normalize`; the exact rules are in
-[asr_evaluation_methods.md](asr_evaluation_methods.md) §4.2). **Number
-canonicalization is not implemented yet**: until it is, a reference's "one
-twenty" against an engine's "120" counts as an error.
+[asr_evaluation_methods.md](asr_evaluation_methods.md) §4.2). Numbers are canonicalized to digits on both sides ("one twenty over
+eighty" and "120/80" both become `120 over 80`), so gold keeps writing them
+as spoken.
 
 > **Known limitation:** L1 and L2 drop the cut-off word but *not* the whole
 > abandoned phrase — `I was going- I drove` becomes `I was I drove`, not

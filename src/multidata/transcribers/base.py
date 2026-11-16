@@ -135,8 +135,8 @@ class Transcriber:
                              "say, which are timed on the whole recording; send an excerpt "
                              "shorter than that")
 
-        spans = chunking.plan(_pipeline_turns(recording_id, camera), total, chunk_s,
-                              self.params.chunk_overlap_s)
+        turns = _pipeline_turns(recording_id, camera)
+        spans = chunking.plan(turns, total, chunk_s, self.params.chunk_overlap_s)
         chunks, metas, results = [], [], []
         with tempfile.TemporaryDirectory() as tmp:
             for index, (piece, offset_s, duration_s) in enumerate(
@@ -146,7 +146,7 @@ class Transcriber:
                                "duration_s": duration_s, "response": native})
                 metas.append(meta)
                 results.append((offset_s, duration_s, self.normalize(native)))
-        result, merge_notes = chunking.merge(results)
+        result, merge_notes = chunking.merge(results, turns)
         notes = [f"{len(chunks)} pieces overlapping {self.params.chunk_overlap_s} s"]
         notes += merge_notes + [m["notes"] for m in metas if m.get("notes")]
         meta = {"request_id": ";".join(str(m.get("request_id")) for m in metas),

@@ -21,11 +21,31 @@ Three levels, each a deterministic transform of the one above:
 - **L2 clean** — L1 with adjacent repeated tokens collapsed. A deliverable
   for readability, never a scoring profile.
 
-Two transforms are deliberately NOT implemented here yet: **number
-canonicalization** and **name redaction is a separate module** (`redact.py`,
-since it needs recording-specific names, not a fixed rule). See the module-level
-`NUMBER_CANONICALIZATION_TODO` note below for why numbers are deferred rather
-than guessed at.
+**Numbers** are canonicalized on both sides at every level
+(transcription_standards.md §6): gold writes them as spoken ("one twenty over
+seventy-six"), engines write digits ("120/76"), and both become digit tokens
+("120 over 76") so a vendor's number *formatting* is never scored. Digits are
+the canonical form because spoken -> digits is deterministic and the reverse
+is not ("120" may have been "one twenty" or "one hundred twenty"). The rules:
+
+- a run of number words reads as standard English ("one hundred and twenty",
+  "a hundred", "seventy-six"); a new number starts wherever the grammar
+  can't continue, so "nine three seven" is 9 3 7 and "ninety-nine
+  ninety-nine" is 99 99;
+- the colloquial pair "one twenty", "three thirty", "nineteen eighty-four"
+  (a number from one to nineteen, then a teen or tens word) reads as 120,
+  330 and 1984, as it does in blood pressures, times and years;
+- written forms are taken apart to match: "120/80" -> 120 over 80,
+  "98.6" -> 98 point 6, "1,000" -> 1000, "3:30" -> 330, "10-15" -> 10 to 15,
+  "50%" -> 50 percent, "M4" -> m 4;
+- ordinals become "21st", "4th", except "second" (also a unit of time), which
+  stays a word on both sides: "2nd" -> second;
+- a number word carrying markup is converted alone, keeping the mark for
+  the levels that use it: a cut-off "two-" -> "2-", a stretched "two:" ->
+  "2:".
+
+Name redaction is a separate module (`redact.py`, since it needs
+recording-specific names, not a fixed rule).
 """
 import re
 
@@ -84,6 +104,168 @@ def _tokenize(text):
     return text.split()
 
 
+# --- numbers -----------------------------------------------------------------
+
+_UNITS = {w: i for i, w in enumerate(
+    "zero one two three four five six seven eight nine".split())}
+_TEENS = {w: i + 10 for i, w in enumerate(
+    "ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen".split())}
+_TENS = {w: (i + 2) * 10 for i, w in enumerate(
+    "twenty thirty forty fifty sixty seventy eighty ninety".split())}
+_SCALES = {"hundred": 100, "thousand": 1000, "million": 1000000}
+_ORDINALS = {
+    "first": 1, "third": 3, "fourth": 4, "fifth": 5, "sixth": 6, "seventh": 7,
+    "eighth": 8, "ninth": 9, "tenth": 10, "eleventh": 11, "twelfth": 12,
+    "thirteenth": 13, "fourteenth": 14, "fifteenth": 15, "sixteenth": 16,
+    "seventeenth": 17, "eighteenth": 18, "nineteenth": 19, "twentieth": 20,
+    "thirtieth": 30, "fortieth": 40, "fiftieth": 50, "sixtieth": 60,
+    "seventieth": 70, "eightieth": 80, "ninetieth": 90, "hundredth": 100,
+}
+_NUMBER_WORDS = set(_UNITS) | set(_TEENS) | set(_TENS) | set(_SCALES) | set(_ORDINALS)
+
+# Written forms taken apart before punctuation is stripped (see the module
+# docstring), in this order.
+_WRITTEN = (
+    (re.compile(r"(?<=\d),(?=\d{3}\b)"), ""),          # 1,000
+    (re.compile(r"(?<=\d)/(?=\d)"), " over "),          # 120/80
+    (re.compile(r"(?<=\d)\.(?=\d)"), " point "),        # 98.6
+    (re.compile(r"(?<=\d):(?=\d\d\b)"), ""),            # 3:30
+    (re.compile(r"(?<=\d)-(?=\d)"), " to "),            # 10-15
+    (re.compile(r"(?<=\d)%"), " percent"),              # 50%
+    (re.compile(r"\$(?=\d)"), ""),                      # $5 -> 5 (the word "dollars" is rarely said)
+)
+_ALNUM = re.compile(r"^([a-z]+)(\d+)$|^(\d+)([a-z]+)$")
+_DIGIT_ORDINAL = re.compile(r"^\d+(st|nd|rd|th)$")
+
+
+def _ordinal(n):
+    if n % 100 in (11, 12, 13):
+        return f"{n}th"
+    return f"{n}{ {1: 'st', 2: 'nd', 3: 'rd'}.get(n % 10, 'th') }"
+
+
+def _split_token(tok):
+    """A token as one or more number-ready tokens: "seventy-six" -> seventy
+    six, "m4" -> m 4, "2nd" -> second, "two-" -> 2-. Other marked tokens are
+    left whole."""
+    if tok.endswith(("-", ":")):
+        word = tok[:-1]
+        v = _UNITS.get(word, _TEENS.get(word, _TENS.get(word)))
+        return [f"{v}{tok[-1]}"] if v is not None else [tok]
+    if tok == "2nd":
+        return ["second"]
+    if _DIGIT_ORDINAL.match(tok):
+        return [tok]
+    m = _ALNUM.match(tok)
+    if m:
+        return [g for g in m.groups() if g]
+    if "-" in tok:
+        parts = tok.split("-")
+        if all(parts) and any(p in _NUMBER_WORDS or p.isdigit() for p in parts):
+            return parts
+    return [tok]
+
+
+class _Number:
+    """One number being read word by word (see `_numbers`)."""
+
+    def __init__(self):
+        self.total = 0          # thousands and above, already scaled
+        self.hundreds = None    # this chunk's hundreds, once "hundred" is said
+        self.small = 0          # the part below a hundred
+        self.kind = None        # what `small` ends with: units/teen/tens/full
+        self.colloquial_ok = True
+
+    def value(self):
+        return self.total + (self.hundreds or 0) + self.small
+
+    def bare_digit(self):
+        """One to nineteen and nothing else: the first half of "one twenty"
+        or "nineteen eighty-four"."""
+        return (self.total == 0 and self.hundreds is None and self.kind in ("units", "teen")
+                and 1 <= self.small <= 19)
+
+    def take(self, word):
+        """Extend this number with `word`; False if the word starts a new one."""
+        if word in _UNITS:
+            if self.kind in (None, "tens"):
+                self.small += _UNITS[word]
+                self.kind = "units" if self.kind is None else "full"
+                return True
+            return False
+        if word in _TEENS or word in _TENS:
+            v = _TEENS.get(word) or _TENS[word]
+            if self.kind is None:
+                self.small, self.kind = v, "teen" if word in _TEENS else "tens"
+                return True
+            if self.bare_digit():                     # "one twenty" -> 120, "nineteen eighty" -> 1980
+                self.hundreds, self.small = self.small * 100, v
+                self.kind = "teen" if word in _TEENS else "tens"
+                return True
+            return False
+        if word == "hundred":
+            if self.kind is not None and self.hundreds is None:
+                self.hundreds, self.small, self.kind = self.small * 100, 0, None
+                return True
+            return False
+        if word in ("thousand", "million"):
+            if self.kind is not None or self.hundreds is not None:
+                self.total = (self.total + (self.hundreds or 0) + self.small) * _SCALES[word]
+                self.hundreds, self.small, self.kind = None, 0, None
+                return True
+            return False
+        return False
+
+
+def _numbers(tokens):
+    """Number-word runs in `tokens` -> digit tokens (see the module docstring)."""
+    out, number = [], None
+
+    def close():
+        nonlocal number
+        if number is not None:
+            out.append(str(number.value()))
+            number = None
+
+    for i, tok in enumerate(tokens):
+        nxt = tokens[i + 1] if i + 1 < len(tokens) else ""
+        if tok in _ORDINALS:
+            v = _ORDINALS[tok]
+            if number is not None and number.kind == "tens" and v < 10:
+                number.small += v
+                v, number = number.value(), None
+            elif tok == "hundredth" and number is not None and number.kind is not None \
+                    and number.hundreds is None:
+                v, number = number.value() * 100, None
+            else:
+                close()
+            out.append(_ordinal(v))
+            continue
+        if tok == "a" and nxt in _SCALES and number is None:
+            number = _Number()
+            number.take("one")
+            continue
+        if tok == "and" and number is not None and number.kind is None \
+                and (nxt in _UNITS or nxt in _TEENS or nxt in _TENS):
+            continue                                  # "a hundred and twenty"
+        if tok in _NUMBER_WORDS:
+            if number is not None and number.take(tok):
+                continue
+            close()
+            if tok in _SCALES:                        # "hundred" on its own
+                number = _Number()
+                number.take("one")
+                number.take(tok)
+                continue
+            number = _Number()
+            number.take(tok)
+            continue
+        close()
+        out.append(tok)
+    close()
+    return out
+
+
 def strip_brackets(text):
     """Remove every `[...]` span. Applied identically to reference and
     hypothesis (asr_provider_spec.md §6) — this is what makes an
@@ -128,8 +310,11 @@ def _marked_tokens(text):
     markup still attached, so L1 can still tell which tokens were cut off."""
     text = strip_brackets(text)
     text = text.lower()
+    for pattern, repl in _WRITTEN:
+        text = pattern.sub(repl, text)
     text = _PUNCTUATION.sub("", text)
-    return [_canonical(t) for t in _tokenize(text) if not _NO_WORD.match(t)]
+    tokens = [_canonical(t) for t in _tokenize(text) if not _NO_WORD.match(t)]
+    return _numbers([part for t in tokens for part in _split_token(t)])
 
 
 def _unmark(tok):
@@ -147,10 +332,10 @@ def scoring_base(text):
     annotators' markup (no engine writes "so:" or "I-"), and what can never
     be scored fairly (uncertain/bracketed spans).
 
-    Name redaction and number canonicalization are separate steps, applied
-    before this if at all (see module docstring and `redact.py`) — order
-    matters for name redaction (it needs case-sensitive names to fuzzy-match
-    against), so it is never bundled into this function.
+    Numbers are canonicalized here too (module docstring). Name redaction is
+    a separate step, applied before this (`redact.py`) — it needs
+    case-sensitive names to fuzzy-match against, so it is never bundled into
+    this function.
     """
     return " ".join(_unmark(t) for t in _marked_tokens(text))
 
@@ -206,16 +391,3 @@ def normalize(text, level="l0"):
     if level == "l2":
         return to_clean(text)
     raise ValueError(f"Unknown normalization level {level!r}; pick one of l0/l1/l2")
-
-
-# NUMBER_CANONICALIZATION_TODO: transcription_standards.md §6 has annotators
-# write numbers as spoken ("one twenty over eighty") specifically so a
-# provider's own number *formatting* doesn't get benchmarked by accident.
-# Comparing that fairly against a provider's digit-form output ("120/80")
-# needs a real spoken-number <-> digit canonicalizer, and getting that right
-# blind — before any gold transcript with real numeric content exists to
-# design against — risks building confident-looking rules for formats nobody
-# actually uses here (units, ranges, "over" as a separator, decimals). Left
-# unimplemented on purpose rather than shipped half-right; revisit once
-# Phase 5 (docs/asr_provider_implementation_plan.md) produces gold with
-# numbers in it.

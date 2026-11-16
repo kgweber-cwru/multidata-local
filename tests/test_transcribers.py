@@ -314,6 +314,15 @@ class TestChunking:
         assert [(w["word"], w["start"]) for w in words] == [
             ("one", 1), ("eight", 8.5), ("nine", 9.2), ("twelve", 12.0)]
 
+    def test_merge_takes_an_overlap_from_the_piece_that_heard_it(self):
+        # Overlap 50-60 s: piece 0 heard one word there, piece 1 heard eight.
+        a = _words(("early", 10, 11, "SPEAKER_00"), ("tail", 51, 51.5, "SPEAKER_00"))
+        b = _words(*[(f"w{k}", k, k + 0.5, "SPEAKER_00") for k in range(1, 9)])
+        merged, notes = chunking.merge([(0.0, 60.0, a), (50.0, 40.0, b)])
+        words = [w["word"] for s in merged["segments"] for w in s["words"]]
+        assert words == ["early"] + [f"w{k}" for k in range(1, 9)]
+        assert "piece 1: overlap taken from this piece (8 words against 1)" in notes
+
     def test_merge_links_speakers_through_the_overlap(self):
         # Piece 0 calls the student SPEAKER_00 and the patient SPEAKER_01; the
         # vendor numbers them the other way round in piece 1.
@@ -335,6 +344,27 @@ class TestChunking:
         merged, notes = chunking.merge([(0.0, 60.0, a), (50.0, 40.0, b)])
         speakers = {w["speaker"] for s in merged["segments"] for w in s["words"]}
         assert len(speakers) == 2 and notes == ["piece 1: 1 speaker label(s) not linked to the previous piece"]
+
+    def test_turns_link_a_speaker_the_overlap_cannot(self):
+        # The overlap (50-60 s) is silent; the diarize stage hears the student
+        # as "S" in both pieces and the patient as "P" only in piece 0.
+        a = _words(*[(f"a{k}", k, k + 0.8, "SPEAKER_00") for k in range(0, 20, 2)],
+                   *[(f"p{k}", k, k + 0.8, "SPEAKER_01") for k in range(21, 40, 2)])
+        b = _words(*[(f"b{k}", k, k + 0.8, "SPEAKER_00") for k in range(20, 30)],
+                   *[(f"n{k}", k, k + 0.8, "SPEAKER_01") for k in range(30, 40)])
+        turns = [(0, 20, "S"), (20, 40, "P"), (70, 80, "S"), (80, 90, "X")]
+        merged, notes = chunking.merge([(0.0, 60.0, a), (50.0, 40.0, b)], turns)
+        words = {w["word"]: w["speaker"] for s in merged["segments"] for w in s["words"]}
+        assert words["b20"] == words["a0"]
+        assert words["n30"] not in (words["a0"], words["p21"])
+        assert notes == ["piece 1: 1 speaker label(s) linked through the diarize stage's turns",
+                         "piece 1: 1 speaker label(s) not linked to the previous piece"]
+
+    def test_plan_ignores_flicker_turns(self):
+        turns = [(t, t + 5, "A") for t in range(0, 2000, 5)]
+        turns += [(1000 + k * 0.1, 1000 + k * 0.1 + 0.05, "AB"[k % 2]) for k in range(40)]
+        turns += [(t + 2, t + 4, "B") for t in range(700, 760, 5)]
+        assert chunking.plan(turns, 2001, chunk_s=1140, overlap_s=60)[1][0] == 700
 
     def test_no_linking_without_an_overlap(self):
         a = _words(("hi", 1, 2, "SPEAKER_00"))

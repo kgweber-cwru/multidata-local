@@ -234,6 +234,15 @@ The same steps are applied to the reference and the hypothesis
      (`mhm`, `mmhmm`, `mmm-hmm` → `mm-hmm`; `uhhuh` → `uh-huh`; `hmmm` →
      `hmm`; `mmm` → `mm`), and `ok` (`OK`, `O.K.`) to `okay`. A run-together
      `uhuh` is left alone: it could be yes or no;
+   - canonicalize numbers to digits, after taking written forms apart
+     (`120/80` → `120 over 80`, `98.6` → `98 point 6`, `3:30` → `330`,
+     `M4` → `m 4`): spoken runs read as standard English, a new number
+     starting where the grammar can't continue (`nine three seven` → `9 3 7`),
+     and the colloquial "one twenty" / "nineteen eighty-four" read as 120 and
+     1984; ordinals become `21st`, except `second`, which stays a word.
+     Exact rules and tests: `multidata.normalize`, `tests/test_normalize.py`.
+     Digits are the target because spoken → digits is deterministic and the
+     reverse isn't;
    - take the annotators' markup off words: the prolongation colon (`so:` →
      `so`) and the cut-off hyphen (`I-` → `I`). No engine writes these marks,
      so an engine that wrote the word gets credit, and one that left out a
@@ -292,8 +301,10 @@ Current as of 2026-11-11. When one is fixed, delete it here.
 - **No diarization score yet.** Gold turns exist (with overlap), but DER and
   JER are not computed, so the second half of the question is open.
 - **No noise floor.** No recording has two independent blind passes (§2.4).
-- **Numbers are not canonicalized.** Gold writes "one twenty over eighty";
-  an engine writing "120/80" is counted wrong.
+- **Number readings the canonicalizer can't know.** "One twenty" is read
+  as 120, so a genuine "one, twenty" (two items) is too, on both sides;
+  "3:00" becomes `300` while "three o'clock" stays words; a digit string
+  written run together (`93762`) doesn't meet the spoken `9 3 7 6 2`.
 - **Spelling variants of ordinary words count as errors.** For example
   `kinda`/`kind of`, `follow-up`/`follow up`. Only backchannel and hum
   spellings, and `ok`/`okay`, are unified.

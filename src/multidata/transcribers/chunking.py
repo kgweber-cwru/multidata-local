@@ -11,30 +11,44 @@ stages first):
    piece, the conversation changes hands most often, so it is likely to hold
    every speaker rather than a silence or a monologue such as instructions
    during a physical exam. (On our recordings that is a median of 17 turn
-   changes per overlap; about 1 in 11 overlaps has none to find.)
+   changes per overlap; about 1 in 11 overlaps has none to find.) Turns
+   shorter than `MIN_TURN_S` don't count: the diarize stage sometimes
+   flickers between two labels in near-zero-length turns, and on 252848 that
+   drew an overlap into a stretch of near silence.
 2. `merge` puts the pieces back on the recording's timeline. In each overlap,
    words starting before its midpoint come from the earlier piece and the
-   rest from the later one.
+   rest from the later one, unless one piece heard at least
+   `RICHER_FACTOR` times as many words there (and `RICHER_MIN_EXTRA` more):
+   then the whole overlap comes from that piece. A vendor can under-hear the
+   last stretch of a piece; on 252848 one piece heard 7 words where the next
+   heard 43.
 3. Each piece is diarized by the vendor on its own. Its labels are linked to
    the previous piece's by the words both pieces heard in the overlap: labels
    that share at least `MIN_SHARED_WORDS` words, and mostly each other, are
-   the same person. A label with no such match stays a separate speaker, and
-   the run's notes say so.
+   the same person.
+4. A label the overlap can't link (its speaker was quiet there, or the
+   overlap fell in a silence) is linked through the diarize stage's turns,
+   which label the whole recording consistently: if at least
+   `BRIDGE_MIN_SHARE` of its speech, and `BRIDGE_MIN_S` seconds, falls in one
+   diarize speaker's turns, it joins the earlier label that maps to that same
+   diarize speaker. A label still without a match stays a separate speaker,
+   and the run's notes say so. Labels within one piece are never joined: how
+   a vendor splits speakers is part of what is being compared.
 
 Silences are sent, not skipped. Across 57 recordings the diarize stage finds
 about five silences of 1-5 minutes per recording, not just the blanks around
 the encounter, and it can miss quiet speech; skipping by its say-so would
 drop words and split conversations (checked 2026-11-16).
 
-The diarize stage's turns are used only to decide where to cut, never to
-label speakers, unless `speakers="pipeline"` asks for that: it gives each
+The diarize stage's turns are used only to decide where to cut and to link
+labels across pieces, never to label speakers, unless `speakers="pipeline"` asks for that: it gives each
 word the speaker of the diarize turn it overlaps most, replacing the
 vendor's labels. That is the control arm for comparing vendors' diarization
 (spec §5, plan 4.5).
 """
 import re
 import subprocess
-from collections import Counter
+from collections import Counter, defaultdict
 
 from multidata.paths import DATA_DIR
 
@@ -43,6 +57,11 @@ from .base import SpeakerLabels, segments_from_words
 STEP_S = 10.0
 MIN_SHARED_WORDS = 5
 MATCH_TOLERANCE_S = 0.5
+MIN_TURN_S = 0.3
+RICHER_FACTOR = 2
+RICHER_MIN_EXTRA = 5
+BRIDGE_MIN_S = 5.0
+BRIDGE_MIN_SHARE = 0.6
 
 
 def pipeline_rttm(recording_id, camera):
@@ -53,7 +72,8 @@ def pipeline_rttm(recording_id, camera):
 
 def turn_changes(turns, start, end):
     """How often the speaker changes between turns beginning in [start, end)."""
-    labels = [label for s, _, label in sorted(turns) if start <= s < end]
+    labels = [label for s, e, label in sorted(turns)
+              if start <= s < end and e - s >= MIN_TURN_S]
     return sum(a != b for a, b in zip(labels, labels[1:]))
 
 
@@ -94,38 +114,60 @@ def cut(audio_path, out_dir, spans):
 
 # --- merging -----------------------------------------------------------------
 
-def merge(pieces):
+def merge(pieces, turns=None):
     """[(offset_s, duration_s, normalized result)] -> (one normalized result on
-    the recording's timeline, [notes]). See the module docstring."""
+    the recording's timeline, [notes]). `turns`, the diarize stage's
+    [(start_s, end_s, speaker)], links labels the overlaps can't. See the
+    module docstring."""
     timed = [[{**w, "start": _shift(w["start"], offset), "end": _shift(w["end"], offset),
                "speaker": w.get("speaker", seg.get("speaker"))}
               for seg in result["segments"] for w in seg.get("words", [])]
              for offset, _, result in pieces]
 
-    # Piece-local label -> speaker id across pieces, linked through overlaps.
+    # Piece-local label -> speaker id across pieces, linked through overlaps,
+    # then through the diarize stage's turns.
     ids, notes, next_id = [], [], 0
+    id_of = {}   # diarize speaker -> the speaker id first mapped to it
     for i, (offset, _, _) in enumerate(pieces):
         local = {w["speaker"] for w in timed[i]} - {None}
         links = {}
         if i and _overlap(pieces[i - 1], offset):
             links = link_labels(timed[i - 1], timed[i], offset, _end(pieces[i - 1]))
-            unlinked = sorted(local - set(links))
-            if unlinked:
-                notes.append(f"piece {i}: {len(unlinked)} speaker label(s) not linked "
-                             "to the previous piece")
-        mapping = {}
-        for label in sorted(local):
-            if label in links:
-                mapping[label] = ids[i - 1][links[label]]
+        bridged = bridge_labels(timed[i], turns) if turns else {}
+        mapping = {label: ids[i - 1][links[label]] for label in local if label in links}
+        claimed, via_turns, unlinked = set(mapping.values()), 0, 0
+        for label in sorted(local - set(links)):
+            target = id_of.get(bridged.get(label))
+            if i and target is not None and target not in claimed:
+                mapping[label] = target
+                claimed.add(target)
+                via_turns += 1
             else:
                 mapping[label], next_id = next_id, next_id + 1
+                unlinked += bool(i)
+        for label, speaker in bridged.items():
+            id_of.setdefault(speaker, mapping[label])
+        if via_turns:
+            notes.append(f"piece {i}: {via_turns} speaker label(s) linked through "
+                         "the diarize stage's turns")
+        if unlinked and (via_turns or _overlap(pieces[i - 1], offset)):
+            notes.append(f"piece {i}: {unlinked} speaker label(s) not linked "
+                         "to the previous piece")
         ids.append(mapping)
+
+    # Where each piece hands over to the next.
+    cuts = []
+    for i in range(1, len(pieces)):
+        cut, note = _handover(pieces[i - 1], pieces[i][0], timed[i - 1], timed[i])
+        cuts.append(cut)
+        if note:
+            notes.append(f"piece {i}: {note}")
 
     speakers = SpeakerLabels()
     words, timing = [], True
     for i, (offset, _, result) in enumerate(pieces):
-        lo = _midpoint(pieces[i - 1], offset) if i else float("-inf")
-        hi = _midpoint(pieces[i], pieces[i + 1][0]) if i + 1 < len(pieces) else float("inf")
+        lo = cuts[i - 1] if i else float("-inf")
+        hi = cuts[i] if i + 1 < len(pieces) else float("inf")
         timing = timing and result.get("word_timing", True)
         keep = True   # an untimed word goes with the timed word before it
         for w in timed[i]:
@@ -172,6 +214,28 @@ def link_labels(earlier, later, start, end):
     return links
 
 
+def bridge_labels(words, turns):
+    """{vendor label: diarize speaker} for the labels whose timed speech falls
+    mostly (`BRIDGE_MIN_SHARE`, and at least `BRIDGE_MIN_S` seconds) in one
+    diarize speaker's turns."""
+    seconds = defaultdict(Counter)
+    for w in words:
+        if w["start"] is None or w["end"] is None or w["speaker"] is None:
+            continue
+        end = max(w["end"], w["start"] + 0.01)
+        for start, stop, speaker in turns:
+            shared = min(stop, end) - max(start, w["start"])
+            if shared > 0:
+                seconds[w["speaker"]][speaker] += shared
+    bridged = {}
+    for label, by_speaker in seconds.items():
+        total = sum(by_speaker.values())
+        speaker, n = by_speaker.most_common(1)[0]
+        if total >= BRIDGE_MIN_S and n / total >= BRIDGE_MIN_SHARE:
+            bridged[label] = speaker
+    return bridged
+
+
 def _shift(t, offset):
     return None if t is None else round(t + offset, 3)
 
@@ -182,6 +246,22 @@ def _end(piece):
 
 def _overlap(earlier, later_offset):
     return _end(earlier) > later_offset
+
+
+def _handover(earlier, later_offset, earlier_words, later_words):
+    """(time, note): where the merge switches from the earlier piece to the
+    later one -- the overlap's midpoint, or an end of the overlap when one
+    piece heard far more of it (see the module docstring)."""
+    start, end = later_offset, _end(earlier)
+    if end <= start:
+        return _midpoint(earlier, later_offset), None
+    a = sum(1 for w in earlier_words if w["start"] is not None and start <= w["start"] < end)
+    b = sum(1 for w in later_words if w["start"] is not None and start <= w["start"] < end)
+    if b >= RICHER_FACTOR * a and b - a >= RICHER_MIN_EXTRA:
+        return start, f"overlap taken from this piece ({b} words against {a})"
+    if a >= RICHER_FACTOR * b and a - b >= RICHER_MIN_EXTRA:
+        return end, f"overlap taken from the previous piece ({a} words against {b})"
+    return _midpoint(earlier, later_offset), None
 
 
 def _midpoint(earlier, later_offset):

@@ -344,17 +344,18 @@ Blocked on Phases 1, 2, and 5. First real numbers.
 - [ ] **7.2 Google Medical Conversation** — registry entry
       `google_medical_conversation`; filters disfluencies aggressively, so
       score it on the clean profile only.
-- [ ] **7.3 ElevenLabs Scribe** — *adapter written, not yet run live*
-      (`transcribers/elevenlabs.py`; default `scribe_v3`). It does have a
+- [ ] **7.3 ElevenLabs Scribe** — *adapter written and run live 2026-11-16*
+      (`transcribers/elevenlabs.py`; default `scribe_v3`; on a
+      non-enterprise account only with `enable_logging=True`). It does have a
       glossary mechanism after all (`keyterms`, up to 1000).
 - [x] **7.4 Long-audio handling** — shared by every adapter with a length
       cap (`transcribers/chunking.py`; Google's chirp_3 caps word-timestamped
       batch requests at 20 minutes). Cuts are planned from the diarize stage's
       turns, so the `audio` and `diarize` stages run first; the vendor's
-      speaker labels are linked across pieces through the overlaps; the
+      speaker labels are linked across pieces through the overlaps, and
+      through the diarize stage's turns where an overlap can't link them; the
       record says `chunked: true` and the native response keeps each piece's
-      offset. *Not yet run on real vendor output:* check the run notes for
-      unlinked labels.
+      offset. First real run 2026-11-16 (Google, 252848): see status.md.
 - [ ] **7.5 Headline sweep** — glossary-off, all providers, all gold.
 - [ ] **7.6 Glossary-on sweep.**
 - [ ] **7.7 Selection report** — WER/DER **beside `baa_available` and
