@@ -68,6 +68,7 @@ count; `runs.csv` has each recording):
 |---|---|---|---|---|---|
 | `assemblyai universal-3-5-pro` | 0.162 | 0.165 | 0.171 | 0.282 | 0.16 0.17 0.19 0.16 0.16 |
 | same, `domain=medical-v1` | 0.162 | 0.165 | 0.169 | 0.283 | 0.16 0.17 0.19 0.16 0.16 |
+| `gemini gemini-3.5-transcribe` | 0.169 | 0.171 | 0.259 | 0.262 | 0.15 0.18 0.24 0.19 0.16 |
 | `elevenlabs scribe_v3` | 0.187 | 0.188 | 0.201 | 0.305 | 0.19 0.19 0.23 0.20 0.16 |
 | `elevenlabs scribe_v2_medical` (BAA model) | 0.194 | 0.194 | 0.283 | 0.336 | 0.20 0.19 0.26 0.17 0.17 |
 | `google chirp_3` | 0.207 | 0.209 | 0.268 | 0.247 | 0.20 0.18 0.30 0.33 0.18 |
@@ -166,10 +167,12 @@ in our diarize stage's labels instead (the comparison arm).
 4. **Gemini 3.5 Transcribe** adapter built 2026-11-16
    (`transcribers/gemini.py`, setting `gemini`): Vertex AI only, VERBATIM
    mode, 14-minute pieces through the chunker (Vertex caps files at 15 min).
-   Smoke clip: WER 0.109, 2 speakers, and unlike AssemblyAI it keeps the
-   patient's back-channels. Not yet run on gold: **check it is on the BAA's
-   covered-services list** (and its price; neither is on the model page)
-   before sending recordings with names. Why Gemini rather than Chirp: it
+   Run on all gold 2026-11-16 (Vertex's per-minute quota returned 429s;
+   the adapter now backs off and retries): second on WER (0.169), best on
+   252848, keeps more back-channels than AssemblyAI (55 of 187 against 9),
+   but weakest cloud cpWER (0.259): its 15-minute file cap means more
+   pieces whose speakers must be linked. **Still to confirm: BAA coverage
+   and price** (neither is on the model page). Why Gemini rather than Chirp: it
    returns speakers and word times in one request, takes up to 15 minutes
    per file synchronously instead of a batch queue, and Chirp was uneven on
    gold (findings report).

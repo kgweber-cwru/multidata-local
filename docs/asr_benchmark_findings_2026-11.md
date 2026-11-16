@@ -5,7 +5,7 @@ yet. Read the numbers as a first ranking, not a verdict.*
 
 ## What was measured
 
-Eight engine settings transcribed the five gold recordings (simulated
+Nine engine settings transcribed the five gold recordings (simulated
 encounters in our sim center) and were scored against human gold transcripts
 with word error rate (WER). **L0** counts every word, fillers included; **L1**
 ignores fillers ("um", "uh") and cut-off words. Both sides have names
@@ -32,6 +32,7 @@ runs cost about $5 in all at list prices.
 |---|---|---|---|---|---|---|
 | AssemblyAI universal-3-5-pro | **0.162** | **0.165** | 4.8% | 5.8% | 5.7% | 0.16–0.19 |
 | AssemblyAI + Medical Mode | 0.162 | 0.165 | 4.7% | 5.8% | 5.7% | 0.16–0.19 |
+| Gemini 3.5 Transcribe (added after) | 0.169 | 0.171 | | | | 0.15–0.24 |
 | ElevenLabs scribe_v3 | 0.187 | 0.188 | 5.6% | 3.8% | 9.3% | 0.16–0.23 |
 | ElevenLabs scribe_v2_medical | 0.194 | 0.194 | 5.6% | 3.9% | 9.9% | 0.17–0.26 |
 | Google Chirp 3 | 0.207 | 0.209 | 6.9% | 4.6% | 9.1% | 0.18–0.33 |
@@ -46,7 +47,14 @@ errors are balanced: as many words added as missed, and fewer substitutions
 than any other engine. **Medical Mode changes nothing** (identical to three
 decimals) at +$0.15/hour.
 
-**ElevenLabs is second.** The model it sells with a BAA (`scribe_v2_medical`)
+**Gemini 3.5 Transcribe** (on Vertex AI, run after the others) is a close
+second on words and best on 252848 (0.150), and keeps 55 of gold's 187
+back-channels where AssemblyAI keeps 9. But Vertex caps it at 15-minute
+files, so long recordings go in more pieces, and its speakers don't always
+link across them (cpWER 0.259). Its price and BAA coverage aren't
+published on the model page.
+
+**ElevenLabs is third.** The model it sells with a BAA (`scribe_v2_medical`)
 is 0.7 points behind its general model.
 
 **Google is third on average but the least predictable**: 0.18 on the two
@@ -104,6 +112,7 @@ are that loose).
 |---|---|---|---|---|
 | AssemblyAI | 0.162 | **0.171** | +0.9 | 0.282 |
 | ElevenLabs scribe_v3 | 0.187 | 0.201 | +1.4 | 0.305 |
+| Gemini 3.5 Transcribe | 0.169 | 0.259 | +9.0 | 0.262 |
 | Google Chirp 3 | 0.207 | 0.268 | +6.1 | 0.247 |
 | ElevenLabs scribe_v2_medical | 0.194 | 0.283 | +8.9 | 0.336 |
 | faster-whisper + our diarization | 0.243 | 0.343 | +10.0 | **0.225** |
@@ -137,7 +146,10 @@ and gaps, so compare engines with it rather than read it absolutely.
 
 1. **Treat AssemblyAI universal-3-5-pro (plain, no Medical Mode) as the
    lead candidate**, subject to confirming its BAA terms before any audio
-   beyond the gold set is sent.
+   beyond the gold set is sent. Keep **Gemini** in the running: if its
+   speaker linking can be improved (or its text paired with AssemblyAI's or
+   our diarization's speakers), it could overtake on words and
+   back-channels together.
 2. **Look into the back-channel loss before committing.** Listen to a
    sample of AssemblyAI's missed "mm-hmm"/"uh-uh", and try one prompt
    setting asking it to keep them (about $0.50 across the gold set). If
