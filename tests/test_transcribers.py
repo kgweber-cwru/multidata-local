@@ -281,25 +281,67 @@ def _words(*items):
 
 
 class TestChunking:
-    def test_cut_overlaps_and_covers_the_audio(self, tmp_path):
-        pieces = chunking.cut(_tone(tmp_path / "a.wav", 25), tmp_path, chunk_s=10, overlap_s=2)
-        assert [(o, d) for _, o, d in pieces] == [(0.0, 10.0), (8.0, 10.0), (16.0, 9.0)]
+    def test_plan_keeps_pieces_under_the_cap_and_overlapping(self):
+        turns = [(t, t + 5, "AB"[t // 5 % 2]) for t in range(0, 3000, 5)]
+        spans = chunking.plan(turns, 3001, chunk_s=1140, overlap_s=60)
+        assert all(e - s <= 1140 for s, e in spans)
+        assert all(a[1] - b[0] == 60 for a, b in zip(spans, spans[1:]))
+        assert spans[0][0] == 0 and spans[-1][1] == 3001
+
+    def test_plan_puts_the_overlap_where_turns_change(self):
+        # A monologue (exam instructions) except for a lively stretch at 900-960 s
+        turns = [(t, t + 5, "A") for t in range(0, 2000, 5)]
+        turns += [(t + 2, t + 4, "B") for t in range(900, 960, 5)]
+        spans = chunking.plan(turns, 2001, chunk_s=1140, overlap_s=60)
+        assert spans[1][0] == 900
+
+    def test_short_audio_is_one_piece(self):
+        assert chunking.plan([], 100, 1140, 60) == [(0.0, 100.0)]
+
+    def test_cut_writes_each_span(self, tmp_path):
+        pieces = chunking.cut(_tone(tmp_path / "a.wav", 25), tmp_path, [(0, 10), (8, 18)])
+        assert [(o, d) for _, o, d in pieces] == [(0, 10), (8, 10)]
         assert all(p.exists() for p, _, _ in pieces)
 
-    def test_short_audio_is_one_piece(self, tmp_path):
-        assert len(chunking.cut(_tone(tmp_path / "a.wav", 5), tmp_path, 10, 2)) == 1
-
-    def test_merge_splits_overlaps_at_the_midpoint_and_keeps_speakers_apart(self):
+    def test_merge_takes_each_overlap_word_once(self):
         # piece 0 covers 0-10 s, piece 1 covers 8-18 s; overlap 8-10, midpoint 9
         a = _words(("one", 1, 2, "SPEAKER_00"), ("eight", 8.5, 8.8, "SPEAKER_00"),
                    ("nine", 9.2, 9.6, "SPEAKER_00"))
         b = _words(("eight", 0.5, 0.8, "SPEAKER_00"), ("nine", 1.2, 1.6, "SPEAKER_00"),
                    ("twelve", 4, 4.5, "SPEAKER_00"))
-        merged = chunking.merge([(0.0, 10.0, a), (8.0, 10.0, b)])
+        merged, _ = chunking.merge([(0.0, 10.0, a), (8.0, 10.0, b)])
         words = [w for s in merged["segments"] for w in s["words"]]
         assert [(w["word"], w["start"]) for w in words] == [
             ("one", 1), ("eight", 8.5), ("nine", 9.2), ("twelve", 12.0)]
-        assert words[0]["speaker"] == "SPEAKER_00" and words[2]["speaker"] == "SPEAKER_01"
+
+    def test_merge_links_speakers_through_the_overlap(self):
+        # Piece 0 calls the student SPEAKER_00 and the patient SPEAKER_01; the
+        # vendor numbers them the other way round in piece 1.
+        overlap = [(f"w{k}", 50 + k, 50.5 + k, k % 2) for k in range(12)]
+        a = _words(*[(t, s, e, f"SPEAKER_0{x}") for t, s, e, x in overlap])
+        b = _words(*[(t, s - 50, e - 50, f"SPEAKER_0{1 - x}") for t, s, e, x in overlap],
+                   ("later", 30, 31, "SPEAKER_00"))
+        merged, notes = chunking.merge([(0.0, 62.0, a), (50.0, 40.0, b)])
+        words = {w["word"]: w["speaker"] for s in merged["segments"] for w in s["words"]}
+        assert words["w1"] == words["later"] and words["w0"] != words["w1"]
+        assert notes == []
+
+    def test_a_silent_speaker_stays_unlinked_and_is_noted(self):
+        # The patient (SPEAKER_01 in piece 1) says nothing in the overlap.
+        overlap = [(f"w{k}", 50 + k, 50.5 + k, "SPEAKER_00") for k in range(8)]
+        a = _words(*overlap)
+        b = _words(*[(t, s - 50, e - 50, x) for t, s, e, x in overlap],
+                   ("okay", 30, 31, "SPEAKER_01"))
+        merged, notes = chunking.merge([(0.0, 60.0, a), (50.0, 40.0, b)])
+        speakers = {w["speaker"] for s in merged["segments"] for w in s["words"]}
+        assert len(speakers) == 2 and notes == ["piece 1: 1 speaker label(s) not linked to the previous piece"]
+
+    def test_no_linking_without_an_overlap(self):
+        a = _words(("hi", 1, 2, "SPEAKER_00"))
+        b = _words(("hi", 1, 2, "SPEAKER_00"))
+        merged, notes = chunking.merge([(0.0, 10.0, a), (100.0, 10.0, b)])
+        assert len({w["speaker"] for s in merged["segments"] for w in s["words"]}) == 2
+        assert notes == []
 
     def test_assign_speakers_by_most_overlap(self):
         result = _words(("hi", 0, 1, "SPEAKER_00"), ("there", 1.2, 2, "SPEAKER_00"),
@@ -308,12 +350,17 @@ class TestChunking:
         words = [w for s in chunking.assign_speakers(result, turns)["segments"] for w in s["words"]]
         assert [w.get("speaker") for w in words] == ["SPEAKER_01", "SPEAKER_00", "SPEAKER_00", None]
 
-    def test_long_audio_is_sent_in_pieces(self, db, tmp_path, monkeypatch):
+    def test_long_audio_is_sent_in_planned_pieces(self, db, monkeypatch):
         _release(db)
         monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "p")
         monkeypatch.setenv("GOOGLE_STT_BUCKET", "b")
-        _tone(manifest.get_video("999", "16", db).audio_path, 25)
-        t = GoogleTranscriber(chunk_s=10, chunk_overlap_s=2)
+        monkeypatch.setattr("multidata.transcribers.chunking.DATA_DIR", db.parent / "data")
+        _tone(manifest.get_video("999", "16", db).audio_path, 400)
+        rttm = chunking.pipeline_rttm("999", "16")
+        rttm.parent.mkdir(parents=True)
+        rttm.write_text("".join(f"SPEAKER 16 1 {s} 5.0 <NA> <NA> SPEAKER_0{s // 5 % 2} <NA> <NA>\n"
+                                for s in range(0, 400, 5)))
+        t = GoogleTranscriber(chunk_s=200, chunk_overlap_s=20)
         sent = []
 
         def fake_call(audio, recording_id, camera):
@@ -322,11 +369,20 @@ class TestChunking:
 
         monkeypatch.setattr(t, "call", fake_call)
         out = t.transcribe("999", manifest_path=db)
-        assert sent == ["00.flac", "01.flac", "02.flac"]
-        assert [c["offset_s"] for c in out.native["chunks"]] == [0.0, 8.0, 16.0]
+        offsets = [c["offset_s"] for c in out.native["chunks"]]
+        assert offsets == [0.0, 180.0, 360.0] and len(sent) == 3
         prov = out.record["provenance"]
         assert prov["request_id"] == "op1;op2;op3" and "3 pieces" in prov["notes"]
-        assert out.record["chunked"] is True and prov["audio_duration_s"] == 25.0
+        assert out.record["chunked"] is True and prov["audio_duration_s"] == 400.0
+
+    def test_long_excerpts_are_refused(self, db, tmp_path, monkeypatch):
+        _release(db)
+        monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "p")
+        monkeypatch.setenv("GOOGLE_STT_BUCKET", "b")
+        clip = _tone(tmp_path / "clip.wav", 30)
+        with pytest.raises(ValueError, match="excerpt"):
+            GoogleTranscriber(chunk_s=20, chunk_overlap_s=5).transcribe(
+                "999", manifest_path=db, audio_path=clip)
 
     def test_pipeline_speakers_replace_the_vendors(self, db, monkeypatch):
         _release(db)
@@ -348,7 +404,7 @@ class TestChunking:
         monkeypatch.setattr("multidata.transcribers.chunking.DATA_DIR", db.parent / "data")
         t = ElevenLabsTranscriber(speakers="pipeline")
         monkeypatch.setattr(t, "call", lambda *a: (ELEVENLABS, {}))
-        with pytest.raises(FileNotFoundError, match="diarize stage"):
+        with pytest.raises(FileNotFoundError, match="diarize stages"):
             t.transcribe("999", manifest_path=db)
 
     def test_unknown_speaker_source(self):

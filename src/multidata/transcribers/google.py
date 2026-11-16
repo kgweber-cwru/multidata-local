@@ -13,8 +13,8 @@ What shapes this adapter:
   audio in `GOOGLE_STT_BUCKET` and deletes it afterwards (`delete_staged`).
 - The Chirp 3 page caps BatchRecognize at about an hour, and at 20 minutes
   with word timestamps on; most of our recordings are longer. `chunk_s`
-  (default 19 minutes) has the shared chunker cut them (`chunking.py`),
-  speaker labels then being per piece; `speakers="pipeline"` avoids that.
+  (default 19 minutes) has the shared chunker send them in pieces and link
+  the speakers across them (`chunking.py`).
 - Chirp 3 is offered in the `us` and `eu` multi-regions; the recognizer is
   the implicit one, `projects/<project>/locations/<location>/recognizers/_`.
 - Chirp 3's word confidence "isn't truly a confidence score" (vendor's
@@ -51,7 +51,7 @@ class GoogleParams:
     phrase_boost: Optional[float] = None
     denoise: bool = False
     chunk_s: Optional[float] = 1140  # pieces for the shared chunker; None sends the file whole
-    chunk_overlap_s: float = 10.0
+    chunk_overlap_s: float = 60.0    # long enough to catch each speaker talking
     dynamic_batching: bool = False   # cheaper, slower
     delete_staged: bool = True
     timeout_s: int = 7200
@@ -71,8 +71,8 @@ class GoogleTranscriber(CloudTranscriber):
             raise ValueError("chirp_3 takes at most 1000 adaptation phrases")
         if p.min_speaker_count > p.max_speaker_count:
             raise ValueError("min_speaker_count > max_speaker_count")
-        if p.chunk_s is not None and not 0 <= p.chunk_overlap_s < p.chunk_s:
-            raise ValueError("need 0 <= chunk_overlap_s < chunk_s")
+        if p.chunk_s is not None and not 0 <= p.chunk_overlap_s < p.chunk_s / 2:
+            raise ValueError("need 0 <= chunk_overlap_s < chunk_s / 2")
 
     def recognition_config(self):
         from google.cloud.speech_v2.types import cloud_speech as cs

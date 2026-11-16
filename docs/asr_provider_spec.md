@@ -63,7 +63,7 @@ row's notes; this is the summary.
 |---|---|---|---|---|---|
 | `faster_whisper` (local) | no — pyannote merged | yes | `initial_prompt` (lossy — prose, not terms) | inconsistently | baseline; fully pinned |
 | `whisperx` (local) | yes (pyannote) | yes (wav2vec2 forced alignment) | `initial_prompt` | inconsistently | best local word timing |
-| `google` (`chirp_3`) | yes, batch | yes, but caps a batch request at 20 min | `phrase_set` (up to 1,000) | largely **no** | GCS staging; long audio is chunked, and its own speaker labels don't link across pieces (§5) |
+| `google` (`chirp_3`) | yes, batch | yes, but caps a batch request at 20 min | `phrase_set` (up to 1,000) | largely **no** | GCS staging; long audio is chunked, speaker labels linked through the overlaps (plan 7.4) |
 | `assemblyai` | yes (`speaker_labels`) | yes | `keyterms_prompt` (1,000 on universal-3-5-pro) | **yes** (`disfluencies`) — docs disagree for universal-3-5-pro | no retention flag; the adapter deletes after download |
 | `elevenlabs` | yes (`diarize`) | yes | `keyterms` (1,000) | yes unless `no_verbatim` | zero retention (`enable_logging=false`) is enterprise-only; audio-event tags (§6 bracket rule) |
 
@@ -162,7 +162,7 @@ So every transcriber takes **`speakers="engine"` or `"pipeline"`**
 (`transcribers/chunking.py`). `"pipeline"` discards the engine's speaker labels
 and gives each word the speaker of the diarize stage's cached RTTM turn it
 overlaps most. Free at inference — the RTTM is already cached per recording
-(pipeline doc §6) — and it also sidesteps chunked audio's per-piece labels.
+(pipeline doc §6).
 Cloud engines default to `"engine"`; the local Whisper engines default to
 `"pipeline"`, as the pipeline always has.
 

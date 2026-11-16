@@ -2,85 +2,198 @@
 vendor.
 
 **Chunking.** An adapter whose `Params` has `chunk_s` gets audio longer than
-that cut into overlapping pieces (`cut`); `Transcriber.transcribe` sends each
-piece and `merge` stitches the normalized results back onto the recording's
-timeline. In each overlap, words starting before its midpoint come from the
-earlier piece and the rest from the later one, so a word cut off at a piece's
-edge is taken from the piece that heard it whole. Each piece is diarized on
-its own, so its speakers get their own `SPEAKER_NN` labels: "speaker 1" in
-two pieces may be different people, and nothing pretends otherwise.
+that sent in pieces, planned from the diarize stage's turns
+(`data/diarization/<recording>/<camera>.rttm`; run the `audio` and `diarize`
+stages first):
 
-**Pipeline speakers.** `speakers="pipeline"` replaces a vendor's labels with
-the diarize stage's (`data/diarization/<recording>/<camera>.rttm`): each word
-gets the speaker whose turn overlaps it most. Chunk boundaries then stop
-mattering, and the labels match the pipeline's prosody and ELAN files. It is
-also the control arm for comparing vendors' diarization (spec §5, plan 4.5).
+1. The audio is cut into pieces of at most `chunk_s` that overlap by
+   `chunk_overlap_s`. Each overlap goes where, in the second half of the
+   piece, the conversation changes hands most often, so it is likely to hold
+   every speaker rather than a silence or a monologue such as instructions
+   during a physical exam. (On our recordings that is a median of 17 turn
+   changes per overlap; about 1 in 11 overlaps has none to find.)
+2. `merge` puts the pieces back on the recording's timeline. In each overlap,
+   words starting before its midpoint come from the earlier piece and the
+   rest from the later one.
+3. Each piece is diarized by the vendor on its own. Its labels are linked to
+   the previous piece's by the words both pieces heard in the overlap: labels
+   that share at least `MIN_SHARED_WORDS` words, and mostly each other, are
+   the same person. A label with no such match stays a separate speaker, and
+   the run's notes say so.
+
+Silences are sent, not skipped. Across 57 recordings the diarize stage finds
+about five silences of 1-5 minutes per recording, not just the blanks around
+the encounter, and it can miss quiet speech; skipping by its say-so would
+drop words and split conversations (checked 2026-11-16).
+
+The diarize stage's turns are used only to decide where to cut, never to
+label speakers, unless `speakers="pipeline"` asks for that: it gives each
+word the speaker of the diarize turn it overlaps most, replacing the
+vendor's labels. That is the control arm for comparing vendors' diarization
+(spec §5, plan 4.5).
 """
+import re
 import subprocess
+from collections import Counter
 
 from multidata.paths import DATA_DIR
 
 from .base import SpeakerLabels, segments_from_words
 
-
-def cut(audio_path, out_dir, chunk_s, overlap_s):
-    """Mono 16 kHz FLAC pieces of at most `chunk_s` seconds, each starting
-    `overlap_s` before the previous one ends: [(path, offset_s, duration_s)]."""
-    import soundfile
-
-    if not 0 <= overlap_s < chunk_s:
-        raise ValueError("need 0 <= overlap_s < chunk_s")
-    total = soundfile.info(str(audio_path)).duration
-    pieces, offset = [], 0.0
-    while True:
-        length = min(chunk_s, total - offset)
-        piece = out_dir / f"{len(pieces):02d}.flac"
-        subprocess.run(["ffmpeg", "-nostdin", "-loglevel", "error", "-ss", f"{offset:.3f}",
-                        "-t", f"{length:.3f}", "-i", str(audio_path), "-ac", "1", "-ar", "16000",
-                        str(piece)], check=True)
-        pieces.append((piece, round(offset, 3), round(length, 3)))
-        if offset + length >= total:
-            return pieces
-        offset += chunk_s - overlap_s
-
-
-def merge(pieces):
-    """[(offset_s, duration_s, normalized result)] -> one normalized result on
-    the recording's timeline (see the module docstring)."""
-    speakers = SpeakerLabels()
-    words, timed = [], True
-    for i, (offset, duration, result) in enumerate(pieces):
-        lo = _midpoint(pieces[i - 1], offset) if i > 0 else float("-inf")
-        hi = _midpoint((offset, duration), pieces[i + 1][0]) if i + 1 < len(pieces) else float("inf")
-        timed = timed and result.get("word_timing", True)
-        keep = True   # an untimed word goes with the timed word before it
-        for seg in result["segments"]:
-            for w in seg.get("words", []):
-                start = None if w["start"] is None else round(w["start"] + offset, 3)
-                if start is not None:
-                    keep = lo <= start < hi
-                if not keep:
-                    continue
-                label = w.get("speaker", seg.get("speaker"))
-                words.append({**w, "start": start,
-                              "end": None if w["end"] is None else round(w["end"] + offset, 3),
-                              "speaker": speakers(f"{i}:{label}") if label else None})
-    for w in words:
-        if w["speaker"] is None:
-            del w["speaker"]
-    return {"language": pieces[0][2]["language"], "segments": segments_from_words(words),
-            "word_timing": timed}
-
-
-def _midpoint(earlier, later_offset):
-    """The middle of the overlap between a piece (offset, duration, ...) and the next."""
-    offset, duration = earlier[0], earlier[1]
-    return (later_offset + offset + duration) / 2
+STEP_S = 10.0
+MIN_SHARED_WORDS = 5
+MATCH_TOLERANCE_S = 0.5
 
 
 def pipeline_rttm(recording_id, camera):
     return DATA_DIR / "diarization" / recording_id / f"{camera}.rttm"
 
+
+# --- planning ----------------------------------------------------------------
+
+def turn_changes(turns, start, end):
+    """How often the speaker changes between turns beginning in [start, end)."""
+    labels = [label for s, _, label in sorted(turns) if start <= s < end]
+    return sum(a != b for a, b in zip(labels, labels[1:]))
+
+
+def plan(turns, total_s, chunk_s, overlap_s):
+    """[(start_s, end_s)] pieces of at most `chunk_s` seconds covering
+    [0, total_s] (see the module docstring)."""
+    if not 0 <= overlap_s < chunk_s / 2:
+        raise ValueError("need 0 <= chunk_overlap_s < chunk_s / 2")
+    pieces, start = [], 0.0
+    while total_s - start > chunk_s:
+        # The next piece starts at t; this one ends at t + overlap_s.
+        latest = start + chunk_s - overlap_s
+        earliest = start + chunk_s / 2
+        candidates = []
+        t = latest
+        while t >= earliest:
+            candidates.append(t)
+            t -= STEP_S
+        t = max(candidates, key=lambda c: turn_changes(turns, c, c + overlap_s))
+        pieces.append((round(start, 3), round(t + overlap_s, 3)))
+        start = t
+    pieces.append((round(start, 3), round(total_s, 3)))
+    return pieces
+
+
+def cut(audio_path, out_dir, spans):
+    """Mono 16 kHz FLAC pieces for `spans` [(start_s, end_s)]:
+    [(path, offset_s, duration_s)]."""
+    pieces = []
+    for index, (start, end) in enumerate(spans):
+        piece = out_dir / f"{index:02d}.flac"
+        subprocess.run(["ffmpeg", "-nostdin", "-loglevel", "error", "-ss", f"{start:.3f}",
+                        "-t", f"{end - start:.3f}", "-i", str(audio_path), "-ac", "1",
+                        "-ar", "16000", str(piece)], check=True)
+        pieces.append((piece, start, round(end - start, 3)))
+    return pieces
+
+
+# --- merging -----------------------------------------------------------------
+
+def merge(pieces):
+    """[(offset_s, duration_s, normalized result)] -> (one normalized result on
+    the recording's timeline, [notes]). See the module docstring."""
+    timed = [[{**w, "start": _shift(w["start"], offset), "end": _shift(w["end"], offset),
+               "speaker": w.get("speaker", seg.get("speaker"))}
+              for seg in result["segments"] for w in seg.get("words", [])]
+             for offset, _, result in pieces]
+
+    # Piece-local label -> speaker id across pieces, linked through overlaps.
+    ids, notes, next_id = [], [], 0
+    for i, (offset, _, _) in enumerate(pieces):
+        local = {w["speaker"] for w in timed[i]} - {None}
+        links = {}
+        if i and _overlap(pieces[i - 1], offset):
+            links = link_labels(timed[i - 1], timed[i], offset, _end(pieces[i - 1]))
+            unlinked = sorted(local - set(links))
+            if unlinked:
+                notes.append(f"piece {i}: {len(unlinked)} speaker label(s) not linked "
+                             "to the previous piece")
+        mapping = {}
+        for label in sorted(local):
+            if label in links:
+                mapping[label] = ids[i - 1][links[label]]
+            else:
+                mapping[label], next_id = next_id, next_id + 1
+        ids.append(mapping)
+
+    speakers = SpeakerLabels()
+    words, timing = [], True
+    for i, (offset, _, result) in enumerate(pieces):
+        lo = _midpoint(pieces[i - 1], offset) if i else float("-inf")
+        hi = _midpoint(pieces[i], pieces[i + 1][0]) if i + 1 < len(pieces) else float("inf")
+        timing = timing and result.get("word_timing", True)
+        keep = True   # an untimed word goes with the timed word before it
+        for w in timed[i]:
+            if w["start"] is not None:
+                keep = lo <= w["start"] < hi
+            if not keep:
+                continue
+            w = dict(w)
+            label = w.pop("speaker")
+            if label is not None:
+                w["speaker"] = speakers(ids[i][label])
+            words.append(w)
+    merged = {"language": pieces[0][2]["language"], "segments": segments_from_words(words),
+              "word_timing": timing}
+    return merged, notes
+
+
+def link_labels(earlier, later, start, end):
+    """{later label: earlier label} for the speakers the two pieces' words in
+    the overlap [start, end) show to be the same person."""
+    def in_overlap(ws):
+        return [w for w in ws if w["start"] is not None and w["speaker"] is not None
+                and start <= w["start"] < end]
+
+    pairs, used = Counter(), set()
+    a_words = in_overlap(earlier)
+    for b in in_overlap(later):
+        for j, a in enumerate(a_words):
+            if (j not in used and _norm(a["word"]) == _norm(b["word"])
+                    and abs(a["start"] - b["start"]) <= MATCH_TOLERANCE_S):
+                used.add(j)
+                pairs[b["speaker"], a["speaker"]] += 1
+                break
+
+    totals = Counter()
+    for (b_label, _), n in pairs.items():
+        totals[b_label] += n
+    links, taken = {}, set()
+    for (b_label, a_label), n in pairs.most_common():
+        if (b_label not in links and a_label not in taken
+                and n >= MIN_SHARED_WORDS and n > totals[b_label] / 2):
+            links[b_label] = a_label
+            taken.add(a_label)
+    return links
+
+
+def _shift(t, offset):
+    return None if t is None else round(t + offset, 3)
+
+
+def _end(piece):
+    return piece[0] + piece[1]
+
+
+def _overlap(earlier, later_offset):
+    return _end(earlier) > later_offset
+
+
+def _midpoint(earlier, later_offset):
+    """The middle of the overlap (or gap) between a piece and the next."""
+    return (later_offset + _end(earlier)) / 2
+
+
+def _norm(text):
+    return re.sub(r"[^\w']", "", text.lower())
+
+
+# --- pipeline speakers -------------------------------------------------------
 
 def assign_speakers(result, turns):
     """Relabel every timed word with the speaker of the turn

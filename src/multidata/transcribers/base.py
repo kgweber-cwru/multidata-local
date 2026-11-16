@@ -119,45 +119,46 @@ class Transcriber:
     def preflight(self, recording):
         """Checks that must pass before any audio is read."""
 
-    def run(self, audio, recording_id, camera):
-        """`call` + `normalize`, in overlapping pieces when the audio is longer
-        than `chunk_s` -> (native, meta, result). A chunked run's `native` is
-        `{"chunks": [{index, offset_s, duration_s, response}]}`."""
+    def run(self, audio, recording_id, camera, excerpt=False):
+        """`call` + `normalize`, in planned pieces when the audio is longer than
+        `chunk_s` (`chunking.py`) -> (native, meta, result). A chunked run's
+        `native` is `{"chunks": [{index, offset_s, duration_s, response}]}`."""
         from . import chunking
 
         chunk_s = getattr(self.params, "chunk_s", None)
-        if not chunk_s or (_duration(audio) or 0) <= chunk_s:
+        total = _duration(audio)
+        if not chunk_s or (total or 0) <= chunk_s:
             native, meta = self.call(audio, recording_id, camera)
             return native, meta, self.normalize(native)
+        if excerpt:
+            raise ValueError(f"audio over {chunk_s} s is cut where the diarize stage's turns "
+                             "say, which are timed on the whole recording; send an excerpt "
+                             "shorter than that")
 
+        spans = chunking.plan(_pipeline_turns(recording_id, camera), total, chunk_s,
+                              self.params.chunk_overlap_s)
         chunks, metas, results = [], [], []
         with tempfile.TemporaryDirectory() as tmp:
             for index, (piece, offset_s, duration_s) in enumerate(
-                    chunking.cut(audio, Path(tmp), chunk_s, self.params.chunk_overlap_s)):
+                    chunking.cut(audio, Path(tmp), spans)):
                 native, meta = self.call(piece, recording_id, camera)
                 chunks.append({"index": index, "offset_s": offset_s,
                                "duration_s": duration_s, "response": native})
                 metas.append(meta)
                 results.append((offset_s, duration_s, self.normalize(native)))
-        notes = [f"{len(chunks)} pieces of up to {chunk_s} s, overlapping "
-                 f"{self.params.chunk_overlap_s} s"]
-        notes += [m["notes"] for m in metas if m.get("notes")]
+        result, merge_notes = chunking.merge(results)
+        notes = [f"{len(chunks)} pieces overlapping {self.params.chunk_overlap_s} s"]
+        notes += merge_notes + [m["notes"] for m in metas if m.get("notes")]
         meta = {"request_id": ";".join(str(m.get("request_id")) for m in metas),
                 "model_returned": metas[0].get("model_returned"),
                 "chunked": True, "notes": "; ".join(notes)}
-        return {"chunks": chunks}, meta, chunking.merge(results)
+        return {"chunks": chunks}, meta, result
 
     def assign_pipeline_speakers(self, result, audio, recording_id, camera):
         """`result` with the diarize stage's speaker labels (`speakers="pipeline"`)."""
-        from multidata.prosody import read_rttm
-
         from . import chunking
 
-        rttm = chunking.pipeline_rttm(recording_id, camera)
-        if not rttm.exists():
-            raise FileNotFoundError(f"{rttm} -- run the diarize stage first, "
-                                    "or pass speakers='engine'")
-        return chunking.assign_speakers(result, read_rttm(rttm))
+        return chunking.assign_speakers(result, _pipeline_turns(recording_id, camera))
 
     def transcribe(self, recording_id, manifest_path=MANIFEST_PATH, audio_path=None):
         """Transcribe one recording's canonical audio (or `audio_path`, such as an
@@ -173,14 +174,15 @@ class Transcriber:
         audio = Path(audio_path) if audio_path else canonical
         if not audio.exists():
             raise FileNotFoundError(audio)
-        if self.speakers == "pipeline" and audio.resolve() != canonical.resolve():
+        excerpt = audio.resolve() != canonical.resolve()
+        if self.speakers == "pipeline" and excerpt:
             # The diarize stage's turns are timed on the whole recording.
             raise ValueError("speakers='pipeline' needs the recording's own audio, "
                              "not an excerpt; pass speakers='engine'")
 
         started = datetime.datetime.now(datetime.timezone.utc)
         t0 = time.monotonic()
-        native, meta, result = self.run(audio, recording_id, camera)
+        native, meta, result = self.run(audio, recording_id, camera, excerpt)
         if self.speakers == "pipeline":
             result = self.assign_pipeline_speakers(result, audio, recording_id, camera)
         wall_s = round(time.monotonic() - t0, 1)
@@ -243,6 +245,18 @@ def _audio_path(recording_id, camera, manifest_path):
     if video is not None and video.audio_path:
         return ROOT / video.audio_path
     return DATA_DIR / "audio" / recording_id / f"{camera}.wav"
+
+
+def _pipeline_turns(recording_id, camera):
+    """The diarize stage's turns [(start_s, end_s, speaker)] for one recording."""
+    from multidata.prosody import read_rttm
+
+    from . import chunking
+
+    rttm = chunking.pipeline_rttm(recording_id, camera)
+    if not rttm.exists():
+        raise FileNotFoundError(f"{rttm} -- run the audio and diarize stages first")
+    return read_rttm(rttm)
 
 
 def _repo_relative(path):
