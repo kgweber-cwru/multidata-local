@@ -12,6 +12,7 @@ from multidata.transcribers import CloudReleaseError, chunking
 from multidata.transcribers.assemblyai import AssemblyAITranscriber
 from multidata.transcribers.base import SpeakerLabels, segments_from_words, word
 from multidata.transcribers.elevenlabs import ElevenLabsTranscriber
+from multidata.transcribers.gemini import GeminiTranscriber
 from multidata.transcribers.google import GoogleTranscriber, _offset
 
 
@@ -33,7 +34,7 @@ def _release(db):
 
 class TestRegistry:
     def test_every_engine_is_local_whisper_or_a_cloud_vendor(self):
-        assert set(transcribers.engines()) == set(asr.ENGINES) | {"elevenlabs", "assemblyai", "google"}
+        assert set(transcribers.engines()) == set(asr.ENGINES) | {"elevenlabs", "assemblyai", "google", "gemini"}
 
     def test_unknown_engine(self):
         with pytest.raises(ValueError, match="unknown engine"):
@@ -72,6 +73,11 @@ class TestParamChecks:
             ElevenLabsTranscriber(keyterms=("[bad]",))
         with pytest.raises(ValueError, match="scribe_v3"):
             ElevenLabsTranscriber(model="scribe_v2", numbers_format="words")
+
+    def test_gemini_smart_mode_has_no_speakers(self):
+        with pytest.raises(ValueError, match="SMART"):
+            GeminiTranscriber(mode="SMART")
+        GeminiTranscriber(mode="SMART", diarization=False, word_timestamp=False)
 
     def test_google_medical_takes_no_phrases(self):
         with pytest.raises(ValueError, match="adaptation"):
@@ -170,6 +176,14 @@ ASSEMBLYAI = {
     ],
 }
 
+# Shaped as google-genai 3.3.0's GenerateContentResponse.model_dump(mode="json")
+GEMINI = {"model_version": "gemini-3.5-transcribe", "candidates": [{"content": {"parts": [
+    {"audio_transcription": {"speaker_label": "1", "language_code": "en-US", "words": [
+        {"word": "chest", "start_offset": "1.1s", "end_offset": "1.4s"},
+        {"word": "pain", "start_offset": "1.5s", "end_offset": "1.9s"}]}},
+    {"audio_transcription": {"speaker_label": "2", "words": [
+        {"word": "okay", "start_offset": "2.5s", "end_offset": "2.8s"}]}}]}}]}
+
 GOOGLE = {"results": [{"languageCode": "en-us", "alternatives": [{"transcript": "chest pain okay", "words": [
     {"word": "chest", "startOffset": "1.100s", "endOffset": "1.500s", "speakerLabel": "1"},
     {"word": "pain", "startOffset": "1.500s", "endOffset": "2s", "speakerLabel": "1"},
@@ -204,6 +218,13 @@ class TestNormalizers:
         assert all(w["score"] is None for w in words)   # chirp_3 confidence isn't one
         assert rec["language"] == "en"
 
+    def test_gemini(self):
+        rec = GeminiTranscriber().normalize(GEMINI)
+        words = [w for s in rec["segments"] for w in s["words"]]
+        assert [(w["word"], w["start"], w["speaker"]) for w in words] == [
+            ("chest", 1.1, "SPEAKER_00"), ("pain", 1.5, "SPEAKER_00"), ("okay", 2.5, "SPEAKER_01")]
+        assert rec["language"] == "en" and rec["word_timing"]
+
     def test_google_drops_repeated_words(self):
         doubled = json.loads(json.dumps(GOOGLE))
         results = doubled["results"]
@@ -216,7 +237,8 @@ class TestNormalizers:
 
     @pytest.mark.parametrize("t, native", [(ElevenLabsTranscriber(), ELEVENLABS),
                                            (AssemblyAITranscriber(), ASSEMBLYAI),
-                                           (GoogleTranscriber(), GOOGLE)])
+                                           (GoogleTranscriber(), GOOGLE),
+                                           (GeminiTranscriber(), GEMINI)])
     def test_normalized_records_validate(self, t, native):
         rec = records.finalize_record(t.normalize(native), t.engine)
         assert records.validate_record(rec) == []

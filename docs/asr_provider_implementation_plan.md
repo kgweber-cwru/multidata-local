@@ -342,6 +342,9 @@ Blocked on Phases 1, 2, and 5. First real numbers.
       (`transcribers/elevenlabs.py`; default `scribe_v3`; on a
       non-enterprise account only with `enable_logging=True`). It does have a
       glossary mechanism after all (`keyterms`, up to 1000).
+- [ ] **7.3b Gemini 3.5 Transcribe** — *adapter written and smoke-tested
+      2026-11-16* (`transcribers/gemini.py`, Vertex only, VERBATIM). Gold
+      run waits on the BAA covered-services check.
 - [x] **7.4 Long-audio handling** — shared by every adapter with a length
       cap (`transcribers/chunking.py`; Google's chirp_3 caps word-timestamped
       batch requests at 20 minutes). Cuts are planned from the diarize stage's

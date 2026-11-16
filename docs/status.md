@@ -163,9 +163,16 @@ in our diarize stage's labels instead (the comparison arm).
    `~/miniconda3/envs/md-speech/bin/python` directly. md-speech already has
    everything; pympi-ling, jiwer and the Google clients went into
    md-utility by mistake on 2026-11-16.)
-4. **Gemini 3.5 Transcribe** adapter (verbatim mode; ~30 min cap with
-   diarization, so it uses the chunker). Check it is on the BAA's covered
-   services list before sending audio.
+4. **Gemini 3.5 Transcribe** adapter built 2026-11-16
+   (`transcribers/gemini.py`, setting `gemini`): Vertex AI only, VERBATIM
+   mode, 14-minute pieces through the chunker (Vertex caps files at 15 min).
+   Smoke clip: WER 0.109, 2 speakers, and unlike AssemblyAI it keeps the
+   patient's back-channels. Not yet run on gold: **check it is on the BAA's
+   covered-services list** (and its price; neither is on the model page)
+   before sending recordings with names. Why Gemini rather than Chirp: it
+   returns speakers and word times in one request, takes up to 15 minutes
+   per file synchronously instead of a batch queue, and Chirp was uneven on
+   gold (findings report).
 5. Done 2026-11-16: named settings in `benchmarks/configs/settings.yaml`;
    `benchmarks/transcribe.py` runs them over the gold recordings, and
    `benchmarks/run_benchmark.py` now only scores saved transcripts (the old

@@ -21,3 +21,4 @@ elevenlabs:                   {engine: elevenlabs, enable_logging: true}
 elevenlabs_medical:           {engine: elevenlabs, model: scribe_v2_medical, enable_logging: true}
 
 google:                       {engine: google}
+gemini:                       {engine: gemini}                            # Gemini 3.5 Transcribe on Vertex, VERBATIM

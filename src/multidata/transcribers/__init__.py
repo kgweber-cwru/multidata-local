@@ -29,10 +29,12 @@ from multidata.paths import MANIFEST_PATH
 from .assemblyai import AssemblyAITranscriber
 from .base import CloudReleaseError, Transcriber, Transcription
 from .elevenlabs import ElevenLabsTranscriber
+from .gemini import GeminiTranscriber
 from .google import GoogleTranscriber
 from .whisper import WhisperTranscriber, engine_defaults
 
-CLOUD = {t.engine: t for t in (ElevenLabsTranscriber, AssemblyAITranscriber, GoogleTranscriber)}
+CLOUD = {t.engine: t for t in (ElevenLabsTranscriber, AssemblyAITranscriber, GoogleTranscriber,
+                               GeminiTranscriber)}
 
 __all__ = ["CLOUD", "CloudReleaseError", "Transcriber", "Transcription", "engines",
            "get_transcriber", "params", "transcribe_recording"]

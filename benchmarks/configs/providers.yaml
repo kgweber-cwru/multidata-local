@@ -126,6 +126,32 @@ providers:
       Data logging is a project-level opt-in, off by default; there is no
       per-request flag.
 
+  gemini:
+    kind: cloud
+    diarizes_internally: true       # AudioTranscriptionConfig(diarization=True); up to 8 speakers, Experimental
+    word_timings: true              # word_timestamp=True; Experimental, "may degrade" accuracy
+    glossary_mechanism: custom_vocabulary
+    glossary_limit: "1,000 terms (vendor: best results up to 100)"
+    disfluency_param: mode          # VERBATIM (default) keeps what was said; SMART cleans it up and drops speakers/timestamps
+    best_disfluency_config: null
+    speaker_hint_param: null        # no speaker-count hint documented
+    formatting_off_param: null      # not documented
+    long_audio:
+      sync_limit_s: 900             # Vertex: files up to 15 min (AI Studio page says 30 with diarization/timestamps)
+      async_path: >
+        None documented for this model on Vertex; generate_content per file. The
+        adapter sends 14-minute pieces (chunk_s) through the shared chunker.
+    baa_available: null             # not stated on the model page; check the BAA's covered-services list
+    no_train_flag: null             # not stated on the model page
+    cost_per_minute: null           # not stated on the model page (2026-11-16)
+    verified: true
+    checked_on: 2026-11-16
+    notes: >
+      Adapter: multidata.transcribers.gemini, model gemini-3.5-transcribe on Vertex
+      (genai.Client(enterprise=True), location us/eu/global), audio by GCS URI.
+      Never through the AI Studio Gemini API (API key, outside the project's
+      agreements). Not yet run live.
+
   google_medical_conversation:
     kind: cloud
     diarizes_internally: true       # Medical does
