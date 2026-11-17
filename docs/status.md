@@ -60,23 +60,25 @@ Kate), and since 2026-11-13 **252848**, **261456** and **261473**
 without a formal pass-2 assignment). Their older rows in `runs.csv` were
 scored the old way and are history only.
 
-Scores against current gold (2026-11-16, scoring v5: numbers
-canonicalized, speakers scored; all five gold recordings, ~14,400 words, pooled by gold word
-count; `runs.csv` has each recording):
+Scores against current gold (2026-11-17, scoring v6: numbers
+canonicalized, speakers scored, counts kept for pooling; all five gold
+recordings, ~14,400 words, pooled from the counts; `runs.csv` has each
+recording; `python scripts/bench_status.py --markdown` prints the report's
+tables):
 
 | Engine | L0 WER | L1 WER | cpWER | DER | Per recording L0 (252848, 261456, 261473, 261498, 261505) |
 |---|---|---|---|---|---|
-| `assemblyai universal-3-5-pro` | 0.162 | 0.165 | 0.171 | 0.282 | 0.16 0.17 0.19 0.16 0.16 |
-| same, `domain=medical-v1` | 0.162 | 0.165 | 0.169 | 0.283 | 0.16 0.17 0.19 0.16 0.16 |
-| `gemini gemini-3.5-transcribe` | 0.169 | 0.171 | 0.259 | 0.262 | 0.15 0.18 0.24 0.19 0.16 |
-| `elevenlabs scribe_v3` | 0.187 | 0.188 | 0.201 | 0.305 | 0.19 0.19 0.23 0.20 0.16 |
-| `elevenlabs scribe_v2_medical` (BAA model) | 0.194 | 0.194 | 0.283 | 0.336 | 0.20 0.19 0.26 0.17 0.17 |
-| `google chirp_3` | 0.207 | 0.209 | 0.268 | 0.247 | 0.20 0.18 0.30 0.33 0.18 |
-| `faster_whisper medium` | 0.243 | 0.211 | 0.343 | 0.225 | 0.26 0.20 0.35 0.28 0.22 |
-| `whisperx large-v3` | 0.267 | 0.239 | 0.355 | 0.362 | 0.26 0.29 0.33 0.25 0.25 |
-| `whisperx_disfluent large-v3` | 0.265 | 0.264 | 0.367 | 0.388 | 0.21 0.32 0.37 0.20 0.29 |
+| `assemblyai universal-3-5-pro` | 0.162 | 0.165 | 0.171 | 0.280 | 0.16 0.17 0.19 0.16 0.16 |
+| same, `domain=medical-v1` | 0.162 | 0.165 | 0.169 | 0.282 | 0.16 0.17 0.19 0.16 0.16 |
+| `gemini gemini-3.5-transcribe` | 0.169 | 0.171 | 0.259 | 0.260 | 0.15 0.18 0.24 0.19 0.16 |
+| `elevenlabs scribe_v3` | 0.187 | 0.188 | 0.201 | 0.304 | 0.19 0.19 0.23 0.20 0.16 |
+| `elevenlabs scribe_v2_medical` (BAA model) | 0.194 | 0.194 | 0.284 | 0.342 | 0.20 0.19 0.26 0.17 0.17 |
+| `google chirp_3` | 0.207 | 0.209 | 0.268 | 0.246 | 0.20 0.18 0.30 0.33 0.18 |
+| `faster_whisper medium` | 0.243 | 0.211 | 0.343 | 0.223 | 0.26 0.20 0.35 0.28 0.22 |
+| `whisperx large-v3` | 0.267 | 0.240 | 0.354 | 0.364 | 0.26 0.29 0.33 0.25 0.25 |
+| `whisperx_disfluent large-v3` | 0.265 | 0.265 | 0.367 | 0.390 | 0.21 0.32 0.37 0.20 0.29 |
 
-cpWER is WER with words matched to the right person; DER (pooled by gold
+cpWER is WER with words matched to the right person; DER (pooled by scored gold
 speech time) is built from each engine's own word timings, so it also
 counts speech an engine didn't transcribe (rules: asr_evaluation_methods.md
 §4.3). AssemblyAI is best on every recording; Medical Mode changes nothing (not
@@ -144,12 +146,14 @@ skips what exists, saves each vendor response before normalizing) then
 4. Done 2026-11-16, no gain: the diarize stage's speakers on vendor words
    (settings `*_pipeline_speakers`, from saved responses via
    `responses_from`). cpWER gets worse: AssemblyAI 0.171 -> 0.275, Gemini
-   0.259 -> 0.288. Vendors' own speaker labels win.
+   0.259 -> 0.287. Vendors' own speaker labels win.
 5. Done 2026-11-16: Gemini's weak cpWER is not cross-piece linking. On
    261505 its second piece (the debrief) gives one label 1,077 words that
-   are half learner, half preceptor: it merges people once a third speaker
-   is present (Google marks 3+ speaker attribution Experimental). Its API
-   has no speaker-count hint, so there is no setting to try.
+   are half learner, half preceptor, starting when the preceptor joins
+   (15:07). The other four recordings also have a preceptor, and there it
+   gets its own label, so this is one merge, not a rule (rechecked
+   2026-11-17). Google marks 3+ speaker attribution Experimental, and the
+   API has no speaker-count hint, so there is no setting to try.
 6. **Noise floor:** a second annotator on one or two blind excerpts; this
    also settles how many of ElevenLabs'/Google's extra words are real.
 7. **More gold:** seeded pass 1s of 261466 and 259392 are with Kate;

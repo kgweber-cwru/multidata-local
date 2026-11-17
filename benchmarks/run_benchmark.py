@@ -16,7 +16,10 @@ Scoring (`score()`): the manifest's names for the recording are redacted from
 BOTH reference and hypothesis (`multidata.redact`), then both are normalized
 with `multidata.normalize` -- L0 verbatim for `wer`/`cer`, L1 filler-neutral
 for `wer_l1`. Bracket tags are deleted and numbers canonicalized at both
-levels. Excerpt gold (a `span` in the `.gold.json`) is scored on that span
+levels. Each row also keeps the counts behind the rates (gold words;
+substitutions, deletions, insertions at L0; errors at L1) and how many
+fillers and backchannels the transcript kept, so `scripts/bench_status.py`
+can pool recordings exactly. Excerpt gold (a `span` in the `.gold.json`) is scored on that span
 only. A transcript from the engine that seeded a recording's gold is never
 scored against it (standards §9).
 
@@ -26,7 +29,8 @@ rule gold's turns were built with) and are compared with `.gold.rttm`:
 `der` and `jer` (pyannote.metrics, ±`COLLAR_S` around each gold boundary not
 scored, overlap scored, every gold role a speaker), and `cpwer`, WER with
 each engine speaker's words matched to one gold role's words (the gold
-`.eaf` on this machine supplies the per-role text).
+`.eaf` on this machine supplies the per-role text). `speech_s` (scored gold
+speech time) and `cp_words`/`cp_errors` are kept for pooling.
 """
 import argparse
 import csv
@@ -58,11 +62,13 @@ REFERENCES = ROOT / "benchmarks" / "references"
 FIELDS = ["timestamp", "recording_id", "engine", "model", "audio_sha256",
           "wer", "cer", "wall_s", "source", "git_commit", "machine", "notes",
           "gold_pass1", "wer_l1", "scoring", "gold_sha256", "setting", "transcript",
-          "der", "jer", "cpwer"]
+          "der", "jer", "cpwer",
+          "words", "sub", "del", "ins", "words_l1", "errors_l1",
+          "speech_s", "cp_words", "cp_errors", "fillers", "backchannels"]
 
 # Names the scoring method in each ledger row. Change it whenever score()
 # changes in a way that moves numbers, so old and new rows aren't compared.
-SCORING = "redact+L0/L1 v5"  # v2: markup off words at L0; L1 drops cut-off words. v3: ok -> okay. v4: numbers canonicalized. v5: + der/jer/cpwer
+SCORING = "redact+L0/L1 v6"  # v2: markup off words at L0; L1 drops cut-off words. v3: ok -> okay. v4: numbers canonicalized. v5: + der/jer/cpwer. v6: + counts for pooling (rates as v5)
 
 TURN_GAP_S = 0.3   # as gold's turns (elan.export_gold merge_gap)
 MAX_WORD_S = 3.0   # no spoken word lasts longer; a vendor's word timed longer is a timing glitch
@@ -70,7 +76,9 @@ COLLAR_S = 0.5     # each side of a gold boundary: hand-placed boundaries are lo
 
 
 def score(ref, hyp, names):
-    """WER/CER at L0 and WER at L1, after redacting `names` from both sides.
+    """WER/CER at L0 and WER at L1, after redacting `names` from both sides,
+    with the counts behind them and the hypothesis's filler and backchannel
+    counts (L0 tokens in `normalize.FILLERS` / `BACKCHANNELS`).
 
     Redaction runs on the raw text (it matches names case-sensitively, before
     punctuation is gone); the resulting `[ROLE_NAME]` tags are then deleted
@@ -82,10 +90,18 @@ def score(ref, hyp, names):
         hyp, _ = redact.redact_names(hyp, names)
     ref0, hyp0 = normalize.normalize(ref, "l0"), normalize.normalize(hyp, "l0")
     ref1, hyp1 = normalize.normalize(ref, "l1"), normalize.normalize(hyp, "l1")
+    o0, o1 = jiwer.process_words(ref0, hyp0), jiwer.process_words(ref1, hyp1)
+    tokens = hyp0.split()
     return {
-        "wer": round(jiwer.wer(ref0, hyp0), 4),
+        "wer": round(o0.wer, 4),
         "cer": round(jiwer.cer(ref0, hyp0), 4),
-        "wer_l1": round(jiwer.wer(ref1, hyp1), 4),
+        "wer_l1": round(o1.wer, 4),
+        "words": o0.hits + o0.substitutions + o0.deletions,
+        "sub": o0.substitutions, "del": o0.deletions, "ins": o0.insertions,
+        "words_l1": o1.hits + o1.substitutions + o1.deletions,
+        "errors_l1": o1.substitutions + o1.deletions + o1.insertions,
+        "fillers": sum(t in normalize.FILLERS for t in tokens),
+        "backchannels": sum(t in normalize.BACKCHANNELS for t in tokens),
     }
 
 
@@ -145,7 +161,7 @@ def read_rttm(path):
 
 def speaker_scores(ref_turns, hyp_turns, region):
     """`der` and `jer` of `hyp_turns` against `ref_turns` over `region`
-    (start_s, end_s)."""
+    (start_s, end_s), and `speech_s`, the gold speech time DER is a share of."""
     from pyannote.core import Annotation, Segment, Timeline
     from pyannote.metrics.diarization import DiarizationErrorRate, JaccardErrorRate
 
@@ -160,11 +176,13 @@ def speaker_scores(ref_turns, hyp_turns, region):
     uem = Timeline([Segment(*region)])
     # pyannote's collar is the total width around a boundary
     try:
-        der = DiarizationErrorRate(collar=2 * COLLAR_S, skip_overlap=False)(ref, hyp, uem=uem)
+        der = DiarizationErrorRate(collar=2 * COLLAR_S, skip_overlap=False)(
+            ref, hyp, uem=uem, detailed=True)
         jer = JaccardErrorRate(collar=2 * COLLAR_S, skip_overlap=False)(ref, hyp, uem=uem)
     except ZeroDivisionError:   # no reference speech left once the collars are removed
-        return {"der": "", "jer": ""}
-    return {"der": round(der, 4), "jer": round(jer, 4)}
+        return {"der": "", "jer": "", "speech_s": ""}
+    return {"der": round(der["diarization error rate"], 4), "jer": round(jer, 4),
+            "speech_s": round(der["total"], 2)}
 
 
 def cpwer(ref_by_speaker, hyp_by_speaker):
@@ -172,6 +190,12 @@ def cpwer(ref_by_speaker, hyp_by_speaker):
     one reference speaker's (the matching with fewest errors; an unmatched
     speaker on either side scores against nothing). Texts are already
     normalized."""
+    errors, words = cpwer_counts(ref_by_speaker, hyp_by_speaker)
+    return round(errors / words, 4) if words else None
+
+
+def cpwer_counts(ref_by_speaker, hyp_by_speaker):
+    """(errors, gold words) behind `cpwer()`."""
     import numpy as np
     from scipy.optimize import linear_sum_assignment
 
@@ -190,8 +214,7 @@ def cpwer(ref_by_speaker, hyp_by_speaker):
 
     cost = np.array([[errors(r, h) for h in hyps] for r in refs])
     rows, cols = linear_sum_assignment(cost)
-    total = sum(len(r.split()) for r in refs)
-    return round(cost[rows, cols].sum() / total, 4) if total else None
+    return int(cost[rows, cols].sum()), sum(len(r.split()) for r in refs)
 
 
 def gold_text_by_role(recording_id, names, span=None):
@@ -341,7 +364,9 @@ def score_transcript(path, recording_id, results_path=RESULTS, manifest_path=man
         scores |= speaker_scores(ref_turns, hyp_turns, span or (0.0, end))
         gold_roles = gold_text_by_role(recording_id, names, span)
         if gold_roles:
-            scores["cpwer"] = cpwer(gold_roles, hypothesis_by_speaker(result, names, span))
+            errors, words = cpwer_counts(gold_roles, hypothesis_by_speaker(result, names, span))
+            scores |= {"cpwer": round(errors / words, 4) if words else "",
+                       "cp_words": words, "cp_errors": errors}
     audio = ROOT / prov["audio"] if prov.get("audio") else None
     if audio_hashes is not None and audio is not None and audio.exists():
         audio_sha = audio_hashes.setdefault(audio, sha256(audio))
@@ -358,7 +383,7 @@ def score_transcript(path, recording_id, results_path=RESULTS, manifest_path=man
         "gold_sha256": sha256(reference), "setting": setting,
         "transcript": _relative(path), "der": scores.get("der", ""),
         "jer": scores.get("jer", ""), "cpwer": scores.get("cpwer", ""),
-    }
+    } | {k: scores.get(k, "") for k in FIELDS[FIELDS.index("words"):]}
     record(row, results_path=results_path)
     return row
 

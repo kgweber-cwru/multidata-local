@@ -113,3 +113,34 @@ class TestBenchStatusCurrent:
         assert not bench_status.is_current(ok | {"scoring": ""}, tmp_path)
         assert not bench_status.is_current(ok | {"gold_sha256": "old"}, tmp_path)
         assert not bench_status.is_current(ok | {"recording_id": "2"}, tmp_path)
+
+
+class TestPooled:
+    def test_rates_weighted_by_their_own_denominators(self, tmp_path):
+        (tmp_path / "1.gold.txt").write_text("um mm-hmm yes")
+        (tmp_path / "2.gold.txt").write_text("uh-uh no")
+        base = {"engine": "e", "model": "m", "setting": "", "gold_pass1": "blind"}
+        latest = {
+            ("1", "e", "m", ""): base | {
+                "recording_id": "1", "wer": "0.1", "words": "100", "sub": "5", "del": "3",
+                "ins": "2", "words_l1": "90", "errors_l1": "9", "der": "0.2", "speech_s": "10",
+                "cp_words": "100", "cp_errors": "20", "fillers": "4", "backchannels": "1"},
+            ("2", "e", "m", ""): base | {
+                "recording_id": "2", "wer": "0.4", "words": "300", "sub": "60", "del": "40",
+                "ins": "20", "words_l1": "310", "errors_l1": "31", "der": "0.5", "speech_s": "30",
+                "cp_words": "300", "cp_errors": "60", "fillers": "0", "backchannels": "2"},
+        }
+        [e] = bench_status.pooled(latest, tmp_path)
+        assert e["recordings"] == 2
+        assert e["wer"] == pytest.approx(130 / 400)
+        assert (e["sub"], e["del"], e["ins"]) == pytest.approx((65 / 400, 43 / 400, 22 / 400))
+        assert e["wer_l1"] == pytest.approx(40 / 400)
+        assert e["range"] == (0.1, 0.4)
+        assert e["cpwer"] == pytest.approx(80 / 400)
+        assert e["der"] == pytest.approx((0.2 * 10 + 0.5 * 30) / 40)
+        assert e["fillers"] == (4, 1) and e["backchannels"] == (3, 2)
+
+    def test_rows_without_counts_are_left_out(self, tmp_path):
+        latest = {("1", "e", "m", ""): {"recording_id": "1", "engine": "e", "model": "m",
+                                        "wer": "0.1", "words": ""}}
+        assert bench_status.pooled(latest, tmp_path) == []

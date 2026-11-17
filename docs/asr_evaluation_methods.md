@@ -296,9 +296,15 @@ L1 is the fair comparison for them.
 
 Each scored transcript appends one row to `benchmarks/results/runs.csv`. It
 records the engine, model, setting (for a variant), the transcript file,
-audio hash, the three scores, how the reference's pass 1 was made
+audio hash, the scores, how the reference's pass 1 was made
 (`gold_pass1`), the scoring method (`scoring`), the hash of the reference
-file (`gold_sha256`), the git commit and the machine. The transcript itself,
+file (`gold_sha256`), the git commit and the machine. It also keeps the
+counts behind each rate (gold words; substitutions, deletions, insertions at
+L0; errors and gold words at L1; cpWER errors and words; the gold speech time
+DER scored) and how many fillers and backchannels the transcript kept.
+`scripts/bench_status.py` pools recordings from these counts, so each rate
+is weighted by its own denominator; `--markdown` prints the findings
+report's tables. The transcript itself,
 with every parameter in its provenance, stays in `data/transcripts/`.
 
 ### 4.4 Which numbers can be compared

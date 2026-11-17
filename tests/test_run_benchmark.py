@@ -175,6 +175,15 @@ class TestScore:
         s = run_benchmark.score(ref, hyp, self.NAMES)
         assert s["wer"] > 0 and s["wer_l1"] == 0.0
 
+    def test_counts_behind_the_rates(self):
+        ref = "um so tell me about it"
+        hyp = "so tell me about that mm-hmm uh"
+        s = run_benchmark.score(ref, hyp, self.NAMES)
+        assert (s["words"], s["sub"], s["del"], s["ins"]) == (6, 1, 1, 2)
+        assert s["wer"] == round((s["sub"] + s["del"] + s["ins"]) / s["words"], 4)
+        assert (s["words_l1"], s["errors_l1"]) == (5, 2) and s["wer_l1"] == round(s["errors_l1"] / s["words_l1"], 4)
+        assert (s["fillers"], s["backchannels"]) == (1, 1)
+
 
 class TestSpeakers:
     RESULT = {"segments": [{"words": [
@@ -193,7 +202,9 @@ class TestSpeakers:
     def test_matching_turns_score_zero_whatever_the_labels(self):
         ref = [(0.0, 10.0, "LEARNER"), (12.0, 20.0, "PATIENT"), (25.0, 30.0, "LEARNER")]
         hyp = [(0.0, 10.0, "A"), (12.0, 20.0, "B"), (25.0, 30.0, "A")]
-        assert run_benchmark.speaker_scores(ref, hyp, (0.0, 30.0)) == {"der": 0.0, "jer": 0.0}
+        # speech_s: 23 s of gold speech less the 0.5 s collar inside each of 6 boundaries
+        assert run_benchmark.speaker_scores(ref, hyp, (0.0, 30.0)) == {
+            "der": 0.0, "jer": 0.0, "speech_s": 20.0}
         swapped = [(0.0, 10.0, "A"), (12.0, 20.0, "A"), (25.0, 30.0, "A")]
         assert run_benchmark.speaker_scores(ref, swapped, (0.0, 30.0))["der"] > 0
 
