@@ -2,9 +2,10 @@
 
 ## What was measured
 
-We sent five recordings to nine ASR configurations (a configuration is a
-vendor, model and settings) and scored each transcript against a human gold
-transcript with word error rate (WER). We report two WER values. **L0**
+We sent five recordings to nine ASR configurations (a configuration is a 
+combination ofvendor, model and settings) and scored each transcript against a 
+human gold
+transcript with word error rate (WER). We report two WER values: **L0**
 counts every word, fillers included. **L1** ignores fillers ("um", "uh") and
 cut-off words. Before scoring, names are redacted on both sides and numbers
 are put in one form ("one twenty" = "120"). Scores are pooled across
@@ -47,11 +48,10 @@ Substituted, missed and added are shares of gold words and sum to L0 WER.
 
 **AssemblyAI is best on every recording** and the most consistent. It adds
 about as many words as it misses, and substitutes fewer than any other
-engine. **Medical Mode changes nothing** (identical to three decimals) and
-costs $0.15/hour more.
+engine. Their Medical Mode changes nothing and costs $0.15/hour more.
 
 **Gemini 3.5 Transcribe** (on Vertex AI) is a close second, and best on
-252848 (0.150). It keeps 55 of gold's 190 back-channel utterances ("mm-hmm", "uh-huh", etc). AssemblyAI keeps 9.
+one long, talky recording (0.150). It keeps 55 of gold's 190 back-channel utterances ("mm-hmm", "uh-huh", etc). AssemblyAI keeps 9.
 It adds and misses words at about AssemblyAI's rate, so the gap between them
 is substitutions (6.0% against 4.8%). Its speaker attribution is weaker
 (see "Who said what"). Google services are covered by the CWRU enterprise
@@ -74,8 +74,8 @@ as the cloud engines'.
 writes 9 of them, Google 32, Gemini 55, ElevenLabs 115. AssemblyAI often
 writes "yeah" and drops the rest. In a clinical encounter "uh-huh" (yes) and
 "uh-uh" (no) can be answers, so the best-scoring engine loses information
-that downstream analysis may need. WER counts each as one missed word, so
-the scores barely reflect this.
+that analyses of fluency and communication style may need. 
+WER counts each as one missed word, so the scores don't effectively reflect this.
 
 **Fillers.** AssemblyAI keeps 579 of gold's 587 fillers. ElevenLabs and
 Google write more fillers than gold (634–656). faster-whisper and WhisperX
@@ -85,9 +85,7 @@ WhisperX disfluent keeps them (552).
 **Some added words may be real speech.** ElevenLabs and Google produce
 about 5% more words than gold, and some may be speech the annotator missed.
 On 252848 at 44:10–45:35, gold has 3 words where our diarization finds
-speech and AssemblyAI writes 64. Until a second annotator transcribes the
-same audio, we can't tell how much of the Added column is engine error and
-how much is quiet or overlapping speech missing from gold.
+speech and AssemblyAI writes 64. This appears to be hallway speech caught in the time between the encounter and the feedback session.
 
 **Google struggles on the mostly silent recordings.** The chest-pain
 recordings are 78–83% silence. There Google's substitutions double (12–13%,
@@ -112,7 +110,8 @@ hand-placed boundaries are that loose.
 We asked each provider to supply diarization with the transcript. The local
 Whisper transcripts were diarized with a Python module called `pyannote`. 
 We also scored AssemblyAI and Gemini transcripts with `pyannote` diarization. 
-"Cost of attribution" is cpWER minus WER, in points.
+"Cost of attribution" is cpWER minus WER, in points, and indicates how much
+missed diarization affects an overall picture of the model's performance.
 
 | Engine | WER | cpWER | Cost of attribution | DER |
 |---|---|---|---|---|
@@ -157,8 +156,8 @@ makes cpWER worse for both (0.171 to 0.275, and 0.259 to 0.287).
   in the corpus (2026 long station, abdominal pain: 20 of 57 recordings) has
   no gold yet. Differences under about 2 points could easily reverse with
   more recordings.
-- **Gold quality varies.** Kate made the final pass on all five; two had no
-  formal second-pass assignment.
+- **We don't have enough eyes on Gold.** Kate made the final pass on all five; two 
+  had no formal second-pass assignment.
 - **Names.** Redaction misses some surname and short-name forms, so engines
   that hear those names take a small insertion penalty.
 - **Data handling.** ElevenLabs accepted our audio only with its logging on for its free tier 
@@ -187,12 +186,13 @@ makes cpWER worse for both (0.171 to 0.275, and 0.259 to 0.287).
    score the two human transcripts against each other. Their WER is the
    floor: engine differences smaller than it don't mean much. This also
    shows how many added words are real speech. Start with 252848 at
-   44:10–45:35.
+   44:10–45:35 is an example where the transcriber omitted hallway noise but a few
+   models picked it up.
 6. **Drop Google Chirp 3 and AssemblyAI Medical Mode** from further runs
    unless new gold changes the picture. Keep one ElevenLabs model as the
    runner-up.
 7. **Test giving vendors a glossary** to help models select relevant words
-once gold covers more vocabulary.
+   once gold covers more vocabulary.
 --
 
 KGW 2026-11-17

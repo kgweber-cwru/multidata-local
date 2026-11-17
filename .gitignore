@@ -29,3 +29,5 @@ Manifest.session.sql
 manifest.sqlite*
 # Annotation kits -- real-name media, built per assignment
 annotation/kits/
+# Transcript bundles for sharing -- transcript text, built by make_transcript_share.py
+annotation/*.zip
