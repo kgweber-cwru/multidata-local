@@ -17,12 +17,12 @@ itself the first time it is opened).
 | **Activity**: an exam series | "CSE 2B Short Station (2026)" | `recordings.activity_title`; GUID `ls_activity_id` |
 | **Event**: one scheduled session of an activity | "Standard Exam Wednesday", 26 Feb 2026 | `ls_event_id` |
 | **Case**: the scenario | "CSE 2B Case 4 Short Station Wellness (2026)" | `recordings.case_title`; GUID `ls_case_id` |
-| **Video recording**: one learner, one case, one room | 261505; GUID `32693b92…` | a `recordings` row: `recording_id` is the export's number, `ls_recording_id` the GUID |
+| **Video recording**: one learner, one case, one room | 261505; GUID `32693b92…` | a `recordings` row: `recording_id` is the export's number (the GUID for a roster row), `ls_recording_id` the GUID |
 | **Video file**: one camera's file of a recording | `20260226-162204-v309407-16.mp4` | a `videos` row: `file_number` (`v309407`), `ls_file_id` |
 | **Room** | GUID only in the API | `recordings.room_number`; `ls_rooms` maps GUID to number |
 | **Learner group** | "CWRU SoM Class of 2028" | `recordings.learner_group` |
 | **Student / learner** | | `learner_name`; `ls_learner_id` |
-| **Observer**: the faculty member who submits the observation checklist | | `preceptor_name` (the observer *is* the preceptor) |
+| **Observer**: the faculty member who submits the observation checklist | | `preceptor_name` (the observer *is* the preceptor); GUID `ls_preceptor_id` |
 
 `recording_id`, the six-digit number on every folder, kit and gold file, is
 the front end's identifier for a video recording. The API never returns it;
@@ -43,7 +43,10 @@ kit media path `/srv/multidata/case/<id>` is inside existing kits and stays.
 2. the activity's events on the recording's local date;
 3. that learner's recordings for each event and case, keeping those that
    start within two minutes of our start time (the export truncates it to
-   the minute);
+   the minute). This endpoint ignores the event: it returns the learner's
+   recordings of that case from every event, each stamped with the event
+   asked for. So when two events share the day, the recording's event comes
+   from the events' file lists instead;
 4. if more than one is left, the one whose files include all of ours (one
    learner can have two recordings starting in the same second, each with
    its own files);
@@ -78,8 +81,61 @@ once; `--refresh` ignores the cache. A run over 57 recordings is about 200
 requests. Cached replies contain real names, which is why they live under
 `data/`.
 
-`--prune` drops recordings that have no video and nothing else pointing at
-them; re-importing the export brings them back.
+`--prune` drops recordings that have no video, no LearningSpace link and
+nothing else pointing at them; re-importing the export brings them back.
+
+## The roster: every recording, downloaded or not
+
+The manifest also lists every LearningSpace recording since 2024-07-01,
+whether or not we have its video, so it can answer how many encounters,
+minutes and preceptors there are. These **roster rows** come from the API
+alone (`scripts/ls_roster.py`, below) and differ from exported ones:
+
+- **Keyed by GUID.** With no export, there is no six-digit number:
+  `recording_id` is the GUID, the same as `ls_recording_id`
+  (`Recording.is_roster`). `ls_recording_id` is unique across rows.
+- **No names.** Learner, SP and preceptor are GUIDs only (`ls_learner_id`,
+  `ls_preceptor_id`): most of these people are not in the study.
+  `manifest.upsert_ls_recording` refuses name columns.
+- **Duration from LearningSpace.** `duration_s` is the longest camera file's
+  `LengthSeconds`, `n_files` the number of files. Exported recordings get
+  them too.
+- **Hidden from the pipeline.** `manifest.all_recordings()` leaves them out
+  (file matching and ingest need the export number); pass `roster=True` for
+  counts.
+- **Absorbed on export.** When `ls_backfill.py` links an exported recording
+  whose GUID already has a roster row, the roster row's values move to the
+  numbered row and the roster row goes (`manifest.absorb_roster_row`).
+  Backfill only visits recordings with video, so an exported recording not
+  yet ingested sits beside its roster row until then; `--prune` removes it.
+
+How it finds them: each event's file list
+(`/student-video-recordings/nbome/event/{id}`, which despite its name serves
+any event) gives every recording in the event with its files' lengths, in
+one call. Each activity's checklist responses then give its case × learner
+pairs and the faculty observer, and one lookup per pair ties recordings to
+case, learner and preceptor. That lookup also finds the occasional
+recording that no event lists; it joins the roster without an event.
+
+```bash
+sqlite3 manifest.sqlite ".backup data/backups/manifest_$(date +%F).sqlite"
+python scripts/ls_roster.py --estimate        # request count, then stop
+python scripts/ls_roster.py --activity "CSE 2B" --limit 20   # a small dry run
+python scripts/ls_roster.py                   # dry run, everything since 2024-07-01
+python scripts/ls_roster.py --apply           # write
+python scripts/ls_roster.py --no-link         # minutes only: no case, learner or preceptor
+```
+
+The full run is about 5,300 requests, an hour and a half at the default
+pace (`--no-link` about 470). `--since`, `--pace`, `--refresh` and
+`--manifest` work as in the backfill; names are never printed.
+
+```sql
+-- encounters, hours and preceptors since 2024-07-01
+SELECT count(*), round(sum(duration_s) / 3600, 1),
+       count(DISTINCT nullif(ls_preceptor_id, ''))
+FROM recordings WHERE ls_recording_id != '';
+```
 
 ## What we take, and what we leave
 

@@ -8,9 +8,12 @@
 
 For each recording: finds it in LearningSpace (multidata.learningspace),
 checks its files against ours by filename, and fills the empty `ls_*`
-columns, `recording_start_utc`, `preceptor_name` (the faculty observer), the
-videos' file links, the `recording_scores` table and the `ls_rooms` map. An
+columns, `recording_start_utc`, `preceptor_name` and `ls_preceptor_id` (the
+faculty observer), the videos' file links, the `recording_scores` table and
+the `ls_rooms` map. An
 existing value that differs is reported as a conflict and never overwritten.
+A roster row for the same recording (scripts/ls_roster.py) is absorbed: its
+values move to the numbered row and the GUID-keyed row goes.
 
 Names are never printed. Requests are paced and cached (data/ls_api/cache),
 so a dry run followed by --apply asks the server once. Back up
@@ -57,7 +60,16 @@ def main(argv=None):
             failed.append(cid)
             print(f"  {cid}  NOT LINKED: {'; '.join(res.problems)}")
             continue
+        # The observer's GUID too, so preceptors count the same way across
+        # exported and roster-only recordings.
+        observer_ids = {g["submitter_id"] for g in res.scores if g["submitter_id"]}
+        if res.ok and len(observer_ids) == 1:
+            res.recording_fields["ls_preceptor_id"] = observer_ids.pop()
         plan = ls.plan_updates(recording, vids, res)
+        guid = plan.recording_set.get("ls_recording_id")
+        roster_row = guid and manifest.get_recording(guid, path)
+        if roster_row:
+            print(f"      + absorbs the roster row for this recording")
         parts = [f"{len(plan.recording_set)} recording fields",
                  f"{sum(len(s) for s in plan.video_set.values())} file fields",
                  f"{len(res.scores)} score rows"]
@@ -79,6 +91,8 @@ def main(argv=None):
             partial.append(cid)
         if args.apply:
             now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            if roster_row:  # its GUID must be free before this row takes it
+                manifest.absorb_roster_row(cid, guid, path)
             manifest.update_recording(cid, path, **plan.recording_set, ls_synced_at=now)
             for cam, fields in plan.video_set.items():
                 manifest.update(cid, cam, path, **fields)

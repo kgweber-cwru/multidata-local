@@ -22,7 +22,11 @@ class Recording:
 
     `recording_id` is the source system's own identifier (matches the
     `data/raw/<recording_id>/` folder name, and the sheet title in the source
-    system's Excel video-manifest export).
+    system's Excel video-manifest export). A **roster row**, one known only
+    from the LearningSpace API (scripts/ls_roster.py), has no export number
+    yet: its `recording_id` is its GUID, equal to `ls_recording_id`, and it
+    carries no names. It gets its number if it is ever exported and ingested
+    (`manifest.absorb_roster_row`). See `is_roster`.
 
     `audio_camera` is the camera whose audio is canonical for this recording's
     audio-derived stages (audio/asr/diarize/elan) -- see
@@ -67,6 +71,19 @@ class Recording:
     ls_room_id: str = ""
     recording_start_utc: str = ""
     ls_synced_at: str = ""
+    # From LearningSpace's file list: the longest camera file, in seconds, and
+    # how many files there are. The roster (scripts/ls_roster.py) fills these
+    # for every recording, downloaded or not.
+    duration_s: Optional[float] = None
+    n_files: Optional[int] = None
+    # The faculty observer's LearningSpace user GUID: counts preceptors
+    # without storing the name of anyone outside the study.
+    ls_preceptor_id: str = ""
+
+    @property
+    def is_roster(self):
+        """Known only from the LearningSpace API: no export number, no video."""
+        return bool(self.ls_recording_id) and self.recording_id == self.ls_recording_id
 
     @classmethod
     def columns(cls):

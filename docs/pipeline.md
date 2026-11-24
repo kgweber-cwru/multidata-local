@@ -419,7 +419,7 @@ in every env. Additive column migrations run automatically on connect.
 
 | Table | One row per | Notes |
 |---|---|---|
-| `recordings` | encounter, from the source system's export | `recording_id` is the export's sheet title. Holds real names (learner, SP, preceptor): never print them. `audio_camera`, `cloud_release`, `consent_ref` live here, and the LearningSpace links (`ls_*`, `recording_start_utc`) |
+| `recordings` | encounter, from the source system's export or the LearningSpace roster | `recording_id` is the export's sheet title; a roster row (no export yet) is keyed by its GUID and holds no names (`manifest.all_recordings` skips roster rows unless `roster=True`). Exported rows hold real names (learner, SP, preceptor): never print them. `audio_camera`, `cloud_release`, `consent_ref` live here, and the LearningSpace links (`ls_*`, `recording_start_utc`, `duration_s`, `n_files`) |
 | `videos` | camera file | what every stage reads and writes: file facts, `<stage>_status` per stage, `sync_offset_s`; LearningSpace's `ls_file_id`, `size_bytes`, `download_url` |
 | `cameras` | camera | hand-verified camera -> room (§2); seeded from `db_seed/camera_rooms.csv` |
 | `file_matches` | raw file name | cache of recording matching: `matched`, `ambiguous`, `no_match`, `no_room` |

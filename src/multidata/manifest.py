@@ -378,6 +378,15 @@ def _migrate(conn):
         if col not in vcols:
             conn.execute(f"ALTER TABLE videos ADD COLUMN {col} {decl}")
 
+    # The roster (scripts/ls_roster.py): every LearningSpace recording, with
+    # or without video. One row per LearningSpace recording, ever.
+    for col, decl in (("duration_s", "REAL"), ("n_files", "INTEGER"),
+                      ("ls_preceptor_id", "TEXT NOT NULL DEFAULT ''")):
+        if col not in cols:
+            conn.execute(f"ALTER TABLE recordings ADD COLUMN {col} {decl}")
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS recordings_ls_recording_id "
+                 "ON recordings(ls_recording_id) WHERE ls_recording_id != ''")
+
     _seed_cameras_once(conn)
 
 
@@ -435,10 +444,90 @@ def get_recording(recording_id, path=DEFAULT_PATH):
     return Recording.from_row(row) if row else None
 
 
-def all_recordings(path=DEFAULT_PATH):
+# A roster row is keyed by its LearningSpace GUID (models.Recording.is_roster).
+_ROSTER = "ls_recording_id != '' AND recording_id = ls_recording_id"
+
+
+def all_recordings(path=DEFAULT_PATH, roster=False):
+    """Recordings from the front end's export: those with a six-digit number,
+    which every ingest and processing step needs. `roster=True` adds the rows
+    known only from the LearningSpace API (no number, no video, no names)."""
+    where = "" if roster else f"WHERE NOT ({_ROSTER})"
     with closing(connect(path)) as conn:
-        rows = conn.execute("SELECT * FROM recordings ORDER BY recording_id").fetchall()
+        rows = conn.execute(f"SELECT * FROM recordings {where} ORDER BY recording_id").fetchall()
     return [Recording.from_row(r) for r in rows]
+
+
+# Never written onto a roster row: it holds GUIDs, not people's names.
+_ROSTER_FORBIDDEN = {"learner_name", "sp_name", "preceptor_name", "learner_group"}
+
+
+def upsert_ls_recording(fields, path=DEFAULT_PATH):
+    """Add or fill one recording from the LearningSpace roster.
+
+    `fields` are recordings columns and must include `ls_recording_id`. If a
+    row already has that GUID (an exported recording, or an earlier roster
+    run), only its empty fields are filled; a different existing value is a
+    conflict, returned and left alone. Otherwise a roster row is added, keyed
+    by the GUID. Names are refused. Returns (status, recording_id, conflicts):
+    status is "added", "filled" or "unchanged"; conflicts are
+    (column, ours, theirs).
+    """
+    guid = fields.get("ls_recording_id")
+    if not guid:
+        raise ValueError("ls_recording_id is required")
+    bad = (set(fields) - set(Recording.columns())) | (set(fields) & _ROSTER_FORBIDDEN)
+    if bad or "recording_id" in fields:
+        raise ValueError(f"columns not allowed from the roster: {sorted(bad | ({'recording_id'} & set(fields)))}")
+    with closing(connect(path)) as conn, conn:
+        row = conn.execute("SELECT * FROM recordings WHERE ls_recording_id = ?", (guid,)).fetchone()
+        if row is None:
+            _insert(conn, "recordings", Recording(recording_id=guid, **fields))
+            return "added", guid, []
+        fill, conflicts = {}, []
+        for col, new in fields.items():
+            if new in (None, ""):
+                continue
+            old = row[col]
+            if old in (None, ""):
+                fill[col] = new
+            elif str(old) != str(new) and not (isinstance(new, float) and old is not None
+                                               and abs(float(old) - new) < 1e-6):
+                conflicts.append((col, old, new))
+        if fill:
+            conn.execute(f"UPDATE recordings SET {', '.join(f'{k} = ?' for k in fill)} "
+                         "WHERE recording_id = ?", (*fill.values(), row["recording_id"]))
+        return ("filled" if fill else "unchanged"), row["recording_id"], conflicts
+
+
+def absorb_roster_row(recording_id, guid, path=DEFAULT_PATH):
+    """Give a roster row its export number: copy the roster row's values into
+    the numbered `recording_id` row where that row is empty, then delete the
+    roster row. Call before linking the numbered row to `guid` (the GUID is
+    unique across rows). Returns the columns copied, or None if there is no
+    roster row for `guid`."""
+    with closing(connect(path)) as conn, conn:
+        roster = conn.execute(f"SELECT * FROM recordings WHERE recording_id = ? AND {_ROSTER}",
+                              (guid,)).fetchone()
+        if roster is None:
+            return None
+        ours = conn.execute("SELECT * FROM recordings WHERE recording_id = ?",
+                            (recording_id,)).fetchone()
+        if ours is None:
+            raise ValueError(f"no recording {recording_id!r}")
+        for table in ("videos", "gold", "assignments", "recording_scores", "stage_runs",
+                      "file_matches", "transcripts"):
+            if conn.execute(f"SELECT 1 FROM {table} WHERE recording_id = ? LIMIT 1",
+                            (guid,)).fetchone():
+                raise ValueError(f"roster row {guid} has {table} rows; resolve by hand")
+        copy = {c: roster[c] for c in Recording.columns()
+                if c != "recording_id" and roster[c] not in (None, "")
+                and ours[c] in (None, "")}
+        conn.execute("DELETE FROM recordings WHERE recording_id = ?", (guid,))
+        if copy:
+            conn.execute(f"UPDATE recordings SET {', '.join(f'{k} = ?' for k in copy)} "
+                         "WHERE recording_id = ?", (*copy.values(), recording_id))
+    return sorted(copy)
 
 
 def names_for_recording(recording_id, path=DEFAULT_PATH):
@@ -1034,9 +1123,11 @@ def all_ls_rooms(path=DEFAULT_PATH):
 def prune_recordings_without_videos(path=DEFAULT_PATH, dry_run=True):
     """Drop recordings with no videos row and nothing else pointing at them (gold,
     scores, stage runs, matches). Returns the recording_ids dropped (or that would
-    be). The Excel export can always add them back."""
+    be). The Excel export can always add them back. Recordings linked to
+    LearningSpace stay, roster rows included: they are the roster."""
     sql = """SELECT recording_id FROM recordings c
-             WHERE NOT EXISTS (SELECT 1 FROM videos v WHERE v.recording_id = c.recording_id)
+             WHERE c.ls_recording_id = ''
+               AND NOT EXISTS (SELECT 1 FROM videos v WHERE v.recording_id = c.recording_id)
                AND NOT EXISTS (SELECT 1 FROM gold g WHERE g.recording_id = c.recording_id)
                AND NOT EXISTS (SELECT 1 FROM assignments a WHERE a.recording_id = c.recording_id)
                AND NOT EXISTS (SELECT 1 FROM recording_scores s WHERE s.recording_id = c.recording_id)
