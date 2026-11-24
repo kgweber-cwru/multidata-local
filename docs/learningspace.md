@@ -141,6 +141,13 @@ SELECT count(*), round(sum(duration_s) / 3600, 1),
 FROM recordings WHERE ls_recording_id != '';
 ```
 
+**State (2026-11-24, 11,059 requests):** 9,249 recordings in 32
+activities, 4,278 hours. 9,130 are tied to a case and learner (119 are
+not); 533 came only through the pair lookup (no event lists them); about
+100 are listed by two events and keep the first. A preceptor is set on
+4,452 and an SP on 4,671: the others' activities have no faculty or no SP
+checklist, or more than one submitter. 7 have no length.
+
 ## What we take, and what we leave
 
 Taken: identifiers, exact start time (UTC), room, file facts and download
