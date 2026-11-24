@@ -30,22 +30,17 @@ role map) is written to kit.json and to the .eaf header, and
 `scripts/eaf_to_gold.py` carries it into the gold record, so seeded gold can
 always be told apart from blind gold.
 
-STATUS (2026-09-23): the cloud remote-desktop delivery mechanism this was
-built for has been torn out -- see docs/status.md, "Why the cloud annotation
-desktop was abandoned". This module is kept because the problem it
-solves (ELAN opens with no "locate media" dialog, no matter which machine the
-annotator ends up working on) is independent of *how* the kit gets to that
-machine. Nothing here assumes a VM specifically. It does assume some machine
-mounts every recording at the same fixed path -- see CANONICAL_ROOT below -- which
-was true of the VM design and will need a real decision again once the next
-delivery mechanism (most likely a dedicated laptop) is chosen.
+Delivery is by hand: there is no Box API to use, so the coordinator copies
+each kit folder to Box from their laptop and copies returned files back
+(annotation/README.md, steps 2 and 4). Annotators work on their own
+machines, in ELAN, straight from Box Drive.
 
 The one thing to understand before changing this file: the .eaf records its
-media twice, in MEDIA_URL (absolute) and RELATIVE_MEDIA_URL. Both are written
-against CANONICAL_ROOT, the path every annotator machine is assumed to mount
-the recording at. That is what stops ELAN showing a "locate media" dialog on a
-machine that isn't the one the file was made on. Change CANONICAL_ROOT and you
-must change where kits actually get staged, or every kit breaks.
+media twice. MEDIA_URL is an absolute path under CANONICAL_ROOT, left over
+from a cloud-desktop design abandoned in 2026-09 (docs/status.md), which no
+annotator machine has. RELATIVE_MEDIA_URL points at the `media/` folder
+beside the .eaf, and is what ELAN actually uses: it is why the kit folder
+must travel whole, and why ELAN opens it with no "locate media" dialog.
 """
 import argparse
 import hashlib
@@ -65,15 +60,14 @@ import assignments  # noqa: E402
 TEMPLATE = ROOT / "elan" / "template.etf"
 KITS_DIR = ROOT / "annotation" / "kits"
 
-# Where an annotator's machine is assumed to mount a recording. Baked into every
-# kit's .eaf, so it is the same string on every machine, forever -- but this
-# was chosen for the abandoned VM design and hasn't been revisited since. See
-# the module docstring before assuming it's still the right path.
+# The absolute media path baked into every kit's .eaf, from the abandoned
+# cloud-desktop design. ELAN falls back to the relative path, which is what
+# works (module docstring); this stays only so new kits match old ones.
 CANONICAL_ROOT = "/srv/multidata/case"  # a fixed path inside existing kits: never rename
 
 # 480p H.264. Video's job is answering "who is speaking" -- it does not need to
-# be broadcast quality, and a smaller file decodes faster over whatever remote
-# connection ends up carrying it.
+# be broadcast quality, and a smaller file moves through Box faster and
+# decodes easily on an annotator's laptop.
 PROXY_FFMPEG = [
     "-vf", "scale=-2:480", "-c:v", "libx264", "-preset", "veryfast",
     "-crf", "28", "-an",
@@ -212,8 +206,8 @@ Open {recording_id}.pass1.eaf: the speaker tiers already hold a machine
 transcript, cut into utterances and assigned to roles, with both media files
 loaded.
 {window}
-Follow the annotator guide's section "Correcting a seeded draft" (on the
-desktop under "Guide & cheat sheet"). Listen to everything: fix boundaries,
+Follow the annotator guide's section "Correcting a seeded draft"
+(annotator_guide.pdf). Listen to everything: fix boundaries,
 words, speakers and markup to the standards. Do not trust the draft --
 treat each line as a guess to check against the audio.
 {unassigned}
@@ -227,7 +221,7 @@ README = """Recording {recording_id} -- blind pass 1
 Open {recording_id}.pass1.eaf with six empty tiers and both media files already loaded.
 You do not need to create a file, pick a template, or locate any media.
 {window}
-Follow the annotator guide, on the desktop under "Guide & cheat sheet".
+Follow the annotator guide (annotator_guide.pdf).
 Work blind: no machine transcript, no other annotator's file. If someone
 offers you one, decline.
 
@@ -375,8 +369,7 @@ def main():
     size_mb = sum(f.stat().st_size for f in kit.rglob("*") if f.is_file()) / 1e6
     print(f"\nkit ready: {kit}  ({size_mb:.0f} MB)")
     print(f"  assignments: pass 1, {row['route']}, {row['status']} since {row['assigned_on']}")
-    print("  no delivery mechanism is wired up right now -- see "
-          "docs/status.md")
+    print("  next: copy it to Box from your laptop (annotation/README.md, step 2)")
 
 
 if __name__ == "__main__":

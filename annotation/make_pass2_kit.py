@@ -41,8 +41,8 @@ README_PASS2 = """Recording {recording_id} -- pass 2 (adjudication)
 Open {recording_id}.pass2.eaf: it is {pass1_annotator}'s finished pass 1, with both
 media files loaded. Your job is to decide what the audio actually contains.
 {window}
-Follow the annotator guide's section "Pass 2: adjudication" (on the desktop
-under "Guide & cheat sheet"). Listen to the whole encounter; correct words,
+Follow the annotator guide's section "Pass 2: adjudication"
+(annotator_guide.pdf). Listen to the whole encounter; correct words,
 boundaries, speakers and markup to the standards; fill in anything pass 1
 missed. Do not ask {pass1_annotator} about their choices -- the audio decides.
 

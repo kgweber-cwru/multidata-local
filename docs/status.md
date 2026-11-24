@@ -87,17 +87,43 @@ worth +$0.15/h). ElevenLabs' BAA model costs ~0.7 points against
 recordings; not yet looked at). Still five recordings and no noise floor.
 Variant runs live in `data/transcripts/<recording>/variants/<setting>/`; the
 ledger names the setting and the transcript file. Next steps: the list below.
-**Pending gold:** 261466 (2026 long station, abdominal pain; the largest
-scenario had none) and 259392 (the only CSE 2A recording: GI history and presentation)
-went to Kate as seeded pass 1s on 2026-11-16. The procedure is
-[asr_evaluation_methods.md](asr_evaluation_methods.md); its §5 lists what
-the scores don't yet account for.
+The procedure is [asr_evaluation_methods.md](asr_evaluation_methods.md); its
+§5 lists what the scores don't yet account for.
+
+**What the gold covers.** Four of the five gold recordings are the 2026
+short station; the fifth (252848) is an April 2025 remediation session,
+not the February 2025 CSE 2B exam. That exam's videos aren't reachable
+through LearningSpace's Data API ([learningspace.md](learningspace.md)),
+and we hold none of them. The 2026 long station, 22 of our 57
+recordings and three times the short station's length, has no gold yet:
+the worklist adds four.
 
 **Annotation** runs through Box: kits built on the processing host
 (`annotation/make_kit.py`), shared per annotator, returned there; who has
 which pass is in the manifest's `assignments` table (`annotation/assignments.py list`) ([../annotation/README.md](../annotation/README.md)).
 Annotators are scarce, so pass 1 can now start from a machine draft (route B,
 standards §9): seeded gold adds recordings, but engine rankings rest on blind gold.
+
+### Worklist (2026-11-24)
+
+Everything on its way to gold. `kate` on a seeded pass 1 is a placeholder:
+the kit is rebuilt for whoever takes it.
+
+| Recording | Activity | Length | Where it is | Next |
+|---|---|---|---|---|
+| 261041 | CSE 2B short (2026) | 20 min | pass 1 (Kate, blind) returned, re-frozen 11-12; pass 2 with Kelli since 10-28, rebuilt 11-12 | Kelli's pass 2 |
+| 261495 | CSE 2B short (2026) | 20 min | pass 1 seeded, returned 11-12; pass 2 with Kelli since 11-12 | Kelli's pass 2 |
+| 261320 | CSE 2B short (2026) | 20 min | pass 1 seeded, returned 11-12 | assign pass 2 |
+| 255048 | CSE 1B (2025) | 32 min | pass 1 seeded, assigned 11-02 | pass 1 |
+| 259392 | CSE 2A (2025) | 40 min | pass 1 seeded, assigned 11-16; the only CSE 2A recording | pass 1 |
+| 261466 | CSE 2B long (2026) | 60 min | pass 1 seeded, assigned 11-16 | pass 1 |
+| 261411 | CSE 2B long (2026) | 60 min | pass 1 seeded; most patient speech diarized onto the learner | pass 1 |
+| 260658 | CSE 2B long (2026) | 71 min | pass 1 seeded, assigned 11-24 | pass 1 |
+| 260754 | CSE 2B long (2026) | 61 min | pass 1 seeded, assigned 11-24; much patient speech on the learner | pass 1 |
+
+The four long stations share the one long scenario (abdominal pain) but
+nothing else: four rooms (1, 2, 3, 6), four exam days, four preceptors,
+and learners who appear in no other recording we hold. 
 
 ### Cloud ASR: where things stand (2026-11-16, branch `asr-benchmarking`)
 

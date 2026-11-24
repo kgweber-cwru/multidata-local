@@ -23,8 +23,8 @@ decide, so they are the ones a machine does.
           here would enforce a boundary the pipeline itself doesn't.
 
 Standard library only, on purpose -- this is meant to run wherever the
-annotator actually is (a VM was the original plan, abandoned 2026-09-23; see
-docs/status.md), and a check script that needs packages installed is a
+annotator actually is (their own machine, or the coordinator's laptop),
+and a check script that needs packages installed is a
 check script that stops working.
 """
 import argparse
