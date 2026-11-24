@@ -101,3 +101,14 @@ def test_resolve_takes_the_event_from_the_event_file_lists():
 
     res = ls.resolve(recording_row(), video_rows(), TwoEvents(events=[EVENT, second]))
     assert res.linked and res.recording_fields["ls_event_id"] == "78"
+
+
+def test_resolve_leaves_the_event_empty_when_no_event_lists_it():
+    from test_learningspace import recording_row, video_rows
+
+    class Outside(FakeClient):
+        def event_files(self, event_id): return []
+
+    res = ls.resolve(recording_row(), video_rows(), Outside())
+    assert res.linked and res.recording_fields["ls_event_id"] == ""
+    assert any("0 of the 1 events" in w for w in res.warnings)

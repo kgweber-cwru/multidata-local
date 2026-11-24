@@ -374,12 +374,11 @@ def resolve(recording, videos, client, lookups=None):
     if rec is not None:
         res.linked = True
         rec_utc = parse_utc(rec["RecordingDateTime"])
-        if len(events) == 1:
-            homes = [events[0]["ID"]]
-        else:
-            homes = [ev["ID"] for ev in events
-                     if any(f.get("VideoRecordingID") == rec["ID"]
-                            for f in client.event_files(ev["ID"]))]
+        # Even with one event that day, the recording may be in none: made
+        # outside the event's hours (260656, 2026-02-12).
+        homes = [ev["ID"] for ev in events
+                 if any(f.get("VideoRecordingID") == rec["ID"]
+                        for f in client.event_files(ev["ID"]))]
         if len(homes) != 1:
             res.warnings.append(f"event: the recording is in {len(homes)} of the "
                                 f"{len(events)} events that day; not set")

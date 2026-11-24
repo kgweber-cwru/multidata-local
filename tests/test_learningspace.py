@@ -63,6 +63,8 @@ class FakeClient:
     def students_named(self, name): return self.data["students"]
     def recordings(self, event_id, recording_id, student_id): return self.data["recordings"]
     def video_files(self, rid): return self.data["files"].get(rid, [])
+    def event_files(self, event_id):
+        return [f for fs in self.data["files"].values() for f in fs]
     def responses(self, a, c, l): return self.data["responses"]
 
 

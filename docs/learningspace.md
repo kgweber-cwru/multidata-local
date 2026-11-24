@@ -150,4 +150,5 @@ comes from the export.
 - The 4 remediation recordings from April 2025 are partly linked (above).
 - 8 of 114 video files have no file link: they belong to those 4.
 - 1 recording (261573) has no observation checklist, so no preceptor or score.
+- 1 recording (260656) was made outside its day's event (no event lists it), so it has no `ls_event_id`.
 - Download links are stored but not yet used: ingest still copies files by hand.
