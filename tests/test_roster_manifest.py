@@ -140,3 +140,12 @@ def test_export_placeholder_dashes_become_empty():
     r = manifest._recording_from_sheet("900009", Sheet())
     assert (r.sp_name, r.learner_name, r.room_number, r.activity_title) == \
         ("", "Pat Example", "", "CSE 9Z (2026)")
+
+
+def test_sync_stamp_is_overwritten_without_counting_as_a_fill(tmp_path):
+    db = make_db(tmp_path)
+    manifest.upsert_ls_recording({**ROSTER, "ls_synced_at": "2026-11-11T00:00:00Z"}, db)
+    st, _, conflicts = manifest.upsert_ls_recording(
+        {**ROSTER, "ls_synced_at": "2026-11-24T00:00:00Z"}, db)
+    assert (st, conflicts) == ("unchanged", [])
+    assert manifest.get_recording("rec1", db).ls_synced_at == "2026-11-24T00:00:00Z"

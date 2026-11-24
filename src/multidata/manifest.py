@@ -490,15 +490,16 @@ def upsert_ls_recording(fields, path=DEFAULT_PATH):
             if new in (None, ""):
                 continue
             old = row[col]
-            if old in (None, ""):
-                fill[col] = new
+            if old in (None, "") or col == "ls_synced_at":
+                fill[col] = new   # the sync time is a stamp, not a fact
             elif str(old) != str(new) and not (isinstance(new, float) and old is not None
                                                and abs(float(old) - new) < 1e-6):
                 conflicts.append((col, old, new))
         if fill:
             conn.execute(f"UPDATE recordings SET {', '.join(f'{k} = ?' for k in fill)} "
                          "WHERE recording_id = ?", (*fill.values(), row["recording_id"]))
-        return ("filled" if fill else "unchanged"), row["recording_id"], conflicts
+        filled = set(fill) - {"ls_synced_at"}
+        return ("filled" if filled else "unchanged"), row["recording_id"], conflicts
 
 
 def absorb_roster_row(recording_id, guid, path=DEFAULT_PATH):
