@@ -458,8 +458,9 @@ def all_recordings(path=DEFAULT_PATH, roster=False):
     return [Recording.from_row(r) for r in rows]
 
 
-# Never written onto a roster row: it holds GUIDs, not people's names.
-_ROSTER_FORBIDDEN = {"learner_name", "sp_name", "preceptor_name", "learner_group"}
+# Never written onto a roster row: it holds GUIDs, not people's names. The
+# SP's name is the exception: the API has no SP GUID, and SPs have consented.
+_ROSTER_FORBIDDEN = {"learner_name", "preceptor_name", "learner_group"}
 
 
 def upsert_ls_recording(fields, path=DEFAULT_PATH):
@@ -1170,7 +1171,9 @@ def _recording_from_sheet(recording_id, worksheet):
     values = {}
     for label, value, *_ in worksheet.iter_rows(min_row=2, max_row=9, values_only=True):
         if label in _SHEET_FIELD_MAP:
-            values[_SHEET_FIELD_MAP[label]] = "" if value is None else str(value)
+            # "---" is the export's "none recorded" (every SP so far)
+            text = "" if value is None else str(value).strip()
+            values[_SHEET_FIELD_MAP[label]] = "" if text.strip("-") == "" else text
         elif label == "Recording start":
             values["recording_start_time"] = _parse_recording_start(value)
     return Recording(recording_id=recording_id, **values)

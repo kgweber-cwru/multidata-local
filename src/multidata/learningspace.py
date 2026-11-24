@@ -493,10 +493,12 @@ def describe(col, value):
 # So one lookup per pair is enough, and a recording's event comes only from
 # the event file lists.
 #
-# Roster rows carry GUIDs only: no names of people (docs/learningspace.md).
+# Roster rows carry GUIDs, not names, with one exception: the SP's name, the
+# only SP identity the API has (docs/learningspace.md). SPs have consented.
 
 ROSTER_SINCE = "2024-07-01"
-ROSTER_NAME_FIELDS = NAME_FIELDS | {"learner_group"}
+SP_PART = "sp"   # the checklist part the SP fills in: its submitter is the SP
+ROSTER_NAME_FIELDS = (NAME_FIELDS - {"sp_name"}) | {"learner_group"}
 
 
 def activities_since(activities, since=ROSTER_SINCE):
@@ -554,16 +556,20 @@ def roster_fields(rec_guid, files, activity, event=None, recording=None, rooms=N
 
 def learner_pairs(responses):
     """An activity's responses -> {(case GUID, learner GUID): {"case_title",
-    "observers" (faculty-observation SubmitterIDs)}}."""
+    "observers" (faculty-observation SubmitterIDs), "sps" (SP-part
+    SubmitterNames)}}."""
     pairs = {}
     for r in responses:
         if not r.get("CaseID") or not r.get("LearnerID"):
             continue
         p = pairs.setdefault((r["CaseID"], r["LearnerID"]),
                              {"case_title": (r.get("CaseTitle") or "").strip(),
-                              "observers": set()})
-        if OBSERVER_PART in (r.get("CasePart") or "").casefold() and r.get("SubmitterID"):
+                              "observers": set(), "sps": set()})
+        part = (r.get("CasePart") or "").strip().casefold()
+        if OBSERVER_PART in part and r.get("SubmitterID"):
             p["observers"].add(r["SubmitterID"])
+        if part == SP_PART and (r.get("SubmitterName") or "").strip():
+            p["sps"].add(" ".join(r["SubmitterName"].split()))
     return pairs
 
 
@@ -627,6 +633,9 @@ def _link(client, act, any_event, mine, since, out, rooms, add):
         if recs and len(obs) > 1:
             out.warnings.append(f"case {case_id[:8]}: {len(obs)} observers "
                                 "for one learner, preceptor not set")
+        if recs and len(p["sps"]) > 1:
+            out.warnings.append(f"case {case_id[:8]}: {len(p['sps'])} SPs "
+                                "for one learner, SP not set")
         for r in recs:
             row = out.rows.get(r["ID"])
             if row is None:
@@ -642,6 +651,8 @@ def _link(client, act, any_event, mine, since, out, rooms, add):
                 row["case_title"] = p["case_title"]
             if len(obs) == 1:
                 row["ls_preceptor_id"] = obs[0]
+            if len(p["sps"]) == 1:
+                row["sp_name"] = next(iter(p["sps"]))
             left.discard(r["ID"])
     if left:
         out.bump("unlinked", len(left))

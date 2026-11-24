@@ -41,6 +41,12 @@ def test_upsert_fills_an_exported_row_and_keeps_conflicts(tmp_path):
     assert manifest.get_recording("rec1", db) is None
 
 
+def test_upsert_accepts_the_sp_name(tmp_path):
+    db = make_db(tmp_path)
+    manifest.upsert_ls_recording({**ROSTER, "sp_name": "Sam Actor"}, db)
+    assert manifest.get_recording("rec1", db).sp_name == "Sam Actor"
+
+
 @pytest.mark.parametrize("bad", [{"learner_name": "X"}, {"preceptor_name": "X"},
                                  {"recording_id": "1"}, {"nope": 1}])
 def test_upsert_refuses_names_and_unknown_columns(tmp_path, bad):
@@ -112,3 +118,25 @@ def test_resolve_leaves_the_event_empty_when_no_event_lists_it():
     res = ls.resolve(recording_row(), video_rows(), Outside())
     assert res.linked and res.recording_fields["ls_event_id"] == ""
     assert any("0 of the 1 events" in w for w in res.warnings)
+
+
+def test_learner_pairs_take_the_sp_from_the_sp_part():
+    rows = [{"CaseID": "c", "LearnerID": "l", "CasePart": "SP", "SubmitterName": " Sam  Actor"},
+            {"CaseID": "c", "LearnerID": "l", "CasePart": "SP", "SubmitterName": "Sam Actor"},
+            {"CaseID": "c", "LearnerID": "l", "CasePart": "Faculty Observation and Narrative",
+             "SubmitterID": "obs1", "SubmitterName": "Dr Observer"},
+            {"CaseID": "c", "LearnerID": "l", "CasePart": "Post-Encounter Learner",
+             "SubmitterName": "Pat Example"}]
+    p = ls.learner_pairs(rows)[("c", "l")]
+    assert p["sps"] == {"Sam Actor"} and p["observers"] == {"obs1"}
+
+
+def test_export_placeholder_dashes_become_empty():
+    class Sheet:
+        def iter_rows(self, **kw):
+            return iter([("Event", "CSE 9Z (2026)"), ("SPs", "---"),
+                         ("Learners", " Pat Example "), ("Room", None)])
+
+    r = manifest._recording_from_sheet("900009", Sheet())
+    assert (r.sp_name, r.learner_name, r.room_number, r.activity_title) == \
+        ("", "Pat Example", "", "CSE 9Z (2026)")

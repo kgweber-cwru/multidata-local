@@ -94,9 +94,13 @@ alone (`scripts/ls_roster.py`, below) and differ from exported ones:
 - **Keyed by GUID.** With no export, there is no six-digit number:
   `recording_id` is the GUID, the same as `ls_recording_id`
   (`Recording.is_roster`). `ls_recording_id` is unique across rows.
-- **No names.** Learner, SP and preceptor are GUIDs only (`ls_learner_id`,
-  `ls_preceptor_id`): most of these people are not in the study.
-  `manifest.upsert_ls_recording` refuses name columns.
+- **No names but the SP's.** Learner and preceptor are GUIDs only
+  (`ls_learner_id`, `ls_preceptor_id`): most of these people are not in the
+  study, and `manifest.upsert_ls_recording` refuses their name columns. The
+  API has no SP GUID, so `sp_name` is stored (SPs have consented): it is the
+  submitter of the checklist part named "SP", set when exactly one person
+  submitted it. Activities without an SP checklist (CSE 2B, for one) leave
+  it empty.
 - **Duration from LearningSpace.** `duration_s` is the longest camera file's
   `LengthSeconds`, `n_files` the number of files. Exported recordings get
   them too.
@@ -142,8 +146,11 @@ FROM recordings WHERE ls_recording_id != '';
 Taken: identifiers, exact start time (UTC), room, file facts and download
 links, the observer's name and checklist points. Left in LearningSpace: item
 answers, the learner's own quizzes and self-evaluation, and free-text
-comments. The SP's name is not in the API for a single recording; it still
-comes from the export.
+comments. The SP's name comes from the "SP" checklist part's submitter
+(roster), where an activity has one; the export's SP field has so far always
+been `---`, its "none recorded", which import stores as empty. SPs introduce
+themselves by their case name, so `sp_name` is not expected to need
+redaction in transcripts; keep it out of shared metadata.
 
 ## Known gaps (2026-11-11)
 

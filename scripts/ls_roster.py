@@ -17,7 +17,8 @@ was collected.
 
 A recording already in the manifest (matched by GUID) only has empty fields
 filled; anything else becomes a roster row keyed by the GUID. Roster rows
-carry GUIDs, never names. Duration is the recording's longest file.
+carry GUIDs, not names, except the SP's (the SP checklist's submitter;
+the API has no SP GUID). Duration is the recording's longest file.
 
 Names are never printed. Requests are paced and cached (data/ls_api/cache),
 so a dry run followed by --apply asks the server once. Back up
@@ -104,7 +105,7 @@ def main(argv=None):
     status, conflicts = {}, []
     for guid, fields in roster.rows.items():
         bad = set(fields) & ls.ROSTER_NAME_FIELDS
-        if bad:   # never: crawl_roster sets no names; keep it that way
+        if bad:   # never: crawl_roster sets no names but the SP's; keep it that way
             sys.exit(f"refusing: name fields {sorted(bad)} in a roster row")
         if args.apply:
             st, _rid, conf = manifest.upsert_ls_recording({**fields, "ls_synced_at": now},
@@ -131,9 +132,13 @@ def main(argv=None):
               f"found only through pairs (outside events) {c.get('recordings outside events', 0)}")
         print(f"  distinct preceptors {len(preceptors)} "
               f"(recordings with one: {sum(1 for r in rows if r.get('ls_preceptor_id'))})")
+        sps = {r["sp_name"] for r in rows if r.get("sp_name")}
+        print(f"  distinct SPs {len(sps)} "
+              f"(recordings with one: {sum(1 for r in rows if r.get('sp_name'))})")
     print(f"  network requests {client.calls}")
     for guid, col, ours, theirs in conflicts[:20]:
-        print(f"  CONFLICT {guid[:8]} {col}: ours {ours!r}, LearningSpace {theirs!r}")
+        print(f"  CONFLICT {guid[:8]} {col}: ours {ls.describe(col, ours)!r}, "
+              f"LearningSpace {ls.describe(col, theirs)!r}")
     if len(conflicts) > 20:
         print(f"  ... {len(conflicts) - 20} more conflicts")
     for w in roster.warnings[:20]:
